@@ -34,12 +34,16 @@ service registration, which is isolated in `nats-service.ps1`.
 No wizard, no Excel prompt - just copy the files and use the given URL:
 
 ```powershell
-NATSExcelSetup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="C:\NATSExcel" /URL="nats://localhost:4222" /TOKEN="secret" /SERVER=none /MODE=simple /OPENEXCEL=0
+NATSExcelSetup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="C:\NATSExcel" /URL="nats://localhost:4222" /TOKEN="secret" /SERVER=none /OPENEXCEL=0
 ```
 
-`/URL`, `/TOKEN`, `/SERVER` (`none`|`native`|`docker`), `/MODE`
-(`simple`|`advanced`) and `/OPENEXCEL` (`0`|`1`) are optional (defaults:
-`nats://localhost:4222`, empty, `none`, `simple`, `0`). The installer is a normal
+`/URL`, `/TOKEN`, `/SERVER` (`none`|`native`|`docker`) and `/OPENEXCEL`
+(`0`|`1`) are optional (defaults: `nats://localhost:4222`, empty, `none`, `0`).
+The other credential styles use `/AUTH=<none|token|userpass|nkey|jwt|creds|mtls>`
+plus the matching field(s): `/USER`, `/PASSWORD`, `/NKEYSEED`, `/JWT`, `/CREDS`,
+`/TLSCERT`, `/TLSCERTPASSWORD`. There is no `/MODE`: the wizard has no
+simple/advanced split (the Credentials page already shows only the fields of the
+chosen style). The installer is a normal
 `.exe`, so you can also install by hand: copy the `.xll`, `NATSExcel.dll`,
 `NLog.config` and `NATSExcel.json` into one folder and register the XLL from
 Excel.

@@ -37,6 +37,26 @@ spreadsheets forever (see the golden rules in `AGENTS.md`).
 - One-click Windows installer, CI-built, localized (en/es/pt-BR), like
   RedisExcel.
 
+### As built so far
+
+The design above is the contract; this is what physically exists today. It is a
+small, factual subset — everything else is still planned.
+
+- **Add-in skeleton**: `NATSExcel.csproj` (net48, `LangVersion 9.0`) with the
+  `IsExternalInit` shim, the `NATSExcel.dna` packing manifest, `AddIn.cs`
+  (`IExcelAddIn` load/unload), `NatsUdf.cs` with **3** diagnostic UDFs
+  (`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`), and the
+  `Config.cs` loader that reads `NATSExcel.json` once per process.
+- **Windows installer** (`installer/`): an Inno Setup script that builds and
+  runs, per-user, localized **en/es/pt-BR**, with **7** auth styles (none, token,
+  user/pass, NKey, JWT, creds file, mTLS) and a native-first "install a NATS
+  server" step. Not yet built by CI (no workflow exists).
+- **Validator tool** (`tools/NatsValidate/`): a standalone C# console app that
+  loads and checks `NATSExcel.json` and, with `--test`, connects with the same
+  NATS.Net client the add-in will use.
+
+There is no RTD server, no NATS runtime, no UDF catalog and no CI yet.
+
 ## 2. Non-goals (v1)
 
 - NATS accounts/operator-mode administration (users, JWTs, accounts) from
@@ -103,11 +123,13 @@ Endpoint resolution for any host argument: a `Servers` alias, then the raw
 | `NatsConnectionManager.cs` | Creates/caches connections by resolved endpoint; connection state, reconnect observation, jetstream context cache, bounded wait helper. |
 | `NatsSubscriptionManager.cs` | Ref-counted Core subscriptions: one client subscription per `(endpoint, subject, queueGroup)`, N listeners; `IDisposable` tokens; wildcard-aware; origin tags (`RTD`/`UDF`). |
 | `NatsRtd.cs` | `IExcelAddIn` (`AutoOpen`/`AutoClose`) + `ExcelRtdServer`: topic registry, poll timer, Excel flush timer, backoff, wildcard topics, JetStream/KV topic kinds. |
+| `NatsRtdTopic.cs` | RTD topic/command parser (`NatsRtdTopicSpec.Parse`); deliberately free of Excel/COM so it is unit-testable (`RtdTopicGrammarTests`). |
 | `NatsUdfCore.cs` | Core NATS UDFs: publish, request/reply, subject-latest, unsubscribe. |
 | `NatsUdfJetStream.cs` | JetStream UDFs: publish-with-ack, get/fetch, stream/consumer info, admin. |
 | `NatsUdfKv.cs` | Key/Value UDFs: get/put/create/update/delete/keys/history/watch. |
 | `NatsUdfObjectStore.cs` | Object Store UDFs: put/get/list/watch/links. |
 | `NatsUdfStatus.cs` | Status and diagnostics (`NatsUDFConnectionCount`, `NatsUDFServerInfo`, `NatsUDFRtt`, ...). |
+| `NatsUdfCommon.cs` | Shared UDF primitives: argument validation (incl. wildcard rejection on publish), endpoint resolution, `Fail`/`VerboseError`/`ErrorHint` and the marker constants. |
 | `NatsUdfAsync.cs` | Shared async bridge: `ExcelAsyncUtil.Observe` wrapper + per-endpoint FIFO write queue + bounded sync wait. |
 | `NatsJson.cs` | Matrix ⇄ JSON conversions (RedisExcel's `ExcelJson`, unchanged in spirit). |
 | `NatsResultFormatter.cs` | Value shaping for cells (JSON objects, KV entries, object metadata). |
@@ -173,9 +195,12 @@ ProgID: **`NatsRtd`**. Usage: `=RTD("NatsRtd", , <command>, ...)`.
 | `JS` | `<stream> <consumer> [filter] [host]` | Consume a JetStream consumer (push); push each message. |
 | `MSG` | `<stream> <filter> [host]` | Polled "last message matching filter". |
 | `OBJ` | `<bucket> <object> [host]` | Watch object metadata; push on change. |
+| `NatsRTDCluster` | `[what] [host]` | Live cluster-health cell (`what` = `leader`, `lag`, `nodes`); push on change. Tier 2 (§7.8): needs the system account. |
 
 Notes:
 
+- **Nine commands**: the eight above plus `NatsRTDCluster`. The parser rejects
+  anything else by name (see §7.8 for the cluster tier this command reads).
 - **No `PSUB`.** NATS wildcards are part of the subject (`orders.*`,
   `orders.>`); a pattern subscription is just `SUB orders.>`.
 - A `SUB`/`KV`/`JS` topic that fails to subscribe shows `#ERROR` and is retried
@@ -274,8 +299,50 @@ reversible, so an accidental F9 never purges a production stream.
 `NatsRTDTopicCount`, `NatsRTDSubscriptionCount`, `NatsRTDSubjectCount`,
 `NatsRTDDefaultHost`, `NatsUDFUpdateAvailable`,
 `NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix` (pure, non-volatile),
-`NatsCheckConfigFile`, `NatsUDFConfigSchema`, `NatsUDFConfigPath`,
-`NatsUDFConfigValidate`, `NatsUDFConfigReload`.
+`NatsUDFConfigSchema`, `NatsUDFConfigPath`, `NatsUDFConfigValidate`,
+`NatsUDFConfigReload`.
+
+**One config-validation function, `NatsUDFConfigValidate`** — it is the only
+config check. (An earlier draft carried a `NatsCheckConfigFile` name inherited
+from the sibling project; that name is **removed**. The prefix is `NatsUDF` for
+every `[ExcelFunction]` without exception.) `NatsUDFConfigReload` is also the
+only standalone non-volatile consumer function here; `MatrixToJSON` and
+`JSONToMatrix` are the other two non-volatile, twin-less functions (§7.9).
+
+### 7.7 `...NonVolatile` write twins (the source of truth)
+
+Each row below is the additive twin of the write base named on the left; the
+arguments are **identical** and the body is a thin delegation to the base with
+`IsVolatile = false`. This list is the public-surface baseline test's source of
+truth for the write set (25 twins); the base lives in the section shown.
+
+| Base write (§) | Twin |
+| --- | --- |
+| `NatsUDFPublish` (§7.1) | `NatsUDFPublishNonVolatile` |
+| `NatsUDFPublishJSON` (§7.1) | `NatsUDFPublishJSONNonVolatile` |
+| `NatsUDFPublishIfChanged` (§7.1) | `NatsUDFPublishIfChangedNonVolatile` |
+| `NatsUDFPublishWithHeaders` (§7.1) | `NatsUDFPublishWithHeadersNonVolatile` |
+| `NatsUDFRequest` (§7.1) | `NatsUDFRequestNonVolatile` |
+| `NatsUDFRequestJSON` (§7.1) | `NatsUDFRequestJSONNonVolatile` |
+| `NatsUDFSubjectUnsubscribe` (§7.1) | `NatsUDFSubjectUnsubscribeNonVolatile` |
+| `NatsUDFJSPublish` (§7.2) | `NatsUDFJSPublishNonVolatile` |
+| `NatsUDFJSPublishJSON` (§7.2) | `NatsUDFJSPublishJSONNonVolatile` |
+| `NatsUDFJSDeleteMessage` (§7.2) | `NatsUDFJSDeleteMessageNonVolatile` |
+| `NatsUDFJSPurge` (§7.2) | `NatsUDFJSPurgeNonVolatile` |
+| `NatsUDFStreamCreate` (§7.3) | `NatsUDFStreamCreateNonVolatile` |
+| `NatsUDFStreamUpdate` (§7.3) | `NatsUDFStreamUpdateNonVolatile` |
+| `NatsUDFStreamDelete` (§7.3) | `NatsUDFStreamDeleteNonVolatile` |
+| `NatsUDFConsumerCreate` (§7.3) | `NatsUDFConsumerCreateNonVolatile` |
+| `NatsUDFConsumerDelete` (§7.3) | `NatsUDFConsumerDeleteNonVolatile` |
+| `NatsUDFConsumerPause` (§7.3) | `NatsUDFConsumerPauseNonVolatile` |
+| `NatsUDFKVPut` (§7.4) | `NatsUDFKVPutNonVolatile` |
+| `NatsUDFKVPutJSON` (§7.4) | `NatsUDFKVPutJSONNonVolatile` |
+| `NatsUDFKVCreate` (§7.4) | `NatsUDFKVCreateNonVolatile` |
+| `NatsUDFKVUpdate` (§7.4) | `NatsUDFKVUpdateNonVolatile` |
+| `NatsUDFKVDelete` (§7.4) | `NatsUDFKVDeleteNonVolatile` |
+| `NatsUDFKVPurge` (§7.4) | `NatsUDFKVPurgeNonVolatile` |
+| `NatsUDFObjectPut` (§7.5) | `NatsUDFObjectPutNonVolatile` |
+| `NatsUDFObjectDelete` (§7.5) | `NatsUDFObjectDeleteNonVolatile` |
 
 ### 7.8 Cluster and server topology UDFs
 
@@ -317,16 +384,37 @@ Notes:
 
 ### 7.9 Catalog size
 
-**95 `[ExcelFunction]` in total** once the cluster tier is included: 88 from
-§7.1–§7.7 plus **7** new reads (`ClusterName`, `ClusterNodes`,
-`ConnectionState`, `ClusterInfo`, `ClusterHealth`, `JSRaftInfo`,
-`JSStreamPlacement`). Of the 88, 60 are volatile (25 volatile write bases + 35
-reads/status), 25 carry a `...NonVolatile` twin, and 3 are standalone
-non-volatile (`MatrixToJSON`, `JSONToMatrix`, `ConfigReload`); the 7 cluster
-reads are volatile and have no twins (reads do not need them). RTD commands
-become **9** with `NatsRTDCluster`. The pinned count is set by the
-public-surface baseline test, which is the authority; an earlier draft said
-"roughly 70".
+The catalog is counted mechanically from the tables, not from memory. Two
+families:
+
+- **UDF functions** (`NatsUDF*`, all in `NatsUdf*.cs`): **64 base** + the
+  **25** `...NonVolatile` write twins (§7.7) = **89** `[ExcelFunction]`.
+- **RTD status helpers** (`NatsRTD*`, in `NatsRtd.cs`): **6**
+  (`ConnectionCount`, `TopicCount`, `SubscriptionCount`, `SubjectCount`,
+  `DefaultHost`, `Cluster`). Not `[ExcelFunction]`s in the UDF assemblies'
+  sense — they live with the RTD server.
+
+So the add-in exposes **89 UDF functions + 6 RTD status helpers** and **9 RTD
+commands** (§6).
+
+Base-function split (the 64 `NatsUDF*` base):
+
+| Group | Count |
+| --- | --- |
+| Write bases (each with a `...NonVolatile` twin) | **25** |
+| Reads/status (volatile, twin-less) | **36** |
+| Standalone non-volatile, twin-less (`MatrixToJSON`, `JSONToMatrix`, `ConfigReload`) | **3** |
+| **Base total** | **64** |
+
+Volatile/non-volatile: **61 volatile** (25 write bases + 36 reads/status) +
+**28 non-volatile** (25 twins + 3 standalone) = 89. Functions gated by
+`AllowAdminWrites`: **11** (§7.3 plus `JSDeleteMessage`/`JSPurge`,
+`KVDelete`/`KVPurge`, `ObjectDelete`).
+
+The exact count is pinned by the public-surface baseline test (PLAN S7.1/V8.2),
+which is the authority. Earlier drafts of this document said "95 / 88 / 66 /
+roughly 70"; those numbers were wrong and are superseded by the figures above
+(64 UDF base + 25 twins = 89, plus 6 RTD status helpers).
 
 ## 8. Configuration
 
@@ -374,7 +462,7 @@ optional cluster override.
     },
     "local": { "urls": ["dev"] },
     "vault": {
-      "urls": ["nats://10.0.0.7:4222", "nats://10.0.0.8:4222"],
+      "urls": ["nats://vault-a.example:4222", "nats://vault-b.example:4222"],
       "auth": { "user": "excel", "password": null, "credsFile": null }
     }
   },
@@ -448,17 +536,30 @@ configurable:
 | NKey (seed) | `nkeySeed` | client signs the server nonce; nothing secret on the wire |
 | JWT + seed | `jwt` + `nkeySeed` | operator mode (decentralized auth) |
 | Credentials file | `credsFile` | a `.creds` file (JWT + seed in one file) |
-| mTLS | `tls` + a client certificate (see below) | the certificate *is* the credential |
+| mTLS | `tls` + `tlsCert` + `tlsCertPassword` | the client certificate *is* the credential; `tlsCert` is the certificate path and `tlsCertPassword` its password |
 | URL userinfo | `nats://user:pass@host` | also accepted; merged into `auth` |
 
-Precedence, highest first: `credsFile` → `jwt`+`nkeySeed` → `token` →
-`user`+`password` → URL userinfo → no auth. `password` requires `user`; `jwt`
-requires `nkeySeed`; a combination the client rejects is a `#CONFIG` error, not
-a silent fallback. TLS uses the platform certificate store by default; an
-optional `auth.tlsCert` (path) / `auth.tlsCertPassword` pair configures a client
-certificate for mTLS. A cluster's `auth` **merges over** the `Default.auth`
-(replace per field), so a shared token in `Default` plus a per-cluster user/pass
-both work.
+These nine fields are exactly the set the shipped `NATSExcel.schema.json`
+accepts under `auth` (under both `Default` and each `Clusters` entry).
+Precedence, highest first: `credsFile` → `jwt`+`nkeySeed` → `nkeySeed` →
+`token` → `user`+`password` → URL userinfo → no auth. `password` requires
+`user`; `jwt` requires `nkeySeed`; a combination the client rejects is a
+`#CONFIG` error, not a silent fallback. TLS uses the platform certificate store
+by default; the optional `tlsCert` (a `.pfx`/`.p12` bundle path) /
+`tlsCertPassword` pair configures a client certificate for mTLS. A cluster's
+`auth` **merges over** the `Default.auth` (replace per field), so a shared token
+in `Default` plus a per-cluster user/pass both work.
+
+**NKey seed: text *or* a `.nk` file path — read the file first.** `nkeySeed`
+accepts either the seed text itself (an `SU...` string) **or** a path to a
+`.nk` file that holds it. The NATS.Net client wants the *seed*, not the path:
+handing it a path fails with `Invalid base32 character` (a filesystem path is
+not base32). The loader must read a readable file and pass its trimmed
+contents, otherwise pass the value through. The installer wizard labels the
+field exactly this way ("the text, or a path to the .nk file"), so the code has
+to honor it. Reference behavior: `ReadSeed` in
+`tools/NatsValidate/ConnectionTester.cs` (`SU` prefix → use as-is; else a
+readable file → read and trim; else pass through).
 
 **Masking** (`MaskNatsEndpoint`) covers every credential above: URL userinfo
 (`nats://user:pass@host`), `password=`/`user=`/`token=`, a JWT (`eyJ...`), an
@@ -467,7 +568,7 @@ error cell, RTD `#ERROR`, status cell and log line goes through it. A **cluster
 name is not a secret** and is printed as-is; only the credentials it carries are
 masked.
 
-### 8.3 Clusters and JetStream topology
+### 8.2 Clusters and JetStream topology
 
 The add-in **consumes** a cluster; it does not form one. Cluster formation is a
 server-side concern (a `cluster {}` block in each `nats.conf`). The add-in's job
@@ -521,7 +622,10 @@ is a **local label** the user chooses — it is what formulas say
 deliberately different concepts:
 
 - `Clusters.<name>` — *your* handle for a set of URLs (and its auth/JetStream
-  override).
+  override). The auth override is the full `auth` field set from §8 (user/
+  password, token, `nkeySeed`, `jwt`+`nkeySeed`, `credsFile`, and the mTLS
+  `tls`/`tlsCert`/`tlsCertPassword` triple), merged field-by-field over
+  `Default.auth`.
 - `NatsUDFClusterName()` / `INatsServerInfo.Cluster` — *the server's* announced
   cluster name (blank for a standalone server).
 
@@ -551,7 +655,7 @@ guard rail.
 The check is **opt-in and non-fatal**: no `expectCluster` means no noise on the
 common case (a standalone server announces no cluster), and a mismatch never
 blocks a connection — it only makes the divergence visible where the config is
-reviewed (`=NatsCheckConfigFile()` output and the log).
+reviewed (`=NatsUDFConfigValidate()` output and the log).
 
 Server-side reference (for the README, not the add-in): each node gets a
 `cluster { name: <same>, listen: <route-port>, routes: [ <the others> ] }` block

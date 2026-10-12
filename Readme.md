@@ -15,8 +15,10 @@ Covers **Core NATS** (pub/sub, request/reply, queue groups, headers) and
 - Implementation plan: [`PLAN.md`](PLAN.md)
 - Working guidance for contributors/agents: [`AGENTS.md`](AGENTS.md)
 
-> Status: design phase. The code lives in this repo; the docs above are the
-> contract.
+> Status: early implementation. The add-in compiles, packs and loads, loads its
+> config and exposes a few diagnostic UDFs; the RTD server and the UDF catalog
+> described in `DESIGN.md` are still being built (see `PLAN.md`). The docs above
+> are the contract.
 
 ---
 
@@ -32,6 +34,8 @@ Covers **Core NATS** (pub/sub, request/reply, queue groups, headers) and
    - ask it to **install a server** if you do not have one yet - NATS runs
      natively on Windows, so it just downloads one small `nats-server.exe`
      (Docker is offered too);
+   - it asks for the connection URL and the **credential style** (none, token,
+     user/password, NKey seed, JWT + seed, creds file or mTLS - all seven);
    - it writes a starter `NATSExcel.json` and, at the end, tests the connection
      and can open a sample workbook.
 3. Open Excel and (if the add-in did not load itself) enable it:
@@ -54,12 +58,14 @@ Keep the add-in files in one dedicated folder, for example `C:\NATSExcel\`:
 3. In Excel: `File > Options > Add-ins > Go... > Browse...` and pick the `.xll`
    matching your Office bitness.
 
-The config is searched in this order (first existing wins): the add-in folder,
-`%USERPROFILE%`, the Excel folder, `C:\Windows`.
+Today the config is searched in this order (first existing wins): the add-in
+folder, `%USERPROFILE%`, `C:\Windows`. (Designed but not wired yet: an Excel
+folder entry between the profile and `C:\Windows`.)
 
-> **Updates:** `=NatsUDFUpdateAvailable()` shows TRUE when a newer release
-> exists. Toggle with `"UpdateCheck": true|false` in `NATSExcel.json` (default
-> on, runs in the background and never blocks Excel).
+> **Updates (planned):** `=NatsUDFUpdateAvailable()` will show TRUE when a
+> newer release exists. Toggle with `"UpdateCheck": true|false` in
+> `NATSExcel.json` (default on, runs in the background and never blocks Excel).
+> The function does not exist in the add-in yet.
 
 ---
 
@@ -86,7 +92,8 @@ Expand-Archive nats.zip -DestinationPath .
 .\nats-server-v2.15.1-windows-amd64\nats-server.exe -js --store_dir C:\NATSExcel\server\data
 ```
 
-The installer uses exactly this path.
+The installer's native option is a first-class path for exactly this download
+(the current pinned version is v2.15.1); Docker is offered as an alternative.
 
 ### Option C: run it at boot (Windows service)
 
@@ -120,7 +127,7 @@ Put the URL in `NATSExcel.json` (a `Clusters` entry) or pass it as the last
 argument of a formula:
 
 ```excel
-=RTD("NatsRtd",,"SUB","md.binance.live.spot.>",,"feed")     // a named cluster
+=RTD("NatsRtd",,"SUB","md.example.feed.>",,"feed")          // a named cluster
 =NatsUDFSubjectLatest("orders.>",,"nats://localhost:4222")   // a raw URL
 ```
 
@@ -132,10 +139,14 @@ a creds file or mTLS. Credentials are always masked in cells and logs.
 
 ## Examples
 
+> These show the designed surface (the `DESIGN.md` catalog). Most functions are
+> not implemented yet; inside an Excel formula a literal `"` is doubled
+> (`""`), not backslash-escaped - the strings below use Excel's own escaping.
+
 ### Publish from Excel
 
 ```excel
-=NatsUDFPublish("orders.new", "{\"id\":1}")           // send a message
+=NatsUDFPublish("orders.new", "{""id"":1}")           // send a message
 =NatsUDFPublishNonVolatile("orders.new", "once")      // sent once, not per recalc
 =NatsUDFPublishJSON("range_of_data", A1:C20)          // publish a matrix as JSON
 =NatsUDFPublishWithHeaders("orders.new", "go", A1:B3) // message + headers
@@ -147,7 +158,7 @@ a creds file or mTLS. Credentials are always masked in cells and logs.
 =RTD("NatsRtd",,"SUB","md.binance.live.spot.>")        // live push (wildcards)
 =RTD("NatsRtd",,"KV","prices","BTC")                   // live KV watch
 =NatsUDFSubjectLatest("prices.BTC")                    // last value, by UDF
-=NatsUDFRequest("orders.create", "{\"id\":2}", 2000)   // request/reply
+=NatsUDFRequest("orders.create", "{""id"":2}", 2000)   // request/reply
 =NatsUDFKVGet("prices", "BTC")                         // JetStream KV read
 =NatsUDFJSONToMatrix(NatsUDFSubjectLatest("range_of_data"))
 ```
@@ -155,15 +166,16 @@ a creds file or mTLS. Credentials are always masked in cells and logs.
 ### JetStream and topology
 
 ```excel
-=NatsUDFJSPublish("events.orders", "{\"id\":9}")   // durable publish (ack)
+=NatsUDFJSPublish("events.orders", "{""id"":9}")   // durable publish (ack)
 =NatsUDFJSGetMessage("ORDERS", 1)                  // replay by sequence
 =NatsUDFJSRaftInfo("ORDERS")                       // leader + replicas + lag
 =NatsUDFClusterName()                              // the server's cluster name
 =NatsUDFClusterNodes()                             // nodes the client sees
 ```
 
-The full catalog (~95 functions plus 9 RTD commands) is in
-[`DESIGN.md`](DESIGN.md) §7.
+The full catalog (95 functions plus 9 RTD commands) is in
+[`DESIGN.md`](DESIGN.md) §7; the shipped milestone currently exposes only
+`NatsUDFVersion`, `NatsUDFConfigPath` and `NatsUDFConnectionCount`.
 
 ---
 
@@ -192,25 +204,39 @@ For a cluster with a token, and the real-time window tuned:
 
 Never commit a real endpoint or credential. See `DESIGN.md` §8 for every key.
 
-The installer ships `Validate-Config.cmd` (or `scripts\validate-config.ps1`),
-which checks the file against the same JSON Schema the add-in embeds.
+To check a config, the recommended tool is the **C# validator**
+(`tools/NatsValidate`): it validates the file and, with `--test`, connects
+with the same NATS.Net client the add-in uses, so every credential style is
+really exercised. From a checkout:
+
+```powershell
+dotnet run --project tools\NatsValidate -c Release -- NATSExcel.json --test
+```
+
+The installer also ships a lighter PowerShell checker, `Validate-Config.cmd`
+(backed by `scripts\validate-config.ps1`), which validates the file against the
+same JSON Schema the add-in embeds but only speaks the wire protocol for the
+optional connection test (token and user/password).
 
 ---
 
 ## Building
 
 ```powershell
-dotnet build NATSExcel.sln -c Release
+dotnet build NATSExcel.csproj -c Release
 ```
 
-Outputs in `bin\Release\net48\publish\`: `NATSExcel-packed.xll` (32-bit),
-`NATSExcel64-packed.xll` (64-bit) and `NATSExcel.dll`.
+There is no `NATSExcel.sln` yet; build the project directly. Outputs in
+`bin\Release\net48\publish\`: `NATSExcel-packed.xll` (32-bit),
+`NATSExcel64-packed.xll` (64-bit) and `NATSExcel.dll`. The XLL names come from
+the `.dna` file name, so if `NATSExcel.dna` is missing Excel-DNA emits
+`NATSExcel-AddIn-packed.xll` instead.
 
 The add-in targets **.NET Framework 4.8** with `<LangVersion>9.0</LangVersion>`
 plus a small `IsExternalInit` shim, because the NATS .NET client uses init-only
 setters.
 
-See [`AGENTS.md`](AGENTS.md) for the test layers and
+See [`AGENTS.md`](AGENTS.md) for the build/test/validator details and
 [`installer/README.md`](installer/README.md) for the installer.
 
 ---
