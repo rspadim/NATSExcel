@@ -89,32 +89,33 @@ namespace NATSExcel
         {
             var root = JObject.Parse(StripComments(text));
             var cfg = new Root();
-            var def = root["Default"] as JObject;
-            if (def != null)
+
+            // Default is a plain NAME (a Clusters name, a Servers name, or a raw
+            // URL). It is not an object: every connection setting lives with the
+            // endpoint it applies to.
+            var defToken = root["Default"];
+            if (defToken != null && defToken.Type == JTokenType.String)
+                cfg.Default = ((string)defToken).Trim();
+            // Back-compat: an older shape nested the settings under Default.
+            // Accept it so a file written before this change still loads.
+            else if (defToken is JObject defObj)
             {
-                cfg.Cluster = (string)def["cluster"];
-                cfg.TimeoutMs = (int?)def["timeout"] ?? cfg.TimeoutMs;
-                var auth = def["auth"] as JObject;
-                if (auth != null)
-                {
-                    cfg.Auth.User = (string)auth["user"];
-                    cfg.Auth.Password = (string)auth["password"];
-                    cfg.Auth.Token = (string)auth["token"];
-                    cfg.Auth.Jwt = (string)auth["jwt"];
-                    cfg.Auth.NkeySeed = (string)auth["nkeySeed"];
-                    cfg.Auth.CredsFile = (string)auth["credsFile"];
-                    cfg.Auth.Tls = (bool?)auth["tls"] ?? false;
-                }
+                cfg.Default = ((string)defObj["cluster"] ?? cfg.Default).Trim();
+                cfg.TimeoutMs = (int?)defObj["timeout"] ?? cfg.TimeoutMs;
+                ReadAuth(defObj["auth"], cfg.Auth);
             }
+
+            // Process-wide connection defaults, overridable per cluster.
+            ReadAuth(root["Auth"], cfg.Auth);
+            ReadReconnect(root["Reconnect"], cfg.Reconnect);
+
             var js = root["JetStream"] as JObject;
             if (js != null)
             {
                 cfg.JetStreamEnabled = (bool?)js["enabled"] ?? cfg.JetStreamEnabled;
                 cfg.JetStreamTimeoutMs = (int?)js["defaultTimeoutMs"] ?? cfg.JetStreamTimeoutMs;
             }
-            // There is no per-section cluster override: NATS has ONE transport per
-            // endpoint, shared by RTD topics, UDF calls and JetStream. The RTD
-            // section carries only its delivery tuning (rates, style) above.
+
             // Process-wide behavior toggles (shipped at the root of NATSExcel.json).
             // Each keeps its safe default when the key is absent.
             cfg.AllowAdminWrites = (bool?)root["AllowAdminWrites"] ?? cfg.AllowAdminWrites;
@@ -125,6 +126,18 @@ namespace NATSExcel
             cfg.SyncWrite = NormalizeSyncWrite((string)root["SyncWrite"] ?? cfg.SyncWrite);
             cfg.AsyncWrites = (bool?)root["AsyncWrites"] ?? cfg.AsyncWrites;
             cfg.UpdateCheck = (bool?)root["UpdateCheck"] ?? cfg.UpdateCheck;
+
+            // RTD delivery tuning (not a connection setting, so not in Default).
+            var rtd = root["RTD"] as JObject;
+            if (rtd != null)
+            {
+                cfg.NatsUpdateRateMs = (int?)rtd["NatsUpdateRateMs"] ?? cfg.NatsUpdateRateMs;
+                cfg.ExcelUpdateRateMs = (int?)rtd["ExcelUpdateRateMs"] ?? cfg.ExcelUpdateRateMs;
+                cfg.MessageCounterThreshold = (long?)rtd["MessageCounterThreshold"] ?? cfg.MessageCounterThreshold;
+                var style = (string)rtd["NatsUpdateStyle"];
+                if (!string.IsNullOrWhiteSpace(style)) cfg.NatsUpdateStyle = style;
+            }
+
             var servers = root["Servers"] as JObject;
             if (servers != null)
                 foreach (var kv in servers)
@@ -138,6 +151,11 @@ namespace NATSExcel
                     var cj = kv.Value as JObject;
                     if (cj == null) continue;
                     var c = new Cluster { Label = kv.Key, ExpectCluster = (string)cj["expectCluster"] };
+                    c.TimeoutMs = (int?)cj["timeout"];
+                    // A cluster's auth/reconnect merge OVER the shared ones.
+                    c.AuthOverrides = HasAnyAuth(cj["auth"]);
+                    if (c.AuthOverrides) ReadAuth(cj["auth"], c.Auth);
+                    if (cj["reconnect"] != null) ReadReconnect(cj["reconnect"], c.Reconnect);
                     var urls = cj["urls"] as JArray;
                     if (urls != null)
                         foreach (var u in urls)
@@ -146,6 +164,41 @@ namespace NATSExcel
                     cfg.Clusters[kv.Key] = c;
                 }
             return cfg;
+        }
+
+        /// <summary>True when a JSON block carries at least one auth field.</summary>
+        private static bool HasAnyAuth(JToken token)
+        {
+            var o = token as JObject;
+            if (o == null) return false;
+            foreach (var p in o.Properties())
+                if (p.Value.Type != JTokenType.Null)
+                    return true;
+            return false;
+        }
+
+        private static void ReadAuth(JToken token, Auth target)
+        {
+            var a = token as JObject;
+            if (a == null || target == null) return;
+            target.User = (string)a["user"] ?? target.User;
+            target.Password = (string)a["password"] ?? target.Password;
+            target.Token = (string)a["token"] ?? target.Token;
+            target.Jwt = (string)a["jwt"] ?? target.Jwt;
+            target.NkeySeed = (string)a["nkeySeed"] ?? target.NkeySeed;
+            target.CredsFile = (string)a["credsFile"] ?? target.CredsFile;
+            target.Tls = (bool?)a["tls"] ?? target.Tls;
+            target.TlsCert = (string)a["tlsCert"] ?? target.TlsCert;
+            target.TlsCertPassword = (string)a["tlsCertPassword"] ?? target.TlsCertPassword;
+        }
+
+        private static void ReadReconnect(JToken token, Reconnect target)
+        {
+            var r = token as JObject;
+            if (r == null || target == null) return;
+            target.MaxAttempts = (int?)r["maxAttempts"] ?? target.MaxAttempts;
+            target.WaitMs = (int?)r["waitMs"] ?? target.WaitMs;
+            target.JitterMs = (int?)r["jitterMs"] ?? target.JitterMs;
         }
 
         private static string ResolveUrl(Root cfg, string urlOrAlias)
@@ -250,16 +303,16 @@ namespace NATSExcel
             return ResolveEndpointCore(endpoint, defaultEndpoint, cfg.Servers, ClusterUrlMap(cfg));
         }
 
-        /// <summary>Resolves a cluster reference; a blank one falls back to
-        /// Default.cluster, then the built-in default.</summary>
+        /// <summary>Resolves an endpoint reference; a blank one falls back to
+        /// <c>Default</c>, then the built-in URL.</summary>
         public static string ResolveRtdEndpoint(string endpoint)
         {
             var cfg = Current;
             return ResolveEndpointCore(endpoint, ResolveDefaultEndpoint(cfg), cfg.Servers, ClusterUrlMap(cfg));
         }
 
-        /// <summary>Resolves a cluster reference for UDF calls. Kept as a separate
-        /// name for call-site clarity, but there is no UDF-specific default: it is
+        /// <summary>Resolves an endpoint reference for UDF calls. Kept as a separate
+        /// name for call-site clarity; there is no UDF-specific default, so it is
         /// the same resolution as <see cref="ResolveRtdEndpoint"/>.</summary>
         public static string ResolveUdfEndpoint(string endpoint)
         {
@@ -280,9 +333,10 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// Pure endpoint resolution (kept internal for unit tests). See
-        /// <see cref="ResolveEndpoint"/> for the 4-step order. <paramref name="clusters"/>
-        /// maps a cluster name to its comma-joined URL list.
+        /// Pure endpoint resolution (kept internal for unit tests): a Clusters
+        /// name, then a Servers name, then a raw URL / URL list. A non-empty name
+        /// that resolves to nothing returns null, so the caller reports a #CONFIG
+        /// error instead of connecting to a hidden localhost default.
         /// </summary>
         internal static string ResolveEndpointCore(
             string endpoint, string defaultEndpoint,
@@ -295,28 +349,81 @@ namespace NATSExcel
                 return cluster;
             if (servers != null && TryGet(servers, name, out var server) && !string.IsNullOrWhiteSpace(server))
                 return server;
-            // Step 3: a raw URL or URL list (always carries a scheme) is used
-            // as-is. Anything else is a dangling named reference: return null so
-            // the caller reports a #CONFIG error instead of connecting to a hidden
-            // localhost default (DESIGN.md §8.1).
+            // A raw URL or URL list (always carries a scheme) is used as-is.
+            // Anything else is a dangling named reference: return null so the
+            // caller reports a #CONFIG error (DESIGN.md §8.1).
             if (name.Contains("://"))
                 return name;
             return null;
         }
 
         /// <summary>
-        /// The default endpoint reference for a blank formula argument:
-        /// `Default.cluster`, then the built-in URL. A configured default cluster
-        /// is resolved through the same steps; when it does not resolve, the
-        /// built-in default applies (a misconfigured `Default.cluster` must not
-        /// break every unauthored call, unlike a dangling name the user typed).
+        /// The endpoint reference for a blank formula argument: the configured
+        /// <c>Default</c> name, then the built-in URL. A Default that does not
+        /// resolve falls back to the built-in URL (a misconfigured Default must
+        /// not break every unauthored call, unlike a dangling name the user typed).
         /// </summary>
         private static string ResolveDefaultEndpoint(Root cfg)
         {
-            string reference = !string.IsNullOrWhiteSpace(cfg.Cluster) ? cfg.Cluster : null;
+            string reference = !string.IsNullOrWhiteSpace(cfg.Default) ? cfg.Default : null;
             if (reference == null)
                 return DefaultUrl;
             return ResolveEndpointCore(reference, DefaultUrl, cfg.Servers, ClusterUrlMap(cfg));
+        }
+
+        /// <summary>
+        /// The effective connection settings for a resolved endpoint: the shared
+        /// auth/reconnect, with the named cluster's overrides merged on top when
+        /// the reference names one. A URL or a Servers name uses the shared block.
+        /// </summary>
+        public static ConnectionSettings ResolveSettings(string endpoint)
+        {
+            var cfg = Current;
+            string name = string.IsNullOrWhiteSpace(endpoint) ? cfg.Default : endpoint.Trim();
+            Cluster cluster = null;
+            if (!string.IsNullOrWhiteSpace(name))
+                TryGet(cfg.Clusters, name, out cluster);
+
+            var settings = new ConnectionSettings { TimeoutMs = cfg.TimeoutMs };
+            ApplyAuth(cfg.Auth, settings.Auth);
+            ApplyReconnect(cfg.Reconnect, settings.Reconnect);
+            if (cluster != null)
+            {
+                if (cluster.AuthOverrides) ApplyAuth(cluster.Auth, settings.Auth, over: true);
+                if (cluster.TimeoutMs.HasValue) settings.TimeoutMs = cluster.TimeoutMs.Value;
+                ApplyReconnect(cluster.Reconnect, settings.Reconnect, over: true);
+            }
+            return settings;
+        }
+
+        private static void ApplyAuth(Auth from, Auth to, bool over = false)
+        {
+            if (from == null) return;
+            if (over || to.User == null) to.User = from.User;
+            if (over || to.Password == null) to.Password = from.Password;
+            if (over || to.Token == null) to.Token = from.Token;
+            if (over || to.Jwt == null) to.Jwt = from.Jwt;
+            if (over || to.NkeySeed == null) to.NkeySeed = from.NkeySeed;
+            if (over || to.CredsFile == null) to.CredsFile = from.CredsFile;
+            if (over) to.Tls = from.Tls;
+            if (over || to.TlsCert == null) to.TlsCert = from.TlsCert;
+            if (over || to.TlsCertPassword == null) to.TlsCertPassword = from.TlsCertPassword;
+        }
+
+        private static void ApplyReconnect(Reconnect from, Reconnect to, bool over = false)
+        {
+            if (from == null) return;
+            if (over || to.MaxAttempts == 0) to.MaxAttempts = from.MaxAttempts;
+            if (over || to.WaitMs == 0) to.WaitMs = from.WaitMs;
+            if (over || to.JitterMs == 0) to.JitterMs = from.JitterMs;
+        }
+
+        /// <summary>The effective auth/reconnect/timeout a resolved endpoint uses.</summary>
+        public sealed class ConnectionSettings
+        {
+            public int TimeoutMs { get; set; } = 1000;
+            public Auth Auth { get; set; } = new Auth();
+            public Reconnect Reconnect { get; set; } = new Reconnect();
         }
 
         /// <summary>Exact-name lookup first, then a case-insensitive scan (the
@@ -392,11 +499,24 @@ namespace NATSExcel
 
         public class Root
         {
-            public string Cluster { get; set; } = "local";
+            /// <summary>The endpoint name a formula uses when it passes none:
+            /// a Clusters name, a Servers name, or a raw URL. Resolved in that
+            /// order (DESIGN §8.1).</summary>
+            public string Default { get; set; } = "local";
+
+            /// <summary>Shared connection defaults; a cluster may override them.</summary>
             public int TimeoutMs { get; set; } = 1000;
             public Auth Auth { get; set; } = new Auth();
+            public Reconnect Reconnect { get; set; } = new Reconnect();
+
             public bool JetStreamEnabled { get; set; } = true;
             public int JetStreamTimeoutMs { get; set; } = 5000;
+
+            // RTD delivery tuning (how values are pushed into Excel).
+            public int NatsUpdateRateMs { get; set; } = 1000;
+            public int ExcelUpdateRateMs { get; set; } = 100;
+            public long MessageCounterThreshold { get; set; } = 10000;
+            public string NatsUpdateStyle { get; set; } = "Automatic";
 
             /// <summary>Admin/destructive functions (Stream*/Consumer*/Purge/Delete)
             /// require this to be true. Default off.</summary>
@@ -430,14 +550,6 @@ namespace NATSExcel
 
             public Dictionary<string, string> Servers { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, Cluster> Clusters { get; } = new Dictionary<string, Cluster>(StringComparer.OrdinalIgnoreCase);
-
-            /// <summary>The URL list of the default cluster, or the built-in default.</summary>
-            public IReadOnlyList<string> DefaultUrls()
-            {
-                if (Clusters.TryGetValue(Cluster, out var c) && c.Urls.Count > 0)
-                    return c.Urls;
-                return new[] { DefaultUrl };
-            }
         }
 
         public sealed class Cluster
@@ -445,6 +557,29 @@ namespace NATSExcel
             public string Label { get; set; }
             public string ExpectCluster { get; set; }
             public List<string> Urls { get; } = new List<string>();
+
+            /// <summary>Optional per-cluster timeout; null falls back to the shared
+            /// <see cref="Root.TimeoutMs"/>.</summary>
+            public int? TimeoutMs { get; set; }
+
+            /// <summary>Optional per-cluster auth. It merges OVER the shared auth
+            /// field by field, so a cluster may override only the token, or only
+            /// the user, and keep everything else.</summary>
+            public Auth Auth { get; set; } = new Auth();
+
+            /// <summary>True when the cluster declared any auth of its own, so the
+            /// caller knows whether to merge or use the shared auth directly.</summary>
+            public bool AuthOverrides { get; set; }
+
+            /// <summary>Optional per-cluster reconnect overrides.</summary>
+            public Reconnect Reconnect { get; set; } = new Reconnect();
+        }
+
+        public sealed class Reconnect
+        {
+            public int MaxAttempts { get; set; } = 60;
+            public int WaitMs { get; set; } = 2000;
+            public int JitterMs { get; set; } = 100;
         }
 
         public sealed class Auth
@@ -456,6 +591,12 @@ namespace NATSExcel
             public string NkeySeed { get; set; }
             public string CredsFile { get; set; }
             public bool Tls { get; set; }
+
+            /// <summary>Client certificate path for mTLS (a .pfx/.p12 bundle).</summary>
+            public string TlsCert { get; set; }
+
+            /// <summary>Password for <see cref="TlsCert"/>, when it is encrypted.</summary>
+            public string TlsCertPassword { get; set; }
         }
 
         /// <summary>
@@ -465,14 +606,17 @@ namespace NATSExcel
         internal static Root Sanitize(Root config)
         {
             config = config ?? new Root();
-            if (string.IsNullOrWhiteSpace(config.Cluster)) config.Cluster = "local";
+            if (string.IsNullOrWhiteSpace(config.Default)) config.Default = "local";
             if (config.TimeoutMs <= 0) config.TimeoutMs = 1000;
             if (config.JetStreamTimeoutMs <= 0) config.JetStreamTimeoutMs = 5000;
             if (config.PublishDedupCacheSize <= 0) config.PublishDedupCacheSize = 10000;
+            if (config.NatsUpdateRateMs <= 0) config.NatsUpdateRateMs = 1000;
+            if (config.ExcelUpdateRateMs <= 0) config.ExcelUpdateRateMs = 100;
             if (config.ConflationMs.HasValue)
                 config.ConflationMs = Conflation.Sanitize(config.ConflationMs.Value);
             config.SyncWrite = NormalizeSyncWrite(config.SyncWrite);
             config.Auth = config.Auth ?? new Auth();
+            config.Reconnect = config.Reconnect ?? new Reconnect();
             return config;
         }
     }

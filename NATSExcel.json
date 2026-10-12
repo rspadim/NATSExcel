@@ -3,50 +3,51 @@
   // The add-in searches this file in: its own folder, %USERPROFILE%,
   // the Excel folder, then C:\Windows (first existing wins).
 
-  "Default": {
-    // The cluster used when a formula passes no endpoint.
-    "cluster": "local",
-    "timeout": 1000,
-    "auth": {
-      // Pick ONE credential style. See the README "Authentication" section.
-      "user": null,
-      "password": null,
-      "token": null,
-      "jwt": null,
-      "nkeySeed": null,
-      "credsFile": null,
-      "tls": false,
-      "tlsCert": null,
-      "tlsCertPassword": null
-    },
-    "reconnect": {
-      "maxAttempts": 60,
-      "waitMs": 2000,
-      "jitterMs": 100
+  // Default: the endpoint a formula uses when it passes none.
+  // It is just a NAME, resolved in this order:
+  //   1. a Clusters name   2. a Servers name   3. a raw URL (nats://...)
+  // Nothing else lives here - the connection settings are per endpoint below.
+  "Default": "local",
+
+  // The servers and clusters, all in one place.
+  //   Servers  : a name -> one URL (or a comma-separated URL list)
+  //   Clusters : a name -> a set of URLs (Server names or inline URLs)
+  //              plus the optional per-cluster settings
+  // A name referenced but not defined is a #CONFIG error, never a silent
+  // fallback to localhost.
+  "Servers": {
+    "dev": "nats://localhost:4222"
+  },
+
+  "Clusters": {
+    "local": {
+      "urls": ["dev"],
+      "timeout": 1000
     }
   },
 
+  // Defaults applied to every cluster unless the cluster overrides them.
+  // Keeping them here means a cluster entry stays short and a shared
+  // credential is written once.
+  "Auth": {
+    "user": null, "password": null, "token": null,
+    "jwt": null, "nkeySeed": null, "credsFile": null,
+    "tls": false, "tlsCert": null, "tlsCertPassword": null
+  },
+
+  "Reconnect": {
+    "maxAttempts": 60,
+    "waitMs": 2000,
+    "jitterMs": 100
+  },
+
+  // RTD delivery tuning: how the add-in pushes values into Excel. Not a
+  // connection setting, so it is not in Default.
   "RTD": {
     "NatsUpdateRateMs": 1000,        // how often the poll timer reads NATS
     "ExcelUpdateRateMs": 100,        // how often dirty values are flushed to Excel
     "MessageCounterThreshold": 10000, // Automatic: msgs/sec above which it switches to timer
     "NatsUpdateStyle": "Automatic"   // Timer | Realtime | Automatic
-  },
-
-  // There is no separate UDF section: NATS has ONE transport per endpoint, shared
-  // by RTD topics, UDF calls and JetStream. Every connection setting lives in
-  // "Default" above. (An earlier draft copied RedisExcel's RTD/UDF server split,
-  // which is meaningless here: one NatsConnection multiplexes all of it.)
-
-  // A named server: a single URL or a comma-separated URL list.
-  "Servers": {
-    "dev": "nats://localhost:4222"
-  },
-
-  // A cluster: a named set of URLs (Servers aliases or inline URLs).
-  // One URL is enough - the client discovers the rest of the cluster.
-  "Clusters": {
-    "local": { "urls": ["dev"] }
   },
 
   "JetStream": {
