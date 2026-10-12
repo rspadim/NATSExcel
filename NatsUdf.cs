@@ -41,14 +41,35 @@ namespace NATSExcel
             }
         }
 
-        /// <summary>The identity of the running add-in, for support and the
-        /// end-to-end smoke test.</summary>
+        /// <summary>The log file the add-in writes (for support and the E2E
+        /// smoke test). Reads the path from the Excel-DNA runtime when the
+        /// assembly has no file location (the XLL loads from bytes), so it never
+        /// throws.</summary>
         [ExcelFunction(Description = "Returns the log file the add-in writes", IsVolatile = true)]
         public static string NatsUDFLogPath()
         {
-            return System.IO.Path.Combine(
-                System.IO.Path.GetDirectoryName(typeof(NatsUdf).Assembly.Location) ?? ".",
-                "NATSExcel.log");
+            try
+            {
+                string dir = null;
+                var location = typeof(NatsUdf).Assembly.Location;
+                if (!string.IsNullOrEmpty(location))
+                    dir = System.IO.Path.GetDirectoryName(location);
+                if (string.IsNullOrEmpty(dir))
+                {
+                    try
+                    {
+                        var xll = ExcelDna.Integration.ExcelDnaUtil.XllPath;
+                        if (!string.IsNullOrEmpty(xll))
+                            dir = System.IO.Path.GetDirectoryName(xll);
+                    }
+                    catch { /* no Excel context */ }
+                }
+                return System.IO.Path.Combine(dir ?? ".", "NATSExcel.log");
+            }
+            catch
+            {
+                return "NATSExcel.log";
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -13,7 +13,7 @@ namespace NATSExcel
     /// <summary>
     /// Connection family a call belongs to. Kept from the RedisExcel shape so the
     /// status functions keep their meaning; on NATS a single connection per
-    /// endpoint multiplexes every family (DESIGN.md §3), so this only selects the
+    /// endpoint multiplexes every family (DESIGN.md Â§3), so this only selects the
     /// response-timeout budget today.
     /// </summary>
     public enum NatsPool
@@ -80,7 +80,7 @@ namespace NATSExcel
     /// There is one <see cref="NatsConnection"/> per resolved endpoint: the NATS
     /// client multiplexes every subject and queue group over a single socket and
     /// reconnects internally, so the RedisExcel per-pool cache is deliberately
-    /// absent (DESIGN.md §3). What remains is a bounded cache: an endpoint that is
+    /// absent (DESIGN.md Â§3). What remains is a bounded cache: an endpoint that is
     /// not live and that no subscription is using may be evicted once the cache is
     /// oversized or after it has been down for the whole TTL.
     ///
@@ -284,6 +284,25 @@ namespace NATSExcel
         }
 
         /// <summary>
+        /// True when the endpoint has a materialized connection whose server INFO
+        /// has arrived. Lets a caller tell "the server never answered" apart from
+        /// "the server answered and has no JetStream", so the two produce
+        /// different errors instead of one misleading one.
+        /// </summary>
+        public bool HasConnection(string endpoint)
+        {
+            if (_shutdown || !TryGetMaterializedConnection(endpoint, out var connection))
+                return false;
+            try
+            {
+                return connection.ServerInfo != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        /// <summary>
         /// Snapshot of the advertised server facts, or
         /// <see cref="NatsServerSnapshot.Empty"/> when the endpoint has no
         /// materialized connection or has not received INFO yet. Never null and
@@ -297,7 +316,7 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// <see cref="GetServerInfo"/> in the frozen PLAN §1.4 shape: false when no
+        /// <see cref="GetServerInfo"/> in the frozen PLAN Â§1.4 shape: false when no
         /// server info is available.
         /// </summary>
         public bool TryGetServerInfo(string endpoint, out NatsServerSnapshot info)
@@ -320,7 +339,7 @@ namespace NATSExcel
 
         /// <summary>
         /// Live connections for the RTD family. A single connection per endpoint
-        /// multiplexes RTD and UDF traffic (DESIGN.md §3), so this currently equals
+        /// multiplexes RTD and UDF traffic (DESIGN.md Â§3), so this currently equals
         /// <see cref="LiveConnectionCount"/>; it exists for the RTD status surface.
         /// </summary>
         public int LiveRtdConnectionCount()
@@ -399,7 +418,7 @@ namespace NATSExcel
         /// the Excel thread unbounded.
         /// </summary>
         /// <remarks>
-        /// PLAN §1.4 gives the UDF section its own timeout, but <c>Config.cs</c>
+        /// PLAN Â§1.4 gives the UDF section its own timeout, but <c>Config.cs</c>
         /// does not expose it yet (F1.4); both pools therefore read
         /// <c>Default.timeout</c> until that field lands.
         /// </remarks>
@@ -511,7 +530,7 @@ namespace NATSExcel
             };
 
             // mTLS is a config flag today (Config.cs reads only "tls"; the cert
-            // fields of DESIGN.md §8 are planned, PLAN F1.5b). Require makes the
+            // fields of DESIGN.md Â§8 are planned, PLAN F1.5b). Require makes the
             // intent explicit instead of the opportunistic Auto mode.
             if (auth != null && auth.Tls)
                 options = options with { TlsOpts = NatsTlsOpts.Default with { Mode = TlsMode.Require } };
@@ -521,7 +540,7 @@ namespace NATSExcel
 
         /// <summary>
         /// Maps <see cref="AppConfig.Auth"/> onto <c>NatsAuthOpts</c> with the
-        /// DESIGN.md §8 precedence: creds file, then JWT + seed, then seed, then
+        /// DESIGN.md Â§8 precedence: creds file, then JWT + seed, then seed, then
         /// token, then user + password. The NKey seed may be the seed text or a path
         /// to a <c>.nk</c> file; <see cref="AppConfig.ResolveSeed"/> reads the file
         /// (golden rule 11).
@@ -910,3 +929,4 @@ namespace NATSExcel
         }
     }
 }
+
