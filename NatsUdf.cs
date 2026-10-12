@@ -26,11 +26,29 @@ namespace NATSExcel
             return AppConfig.ConfigPath ?? "(defaults)";
         }
 
-        /// <summary>Number of live NATS connections the add-in holds.</summary>
+        /// <summary>Number of live NATS connections the add-in holds. Guarded so a
+        /// teardown returns 0 instead of throwing into the cell.</summary>
         [ExcelFunction(Description = "Returns the number of active NATS connections", IsVolatile = true)]
-        public static double NatsUDFConnectionCount()
+        public static object NatsUDFConnectionCount()
         {
-            return 0;
+            try
+            {
+                return NatsRuntime.Connections.LiveConnectionCount();
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>The identity of the running add-in, for support and the
+        /// end-to-end smoke test.</summary>
+        [ExcelFunction(Description = "Returns the log file the add-in writes", IsVolatile = true)]
+        public static string NatsUDFLogPath()
+        {
+            return System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(typeof(NatsUdf).Assembly.Location) ?? ".",
+                "NATSExcel.log");
         }
     }
 }

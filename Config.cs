@@ -112,14 +112,9 @@ namespace NATSExcel
                 cfg.JetStreamEnabled = (bool?)js["enabled"] ?? cfg.JetStreamEnabled;
                 cfg.JetStreamTimeoutMs = (int?)js["defaultTimeoutMs"] ?? cfg.JetStreamTimeoutMs;
             }
-            // RTD/UDF keep only their own tuning plus an optional cluster override;
-            // a null override falls back to Default.cluster at resolution time.
-            var rtd = root["RTD"] as JObject;
-            if (rtd != null)
-                cfg.RtdCluster = (string)rtd["cluster"];
-            var udf = root["UDF"] as JObject;
-            if (udf != null)
-                cfg.UdfCluster = (string)udf["cluster"];
+            // There is no per-section cluster override: NATS has ONE transport per
+            // endpoint, shared by RTD topics, UDF calls and JetStream. The RTD
+            // section carries only its delivery tuning (rates, style) above.
             // Process-wide behavior toggles (shipped at the root of NATSExcel.json).
             // Each keeps its safe default when the key is absent.
             cfg.AllowAdminWrites = (bool?)root["AllowAdminWrites"] ?? cfg.AllowAdminWrites;
@@ -255,20 +250,21 @@ namespace NATSExcel
             return ResolveEndpointCore(endpoint, defaultEndpoint, cfg.Servers, ClusterUrlMap(cfg));
         }
 
-        /// <summary>Resolves a cluster reference for RTD topics; a blank one falls
-        /// back to RTD.cluster, then Default.cluster, then the built-in default.</summary>
+        /// <summary>Resolves a cluster reference; a blank one falls back to
+        /// Default.cluster, then the built-in default.</summary>
         public static string ResolveRtdEndpoint(string endpoint)
         {
             var cfg = Current;
-            return ResolveEndpointCore(endpoint, ResolveDefaultEndpoint(cfg, cfg.RtdCluster), cfg.Servers, ClusterUrlMap(cfg));
+            return ResolveEndpointCore(endpoint, ResolveDefaultEndpoint(cfg), cfg.Servers, ClusterUrlMap(cfg));
         }
 
-        /// <summary>Resolves a cluster reference for UDF calls; a blank one falls
-        /// back to UDF.cluster, then Default.cluster, then the built-in default.</summary>
+        /// <summary>Resolves a cluster reference for UDF calls. Kept as a separate
+        /// name for call-site clarity, but there is no UDF-specific default: it is
+        /// the same resolution as <see cref="ResolveRtdEndpoint"/>.</summary>
         public static string ResolveUdfEndpoint(string endpoint)
         {
             var cfg = Current;
-            return ResolveEndpointCore(endpoint, ResolveDefaultEndpoint(cfg, cfg.UdfCluster), cfg.Servers, ClusterUrlMap(cfg));
+            return ResolveEndpointCore(endpoint, ResolveDefaultEndpoint(cfg), cfg.Servers, ClusterUrlMap(cfg));
         }
 
         /// <summary>Projects a cluster name onto its comma-joined URL list, the
@@ -309,18 +305,15 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// The default endpoint reference for a blank formula argument: the
-        /// section's cluster override, then Default.cluster, then the built-in
-        /// URL. A configured default cluster is resolved through the same steps;
-        /// when it does not resolve, the built-in default applies (a misconfigured
-        /// <c>Default.cluster</c> must not break every unauthored call, unlike a
-        /// dangling name the user typed in a formula).
+        /// The default endpoint reference for a blank formula argument:
+        /// `Default.cluster`, then the built-in URL. A configured default cluster
+        /// is resolved through the same steps; when it does not resolve, the
+        /// built-in default applies (a misconfigured `Default.cluster` must not
+        /// break every unauthored call, unlike a dangling name the user typed).
         /// </summary>
-        private static string ResolveDefaultEndpoint(Root cfg, string sectionCluster)
+        private static string ResolveDefaultEndpoint(Root cfg)
         {
-            string reference = !string.IsNullOrWhiteSpace(sectionCluster) ? sectionCluster
-                : !string.IsNullOrWhiteSpace(cfg.Cluster) ? cfg.Cluster
-                : null;
+            string reference = !string.IsNullOrWhiteSpace(cfg.Cluster) ? cfg.Cluster : null;
             if (reference == null)
                 return DefaultUrl;
             return ResolveEndpointCore(reference, DefaultUrl, cfg.Servers, ClusterUrlMap(cfg));
@@ -404,12 +397,6 @@ namespace NATSExcel
             public Auth Auth { get; set; } = new Auth();
             public bool JetStreamEnabled { get; set; } = true;
             public int JetStreamTimeoutMs { get; set; } = 5000;
-
-            /// <summary>Optional RTD cluster override; null falls back to <see cref="Cluster"/>.</summary>
-            public string RtdCluster { get; set; }
-
-            /// <summary>Optional UDF cluster override; null falls back to <see cref="Cluster"/>.</summary>
-            public string UdfCluster { get; set; }
 
             /// <summary>Admin/destructive functions (Stream*/Consumer*/Purge/Delete)
             /// require this to be true. Default off.</summary>

@@ -30,14 +30,13 @@
     "NatsUpdateRateMs": 1000,        // how often the poll timer reads NATS
     "ExcelUpdateRateMs": 100,        // how often dirty values are flushed to Excel
     "MessageCounterThreshold": 10000, // Automatic: msgs/sec above which it switches to timer
-    "NatsUpdateStyle": "Automatic",  // Timer | Realtime | Automatic
-    "cluster": null                  // optional override; null = Default.cluster
+    "NatsUpdateStyle": "Automatic"   // Timer | Realtime | Automatic
   },
 
-  "UDF": {
-    "timeout": 1000,
-    "cluster": null                  // optional override; null = Default.cluster
-  },
+  // There is no separate UDF section: NATS has ONE transport per endpoint, shared
+  // by RTD topics, UDF calls and JetStream. Every connection setting lives in
+  // "Default" above. (An earlier draft copied RedisExcel's RTD/UDF server split,
+  // which is meaningless here: one NatsConnection multiplexes all of it.)
 
   // A named server: a single URL or a comma-separated URL list.
   "Servers": {
