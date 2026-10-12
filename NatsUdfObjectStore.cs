@@ -1,4 +1,4 @@
-﻿using ExcelDna.Integration;
+using ExcelDna.Integration;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
@@ -16,8 +16,8 @@ using System.Threading.Tasks;
 namespace NATSExcel
 {
     /// <summary>
-    /// Object Store worksheet functions (DESIGN.md Â§7.5) with the additive
-    /// <c>...NonVolatile</c> twin of every write (DESIGN.md Â§7.7).
+    /// Object Store worksheet functions (DESIGN.md section 7.5) with the additive
+    /// <c>...NonVolatile</c> twin of every write (DESIGN.md section 7.7).
     ///
     /// <para><b>No implicit creation.</b> An Object Store bucket is a JetStream
     /// stream named <c>OBJ_&lt;bucket&gt;</c>. Every bucket-scoped function opens
@@ -43,7 +43,7 @@ namespace NATSExcel
     /// dispatch). <c>ObjectPut</c> reports the server-side digest, so it is
     /// reply-dependent and the default <c>fireforget</c> mode still awaits it;
     /// only <c>fireforget-all</c> turns it into a fire-and-forget marker
-    /// (DESIGN.md Â§8.1).</para>
+    /// (DESIGN.md section 8.1).</para>
     ///
     /// <para><b>Object text in a cell (DESIGN.md open decision 3).</b>
     /// <c>ObjectGet</c> refuses an object larger than
@@ -85,12 +85,15 @@ namespace NATSExcel
         // Defensive cap on what a drain accumulates on the Excel thread's behalf.
         private const int MaxObjectRows = 10000;
 
+        // The OBJ_ stream-name prefix an Object Store bucket maps to.
+        private const string StreamPrefix = "OBJ_";
+
         // Strict UTF-8: an invalid byte sequence throws instead of becoming U+FFFD,
         // so a binary object is detected instead of rendered as garbage.
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
         // ==================================================================
-        // Â§7.5 - reads (volatile, twin-less)
+        // section 7.5 - reads (volatile, twin-less)
         // ==================================================================
 
         /// <summary>
@@ -140,7 +143,7 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// The bucket's objects as an NÃ—4 matrix, ordinal-sorted by name:
+        /// The bucket's objects as an N x 4 matrix, ordinal-sorted by name:
         /// <c>[0] name</c>, <c>[1] size</c> (bytes),
         /// <c>[2] digest</c> (<c>SHA-256=...</c>), <c>[3] description</c>.
         /// An empty bucket returns the <c>(empty)</c> single cell, never a blank
@@ -161,12 +164,13 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// A one-shot metadata snapshot as an NÃ—4 matrix with the same columns as
+        /// A one-shot metadata snapshot as an N x 4 matrix with the same columns as
         /// <see cref="NatsUDFObjectList"/>: <c>[0] name</c>, <c>[1] size</c>,
         /// <c>[2] digest</c>, <c>[3] description</c>. The LIVE, push-on-change
-        /// path is the RTD <c>OBJ</c> topic (<c>=RTD("NatsRtd",,"OBJ",bucket,object)</c>);
-        /// this function only ever takes a single snapshot, so a cell that must
-        /// follow changes belongs in an RTD formula, not here.
+        /// path is the RTD <c>OBJ</c> topic
+        /// (<c>=RTD("NatsRtd",,"OBJ",bucket,object)</c>); this function only ever
+        /// takes a single snapshot, so a cell that must follow changes belongs in
+        /// an RTD formula, not here.
         /// </summary>
         [ExcelFunction(Description = "Takes a one-shot Object Store metadata snapshot as an Nx4 matrix (live changes: RTD OBJ)", IsVolatile = true)]
         public static object NatsUDFObjectWatch(
@@ -184,8 +188,8 @@ namespace NATSExcel
 
         /// <summary>
         /// Lists the Object Store buckets on the endpoint (the <c>OBJ_</c>-prefixed
-        /// JetStream streams) as an NÃ—1 matrix, ordinal-sorted. Read-only: it never
-        /// creates a bucket.
+        /// JetStream streams) as an N x 1 matrix, ordinal-sorted. Read-only: it
+        /// never creates a bucket.
         /// </summary>
         [ExcelFunction(Description = "Lists the Object Store buckets", IsVolatile = true)]
         public static object NatsUDFObjectBuckets(
@@ -198,7 +202,7 @@ namespace NATSExcel
         }
 
         // ==================================================================
-        // Â§7.5 - writes (+ ...NonVolatile twins)
+        // section 7.5 - writes (+ ...NonVolatile twins)
         // ==================================================================
 
         /// <summary>
@@ -337,7 +341,7 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// The NÃ—4 metadata matrix: <c>[0] name</c>, <c>[1] size</c>,
+        /// The N x 4 metadata matrix: <c>[0] name</c>, <c>[1] size</c>,
         /// <c>[2] digest</c>, <c>[3] description</c>. <paramref name="watch"/>
         /// drains the watch channel (metadata only); otherwise the plain listing
         /// is used. Both are one-shot snapshots.
@@ -379,7 +383,7 @@ namespace NATSExcel
                 {
                     var names = new List<string>();
                     await foreach (string streamName in
-                        context.JetStreamContext.ListStreamNamesAsync(cancellationToken: cts.Token).ConfigureAwait(false))
+                        context.JetStreamContext.ListStreamNamesAsync(null, cts.Token).ConfigureAwait(false))
                     {
                         if (streamName != null && streamName.StartsWith(StreamPrefix, StringComparison.Ordinal))
                         {
@@ -451,8 +455,7 @@ namespace NATSExcel
         private static bool TryOpenStore(string endpoint, string bucket, out INatsObjStore store, out string error)
         {
             store = null;
-            INatsObjContext context;
-            if (!TryGetObjectContext(endpoint, out context, out error))
+            if (!TryGetObjectContext(endpoint, out INatsObjContext context, out error))
                 return false;
 
             try
@@ -566,8 +569,9 @@ namespace NATSExcel
         /// <summary>
         /// Shared prologue: resolve the optional <c>[host]</c> to a concrete
         /// endpoint, apply the admin gate (after argument validation and endpoint
-        /// resolution, DESIGN.md Â§7.3), apply the JetStream gate and probe the
-        /// server. False returns the exact cell text in <paramref name="error"/>.
+        /// resolution, DESIGN.md section 7.3), apply the JetStream gate and probe
+        /// the server. False returns the exact cell text in
+        /// <paramref name="error"/>.
         /// </summary>
         private static bool TryPrepare(object host, bool admin, out string endpoint, out string error)
         {
@@ -588,7 +592,7 @@ namespace NATSExcel
             {
                 // A non-text host is a bad argument; an unresolvable text host is
                 // a dangling reference, reported as #CONFIG instead of silently
-                // connecting to localhost (DESIGN.md Â§8.1).
+                // connecting to localhost (DESIGN.md section 8.1).
                 error = IsBlank(host) || host is string
                     ? NatsUdfCommon.ConfigError
                     : NatsUdfCommon.Fail("the host must be text");
@@ -640,7 +644,7 @@ namespace NATSExcel
             return true;
         }
 
-        /// <summary>Bounded wait for one Object Store round trip.</summary>
+        /// <summary>Bounded wait for one Object Store round trip (a ValueTask).</summary>
         private static T WaitValue<T>(ValueTask<T> task, string what)
         {
             try
@@ -653,7 +657,7 @@ namespace NATSExcel
             }
         }
 
-        /// <summary>The same bound for a Task<T> (an API that already returns a Task).</summary>
+        /// <summary>The same bound for an API that already returns a Task.</summary>
         private static T WaitTask<T>(Task<T> task, string what)
         {
             try
@@ -702,8 +706,8 @@ namespace NATSExcel
 
         /// <summary>
         /// The blocking bound for a metadata drain (list/watch/buckets): a stream
-        /// that legitimately carries more metadata than one round trip gets a wider
-        /// window, never a shorter one than the configured budget.
+        /// that legitimately carries more metadata than one round trip gets a
+        /// wider window, never a shorter one than the configured budget.
         /// </summary>
         private static int DrainTimeoutMs()
         {
@@ -747,7 +751,8 @@ namespace NATSExcel
 
         /// <summary>
         /// The named "not text" error for a body past the cell bound: it states
-        /// the actual size and the limit, so a refuse is diagnosable from the cell.
+        /// the actual size and the limit, so a refusal is diagnosable from the
+        /// cell.
         /// </summary>
         private static string OversizeError(string name, ulong size)
         {
@@ -777,8 +782,9 @@ namespace NATSExcel
         /// bucket is the named <c>bucket 'x' not found</c> (never an implicit
         /// create), a missing object is the named <c>object 'x' not found</c>, a
         /// JetStream-disabled server keeps the exact
-        /// "JetStream is not enabled on this server" text, and a timeout names its
-        /// bound. Every cause is masked by <see cref="NatsUdfCommon.VerboseError"/>.
+        /// "JetStream is not enabled on this server" text, and a timeout names
+        /// its bound. Every cause is masked by
+        /// <see cref="NatsUdfCommon.VerboseError"/>.
         /// </summary>
         private static string MapObjError(string what, Exception ex, string bucket, string name)
         {
@@ -788,7 +794,7 @@ namespace NATSExcel
                 return NatsUdfCommon.VerboseError(timeout.What, cause, NatsUdfCommon.ErrorHint("timed out"));
             }
 
-            if (TryNested(ex, out NatsObjNotFoundException _))
+            if (HasNested<NatsObjNotFoundException>(ex))
                 return ObjectNotFoundError(what, name, bucket);
 
             if (TryApiError(ex, out ApiError api))
@@ -806,7 +812,7 @@ namespace NATSExcel
                     // them apart, and an object read is the more specific case.
                     if (name != null && lower.Contains("message"))
                         return ObjectNotFoundError(what, name, bucket);
-                    if (bucket != null && (lower.Contains("stream not found") || lower.Contains("stream") || api.ErrCode == 10059))
+                    if (bucket != null && (lower.Contains("stream") || api.ErrCode == 10059))
                         return BucketNotFoundError(what, bucket);
                 }
 
@@ -866,26 +872,22 @@ namespace NATSExcel
             return TryApiError(ex.InnerException, out api);
         }
 
-        /// <summary>True when the exception chain carries an exception of type <typeparamref name="T"/>.</summary>
-        private static bool TryNested<T>(Exception ex, out T found) where T : Exception
+        /// <summary>True when the exception chain carries an exception of the named type.</summary>
+        private static bool HasNested<T>(Exception ex) where T : Exception
         {
-            found = null;
             if (ex == null)
                 return false;
-            if (ex is T match)
-            {
-                found = match;
+            if (ex is T)
                 return true;
-            }
             if (ex is AggregateException aggregate)
             {
                 foreach (Exception inner in aggregate.Flatten().InnerExceptions)
                 {
-                    if (TryNested(inner, out found))
+                    if (HasNested<T>(inner))
                         return true;
                 }
             }
-            return TryNested(ex.InnerException, out found);
+            return HasNested<T>(ex.InnerException);
         }
 
         private static string ApiCause(ApiError error)
@@ -899,9 +901,6 @@ namespace NATSExcel
         // ==================================================================
         // Argument parsing and small helpers
         // ==================================================================
-
-        /// <summary>The <c>OBJ_</c> stream-name prefix an Object Store bucket maps to.</summary>
-        private const string StreamPrefix = "OBJ_";
 
         /// <summary>
         /// The body text of a write: a truly missing value cell is a legitimate
@@ -947,7 +946,7 @@ namespace NATSExcel
             }
         }
 
-        /// <summary>One NÃ—4 metadata row: name, size, digest, description.</summary>
+        /// <summary>One N x 4 metadata row: name, size, digest, description.</summary>
         private static string[] Row(ObjectMetadata item)
         {
             if (item == null)
@@ -1038,7 +1037,3 @@ namespace NATSExcel
         }
     }
 }
-
-
-
-

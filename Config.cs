@@ -41,6 +41,24 @@ namespace NATSExcel
 
         public static Root Current => CurrentOverrideForTests ?? _current.Value;
 
+        /// <summary>
+        /// Re-reads the configuration file and installs the freshly parsed root,
+        /// so `NatsUDFConfigReload` does not have to restart Excel. Returns the
+        /// new root, or null when no file is in use. Thread-safe: readers of
+        /// <see cref="Current"/> see either the old or the new root, never a
+        /// half-built one.
+        /// </summary>
+        public static Root Reload()
+        {
+            string path = ConfigPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return Current;
+            Root reloaded = Sanitize(Parse(File.ReadAllText(path)));
+            CurrentOverrideForTests = reloaded;
+            logger.Info("AppConfig: reloaded configuration from " + path);
+            return reloaded;
+        }
+
         internal static string ConfigPath { get; private set; }
 
         public static string Version =>
