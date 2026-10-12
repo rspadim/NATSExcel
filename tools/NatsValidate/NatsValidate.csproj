@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>NatsValidate</AssemblyName>
+    <RootNamespace>NatsExcel.Tools</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- Release binaries must not embed the builder's local paths. -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+
+  <!-- Same client the add-in uses, so every credential style is really tested. -->
+  <ItemGroup>
+    <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

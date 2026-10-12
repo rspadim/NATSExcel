@@ -1,0 +1,38 @@
+<DnaLibrary Name="NATSExcel" RuntimeVersion="v4.0">
+	<!-- The add-in assembly and its COM server (=RTD("NatsRtd",...)). -->
+	<ExternalLibrary Path="NATSExcel.dll" ComServer="true" LoadFromBytes="true" />
+
+	<!-- Every dependency of the net48 build must be packed into the XLL, or it
+	     fails at runtime with a FileNotFoundException inside Excel. This list is
+	     the verified output of `dotnet build -c Release`; keep it in sync
+	     (DnaPackagingParityTests enforces it, see PLAN.md). -->
+	<Reference Path="ExcelDna.IntelliSense.dll" Pack="true" />
+	<Reference Path="Microsoft.Bcl.AsyncInterfaces.dll" Pack="true" />
+	<Reference Path="Microsoft.Bcl.Memory.dll" Pack="true" />
+	<Reference Path="Microsoft.Extensions.Logging.Abstractions.dll" Pack="true" />
+	<Reference Path="Microsoft.Extensions.Primitives.dll" Pack="true" />
+	<Reference Path="Microsoft.VisualStudio.Threading.dll" Pack="true" />
+	<Reference Path="Microsoft.VisualStudio.Validation.dll" Pack="true" />
+	<Reference Path="Microsoft.Win32.Registry.dll" Pack="true" />
+	<Reference Path="NATS.Client.Abstractions.dll" Pack="true" />
+	<Reference Path="NATS.Client.Core.dll" Pack="true" />
+	<Reference Path="NATS.Client.JetStream.dll" Pack="true" />
+	<Reference Path="NATS.NKeys.dll" Pack="true" />
+	<Reference Path="Nerdbank.Streams.dll" Pack="true" />
+	<Reference Path="Newtonsoft.Json.dll" Pack="true" />
+	<Reference Path="NLog.dll" Pack="true" />
+	<Reference Path="System.Buffers.dll" Pack="true" />
+	<Reference Path="System.ComponentModel.Annotations.dll" Pack="true" />
+	<Reference Path="System.Diagnostics.DiagnosticSource.dll" Pack="true" />
+	<Reference Path="System.IO.Pipelines.dll" Pack="true" />
+	<Reference Path="System.Memory.dll" Pack="true" />
+	<Reference Path="System.Numerics.Vectors.dll" Pack="true" />
+	<Reference Path="System.Runtime.CompilerServices.Unsafe.dll" Pack="true" />
+	<Reference Path="System.Security.AccessControl.dll" Pack="true" />
+	<Reference Path="System.Security.Principal.Windows.dll" Pack="true" />
+	<Reference Path="System.Text.Encodings.Web.dll" Pack="true" />
+	<Reference Path="System.Text.Json.dll" Pack="true" />
+	<Reference Path="System.Threading.Channels.dll" Pack="true" />
+	<Reference Path="System.Threading.Tasks.Extensions.dll" Pack="true" />
+	<Reference Path="System.ValueTuple.dll" Pack="true" />
+</DnaLibrary>
