@@ -1,0 +1,23 @@
+obj/
+bin/
+packages/
+[Pp]roperties/
+*.user
+*.suo
+*.cache
+*.log
+.vs/
+TestResults/
+*.xll
+t1.xlsx
+t2.xlsx
+~$*.xlsx
+*.tmp
+DESIGN-*.md
+installer/output/
+dump.rdb
+
+# Local/private scratch: never commit a real endpoint or credentials.
+secret*.json
+nats-local.json
+*.creds
