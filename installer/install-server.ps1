@@ -119,8 +119,12 @@ function Native-Up() {
     # Reuse an existing nats-server on PATH when present.
     $onPath = (Get-Command nats-server -ErrorAction SilentlyContinue)
     if ($onPath) {
+      # Copy it next to the config instead of running the PATH copy directly:
+      # the Windows service helper always points at "$Dir\nats-server.exe", so
+      # a PATH-only install would leave the service with nothing to run.
       Write-Step "using nats-server from PATH: $($onPath.Source)"
-      $source = $onPath.Source
+      Copy-Item $onPath.Source $exe -Force
+      $source = $exe
     } else {
       $zip = Join-Path $Dir 'nats-server.zip'
       $url = "https://github.com/nats-io/nats-server/releases/download/v$Version/nats-server-v$Version-windows-amd64.zip"

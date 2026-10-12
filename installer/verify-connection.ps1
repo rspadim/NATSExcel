@@ -17,6 +17,7 @@ param(
   [Parameter(Mandatory = $true)][string]$AddInDir,
   [string]$ServerHost = 'localhost',
   [int]$Port = 4222,
+  [string]$Token = '',
   [switch]$OpenExcel,
   [switch]$Quiet
 )
@@ -41,19 +42,25 @@ if ($raw -match '^\s*(?:nats://)?([^,:;\s]+)(?::(\d+))?') {
 }
 $target = "$serverHost`:$serverPort"
 
-function Test-Nats([string]$h, [int]$p) {
+function Test-Nats([string]$h, [int]$p, [string]$tok) {
   try {
     $client = New-Object System.Net.Sockets.TcpClient
     $client.Connect($h, $p)
     $stream = $client.GetStream()
     $stream.ReadTimeout = 3000
     $buffer = New-Object byte[] 4096
-    $null = $stream.Read($buffer, 0, $buffer.Length)   # INFO
+    $info = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $stream.Read($buffer, 0, $buffer.Length))
+    # Present the token only when the server asks for credentials.
+    if (($info -match '"auth_required"\s*:\s*true') -and ($tok -ne '')) {
+      $connect = 'CONNECT {"verbose":false,"pedantic":false,"auth_token":"' + $tok + '"}' + "`r`n"
+      $w = [System.Text.Encoding]::ASCII.GetBytes($connect)
+      $stream.Write($w, 0, $w.Length)
+    }
     $payload = [System.Text.Encoding]::ASCII.GetBytes("PING`r`n")
     $stream.Write($payload, 0, $payload.Length)
     Start-Sleep -Milliseconds 200
     $read = $stream.Read($buffer, 0, $buffer.Length)
-    $response = [System.Text.Encoding]::ASCII.GetString($buffer, 0, $read)
+    $response = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $read)
     $client.Close()
     return ($response -match 'PONG')
   } catch {
@@ -62,7 +69,7 @@ function Test-Nats([string]$h, [int]$p) {
 }
 
 Write-Host "[verify] testing NATS at $target ..."
-$ok = Test-Nats $serverHost $serverPort
+$ok = Test-Nats $serverHost $serverPort $Token
 
 if (-not $ok) {
   Show ("Nao consegui falar com o NATS em $target.`r`n`r`n" +
@@ -107,18 +114,20 @@ try {
   $ws.Range('A4').Value2 = 'Servidor:'
   $ws.Range('B4').Value2 = $target
   $ws.Range('A5').Value2 = 'Status:'
-  # ServerInfo is a real round trip; if it errors the cell shows Error:.
-  $ws.Range('B5').Formula = '=IF(ISERROR(NatsUDFServerInfo("' + $target + '")),"FALHOU","OK - NATS respondeu")'
+  # Use the configured default cluster (no explicit host), so the credentials
+  # the installer just wrote to NATSExcel.json apply. A raw URL argument would
+  # bypass that config and fail on an authenticated server.
+  $ws.Range('B5').Formula = '=IF(ISERROR(NatsUDFServerInfo()),"FALHOU","OK - NATS respondeu")'
   $ws.Range('A6').Value2 = 'Servidor diz:'
-  $ws.Range('B6').Formula = '=NatsUDFServerInfo("' + $target + '")'
+  $ws.Range('B6').Formula = '=NatsUDFServerInfo()'
   $ws.Range('A7').Value2 = 'Cluster:'
-  $ws.Range('B7').Formula = '=NatsUDFClusterName("' + $target + '")'
+  $ws.Range('B7').Formula = '=NatsUDFClusterName()'
 
   $ws.Range('A9').Value2 = 'Tempo real (pressione F9 / publique em test.hello):'
   $ws.Range('A10').Value2 = 'RTD SUB:'
-  $ws.Range('B10').Formula = '=RTD("NatsRtd",,"SUB","test.>","","' + $target + '")'
+  $ws.Range('B10').Formula = '=RTD("NatsRtd",,"SUB","test.>","","")'
 
-  $ws.Range('A12').Value2 = 'Exemplo: =NatsUDFSubjectLatest("test.>", "", "' + $target + '")'
+  $ws.Range('A12').Value2 = 'Exemplo: =NatsUDFSubjectLatest("test.>")'
   $ws.Range('A4:A6').Font.Bold = $true
   $ws.Range('A7').Font.Bold = $true
   $ws.Columns.Item('A').ColumnWidth = 42

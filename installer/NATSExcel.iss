@@ -5,12 +5,13 @@
 ; v* tag release (see .github/workflows/build.yml).
 ;
 ; Flow (in this order, as the wizard runs):
-;   1. asks whether to install a NATS server (native download or Docker) and
-;      the connection (server URL + optional token);
+;   1. asks whether to install a NATS server (native download or Docker);
 ;   2. INSTALLS THE SERVER (if chosen);
-;   3. INSTALLS NATSExcel (copies the files, keeps the matching XLL, writes
+;   3. asks for the connection (URL) and the credential style (none, token,
+;      user/password, NKey seed, JWT + seed, creds file or mTLS);
+;   4. INSTALLS NATSExcel (copies the files, keeps the matching XLL, writes
 ;      NATSExcel.json) and registers the XLL so Excel loads it on start;
-;   4. TESTS the connection (visible OK/fail) and, if asked, opens a sample
+;   5. TESTS the connection (visible OK/fail) and, if asked, opens a sample
 ;      workbook.
 ;
 ; NATS runs natively on Windows (a single nats-server.exe), so Docker is an
@@ -21,8 +22,10 @@
 ; the files, the Excel auto-load entry and the COM ProgId; it asks whether to
 ; keep your NATSExcel.json and offers to remove a server it created.
 ;
-; Silent mode: NATSExcelSetup.exe /VERYSILENT /DIR=... /URL=... /TOKEN=...
-;   /SERVER=<none|native|docker> /MODE=<simple|advanced> /OPENEXCEL=<0|1>
+; Silent mode: NATSExcelSetup.exe /VERYSILENT /DIR=... /URL=... /SERVER=...
+;   /AUTH=<none|token|userpass|nkey|jwt|creds|mtls> /TOKEN=... /USER=...
+;   /PASSWORD=... /NKEYSEED=... /JWT=... /CREDS=... /TLSCERT=... /TLSCERTPASSWORD=...
+;   /MODE=<simple|advanced> /OPENEXCEL=<0|1>
 
 #define AppName "NATSExcel"
 #define AppPublisher "rspadim"
@@ -75,8 +78,27 @@ english.ConnPageTitle=NATS connection
 english.ConnPageSubtitle=Where should NATSExcel connect?
 english.ConnPageDesc=Press Next for the default (nats://localhost:4222). For a cluster, separate the URLs with commas - one is enough, the client discovers the rest. You can change this later by editing NATSExcel.json.
 english.ConnUrl=Server URL(s) (comma-separated for a cluster):
-english.ConnToken=Token (optional):
-english.ConnTokenHint=A token is a single shared secret. For user/password, NKey, JWT or a creds file, edit NATSExcel.json after installing.
+english.AuthPageTitle=Authentication
+english.AuthPageSubtitle=How should NATSExcel authenticate?
+english.AuthPageDesc=Pick the credential style this server expects. Token is the most common for a simple setup; user/password, NKey, JWT + seed, a creds file and mTLS are all supported. You can change this later by editing NATSExcel.json.
+english.AuthNone=No authentication (the server admits anonymous connections)
+english.AuthToken=Token (a single shared secret)
+english.AuthUserPass=User and password
+english.AuthNKey=NKey (the .nk seed file signs the server nonce)
+english.AuthJwt=JWT + NKey seed (operator mode / decentralized auth)
+english.AuthCreds=Credentials file (.creds: a JWT + seed in one file)
+english.AuthMtls=mTLS (a client certificate is the credential; implies TLS)
+english.CredsPageTitle=Credentials
+english.CredsPageSubtitle=Type the credentials for the style you chose
+english.CredsPageDesc=Only the fields for the selected style are shown. Values are written to NATSExcel.json in the install folder; keep that file out of version control.
+english.CredsUser=User:
+english.CredsPassword=Password:
+english.CredsToken=Token:
+english.CredsNKeySeed=NKey seed (the text, or a path to the .nk file):
+english.CredsJwt=User JWT:
+english.CredsCredsFile=Credentials file (.creds) path:
+english.CredsTlsCert=Client certificate path (.pfx / .pem):
+english.CredsTlsCertPassword=Client certificate password (optional):
 english.OptionsPageTitle=Extra checks
 english.OptionsPageSubtitle=Almost done
 english.OptionsPageDesc=The installer tests the connection when it finishes. Optionally open a sample Excel workbook showing it working.
@@ -89,6 +111,7 @@ english.GroupConfig=Configuration:
 english.GroupExcel=Excel:
 english.IconUninstall=Uninstall {#AppName}
 english.UrlRequired=Please enter a NATS server URL (for example nats://localhost:4222).
+english.AuthRequired=Please fill in the fields for the authentication style you selected.
 english.ServerFailed=Could not set up %1 automatically (exit %2).%nYou can install a server later and point NATSExcel.json at it.
 english.ConfigWriteFailed=Could not write %1. Create it manually from the sample (NATSExcel.json).
 english.TestFailed=Installed, but the NATS server at %1 did not answer.%nCheck that the server is running and adjust NATSExcel.json if it is on another URL.
@@ -107,8 +130,6 @@ english.SummaryPageSubtitle=Review the connection that will be written to NATSEx
 english.SummaryIntro=These values will be saved to NATSExcel.json in the install folder.
 english.SummaryLabel=Connection
 english.SummaryAuth=Authentication
-english.SummaryToken=Token
-english.SummaryNone=(none)
 english.SummaryServer=Server setup
 
 spanish.ServerPageTitle=Servidor NATS
@@ -121,8 +142,27 @@ spanish.ConnPageTitle=Conexión a NATS
 spanish.ConnPageSubtitle=¿Dónde debe conectarse NATSExcel?
 spanish.ConnPageDesc=Pulse Siguiente para el valor predeterminado (nats://localhost:4222). Para un clúster, separe las URL con comas: con una basta, el cliente descubre el resto. Puede cambiarlo luego editando NATSExcel.json.
 spanish.ConnUrl=URL del servidor (separadas por comas para un clúster):
-spanish.ConnToken=Token (opcional):
-spanish.ConnTokenHint=Un token es un único secreto compartido. Para usuario/contraseña, NKey, JWT o un archivo creds, edite NATSExcel.json después de instalar.
+spanish.AuthPageTitle=Autenticación
+spanish.AuthPageSubtitle=¿Cómo debe autenticarse NATSExcel?
+spanish.AuthPageDesc=Elija el estilo de credencial que espera este servidor. El token es lo más común en una instalación simple; se admiten usuario/contraseña, NKey, JWT + semilla, un archivo creds y mTLS. Puede cambiarlo luego editando NATSExcel.json.
+spanish.AuthNone=Sin autenticación (el servidor admite conexiones anónimas)
+spanish.AuthToken=Token (un único secreto compartido)
+spanish.AuthUserPass=Usuario y contraseña
+spanish.AuthNKey=NKey (el archivo semilla .nk firma el nonce del servidor)
+spanish.AuthJwt=JWT + semilla NKey (modo operador / autenticación descentralizada)
+spanish.AuthCreds=Archivo de credenciales (.creds: JWT + semilla en un archivo)
+spanish.AuthMtls=mTLS (un certificado de cliente es la credencial; implica TLS)
+spanish.CredsPageTitle=Credenciales
+spanish.CredsPageSubtitle=Escriba las credenciales del estilo elegido
+spanish.CredsPageDesc=Solo se muestran los campos del estilo seleccionado. Los valores se escriben en NATSExcel.json en la carpeta de instalación; mantenga ese archivo fuera del control de versiones.
+spanish.CredsUser=Usuario:
+spanish.CredsPassword=Contraseña:
+spanish.CredsToken=Token:
+spanish.CredsNKeySeed=Semilla NKey (el texto, o una ruta al archivo .nk):
+spanish.CredsJwt=JWT del usuario:
+spanish.CredsCredsFile=Ruta del archivo de credenciales (.creds):
+spanish.CredsTlsCert=Ruta del certificado de cliente (.pfx / .pem):
+spanish.CredsTlsCertPassword=Contraseña del certificado de cliente (opcional):
 spanish.OptionsPageTitle=Comprobaciones
 spanish.OptionsPageSubtitle=Casi listo
 spanish.OptionsPageDesc=El instalador prueba la conexión al terminar. Opcionalmente abre un libro de Excel de ejemplo.
@@ -135,6 +175,7 @@ spanish.GroupConfig=Configuración:
 spanish.GroupExcel=Excel:
 spanish.IconUninstall=Desinstalar {#AppName}
 spanish.UrlRequired=Introduzca una URL de NATS (por ejemplo nats://localhost:4222).
+spanish.AuthRequired=Complete los campos del estilo de autenticación que eligió.
 spanish.ServerFailed=No se pudo configurar %1 automáticamente (salida %2).
 spanish.ConfigWriteFailed=No se pudo escribir %1. Créelo manualmente desde el ejemplo (NATSExcel.json).
 spanish.TestFailed=Instalado, pero el NATS en %1 no respondió. Compruebe que el servidor esté en ejecución y ajuste NATSExcel.json si está en otra URL.
@@ -153,8 +194,6 @@ spanish.SummaryPageSubtitle=Revise la conexión que se guardará en NATSExcel.js
 spanish.SummaryIntro=Estos valores se guardarán en NATSExcel.json en la carpeta de instalación.
 spanish.SummaryLabel=Conexión
 spanish.SummaryAuth=Autenticación
-spanish.SummaryToken=Token
-spanish.SummaryNone=(ninguna)
 spanish.SummaryServer=Servidor
 
 brazilianportuguese.ServerPageTitle=Servidor NATS
@@ -167,8 +206,27 @@ brazilianportuguese.ConnPageTitle=Conexão com o NATS
 brazilianportuguese.ConnPageSubtitle=Onde o NATSExcel deve se conectar?
 brazilianportuguese.ConnPageDesc=Clique em Avançar para o padrão (nats://localhost:4222). Para um cluster, separe as URLs por vírgula - uma basta, o cliente descobre o resto. Você pode mudar depois editando o NATSExcel.json.
 brazilianportuguese.ConnUrl=URL do servidor (separadas por vírgula para um cluster):
-brazilianportuguese.ConnToken=Token (opcional):
-brazilianportuguese.ConnTokenHint=Um token é um único segredo compartilhado. Para usuário/senha, NKey, JWT ou arquivo creds, edite o NATSExcel.json depois de instalar.
+brazilianportuguese.AuthPageTitle=Autenticação
+brazilianportuguese.AuthPageSubtitle=Como o NATSExcel deve se autenticar?
+brazilianportuguese.AuthPageDesc=Escolha o estilo de credencial que este servidor espera. Token é o mais comum num setup simples; usuário/senha, NKey, JWT + seed, arquivo creds e mTLS também são suportados. Você pode mudar depois editando o NATSExcel.json.
+brazilianportuguese.AuthNone=Sem autenticação (o servidor aceita conexões anônimas)
+brazilianportuguese.AuthToken=Token (um único segredo compartilhado)
+brazilianportuguese.AuthUserPass=Usuário e senha
+brazilianportuguese.AuthNKey=NKey (o arquivo seed .nk assina o nonce do servidor)
+brazilianportuguese.AuthJwt=JWT + seed NKey (modo operador / autenticação descentralizada)
+brazilianportuguese.AuthCreds=Arquivo de credenciais (.creds: JWT + seed num só arquivo)
+brazilianportuguese.AuthMtls=mTLS (um certificado de cliente é a credencial; implica TLS)
+brazilianportuguese.CredsPageTitle=Credenciais
+brazilianportuguese.CredsPageSubtitle=Digite as credenciais do estilo escolhido
+brazilianportuguese.CredsPageDesc=Só aparecem os campos do estilo selecionado. Os valores vão para o NATSExcel.json na pasta de instalação; mantenha esse arquivo fora do controle de versão.
+brazilianportuguese.CredsUser=Usuário:
+brazilianportuguese.CredsPassword=Senha:
+brazilianportuguese.CredsToken=Token:
+brazilianportuguese.CredsNKeySeed=Seed NKey (o texto, ou um caminho para o arquivo .nk):
+brazilianportuguese.CredsJwt=JWT do usuário:
+brazilianportuguese.CredsCredsFile=Caminho do arquivo de credenciais (.creds):
+brazilianportuguese.CredsTlsCert=Caminho do certificado de cliente (.pfx / .pem):
+brazilianportuguese.CredsTlsCertPassword=Senha do certificado de cliente (opcional):
 brazilianportuguese.OptionsPageTitle=Verificações
 brazilianportuguese.OptionsPageSubtitle=Quase pronto
 brazilianportuguese.OptionsPageDesc=O instalador testa a conexão ao terminar. Opcionalmente abre uma planilha de exemplo.
@@ -181,6 +239,7 @@ brazilianportuguese.GroupConfig=Configuração:
 brazilianportuguese.GroupExcel=Excel:
 brazilianportuguese.IconUninstall=Desinstalar {#AppName}
 brazilianportuguese.UrlRequired=Informe uma URL do NATS (por exemplo nats://localhost:4222).
+brazilianportuguese.AuthRequired=Preencha os campos do estilo de autenticação que você escolheu.
 brazilianportuguese.ServerFailed=Não foi possível configurar %1 automaticamente (saída %2).
 brazilianportuguese.ConfigWriteFailed=Não foi possível gravar %1. Crie manualmente a partir do exemplo (NATSExcel.json).
 brazilianportuguese.TestFailed=Instalado, mas o NATS em %1 não respondeu. Confira se o servidor está rodando e ajuste o NATSExcel.json se estiver em outra URL.
@@ -199,8 +258,6 @@ brazilianportuguese.SummaryPageSubtitle=Confira a conexao que sera gravada no NA
 brazilianportuguese.SummaryIntro=Estes valores serao salvos no NATSExcel.json na pasta de instalacao.
 brazilianportuguese.SummaryLabel=Conexao
 brazilianportuguese.SummaryAuth=Autenticacao
-brazilianportuguese.SummaryToken=Token
-brazilianportuguese.SummaryNone=(nenhuma)
 brazilianportuguese.SummaryServer=Servidor
 
 [Tasks]
@@ -234,9 +291,21 @@ Type: files; Name: "{app}\NATSExcel.log"
 Type: filesandordirs; Name: "{app}\scripts"
 
 [Code]
+const
+  // Credential style indexes (AuthPage radio order).
+  AuthIdxNone = 0;
+  AuthIdxToken = 1;
+  AuthIdxUserPass = 2;
+  AuthIdxNKey = 3;
+  AuthIdxJwt = 4;
+  AuthIdxCreds = 5;
+  AuthIdxMtls = 6;
+
 var
   Is64BitOffice: Boolean;
   ConnPage: TInputQueryWizardPage;
+  AuthPage: TInputOptionWizardPage;
+  CredsPage: TInputQueryWizardPage;
   ServerPage: TInputOptionWizardPage;
   OptionsPage: TInputOptionWizardPage;
   SummaryPage: TOutputMsgMemoWizardPage;
@@ -327,13 +396,19 @@ procedure UnregisterExcelAutoLoad();
 var
   Keys: TArrayOfString;
   I, N: Integer;
-  BaseKey, ValName, Cur: String;
+  BaseKey, ValName, Cur, Xll64, Xll32: String;
 begin
+  // Remove ONLY the entry that points at THIS installation's XLL. A blanket
+  // "contains NATSExcel" match would also strip a second install (a parallel
+  // folder, or a lab copy) from the user's Excel add-ins list.
+  Xll64 := ExpandConstant('{app}\NATSExcel64-packed.xll');
+  Xll32 := ExpandConstant('{app}\NATSExcel-packed.xll');
   Keys := OfficeExcelKeys();
   for I := 0 to GetArrayLength(Keys) - 1 do
   begin
     BaseKey := 'SOFTWARE\Microsoft\Office\' + Keys[I] + '\Excel\Options';
-    if RegQueryStringValue(HKCU, BaseKey, 'OPEN', Cur) and (Pos('NATSExcel', Cur) > 0) then
+    if RegQueryStringValue(HKCU, BaseKey, 'OPEN', Cur) and
+       ((CompareText(Cur, Xll64) = 0) or (CompareText(Cur, Xll32) = 0)) then
       RegDeleteValue(HKCU, BaseKey, 'OPEN');
     N := 1;
     while N < 100 do
@@ -341,7 +416,8 @@ begin
       ValName := 'OPEN' + IntToStr(N);
       if RegQueryStringValue(HKCU, BaseKey, ValName, Cur) then
       begin
-        if Pos('NATSExcel', Cur) > 0 then RegDeleteValue(HKCU, BaseKey, ValName);
+        if (CompareText(Cur, Xll64) = 0) or (CompareText(Cur, Xll32) = 0) then
+          RegDeleteValue(HKCU, BaseKey, ValName);
       end;
       N := N + 1;
     end;
@@ -353,6 +429,11 @@ function ParamOr(Param, Default: String): String;
 begin
   Result := ExpandConstant('{param:' + Param + '|' + Default + '}');
 end;
+
+// Forward declarations (Pascal requires a definition before use).
+function AuthStyleFromParam(): Integer; forward;
+function AuthStyle(): Integer; forward;
+function Cred(Field: Integer): String; forward;
 
 procedure InitializeWizard();
 begin
@@ -373,11 +454,46 @@ begin
     ExpandConstant('{cm:ConnPageSubtitle}'),
     ExpandConstant('{cm:ConnPageDesc}'));
   ConnPage.Add(ExpandConstant('{cm:ConnUrl}'), False);
-  ConnPage.Add(ExpandConstant('{cm:ConnToken}'), True);
   ConnPage.Values[0] := ParamOr('URL', 'nats://localhost:4222');
-  ConnPage.Values[1] := ParamOr('TOKEN', '');
 
-  OptionsPage := CreateInputOptionPage(ConnPage.ID,
+  AuthPage := CreateInputOptionPage(ConnPage.ID,
+    ExpandConstant('{cm:AuthPageTitle}'),
+    ExpandConstant('{cm:AuthPageSubtitle}'),
+    ExpandConstant('{cm:AuthPageDesc}'),
+    True, False);
+  AuthPage.Add(ExpandConstant('{cm:AuthNone}'));
+  AuthPage.Add(ExpandConstant('{cm:AuthToken}'));
+  AuthPage.Add(ExpandConstant('{cm:AuthUserPass}'));
+  AuthPage.Add(ExpandConstant('{cm:AuthNKey}'));
+  AuthPage.Add(ExpandConstant('{cm:AuthJwt}'));
+  AuthPage.Add(ExpandConstant('{cm:AuthCreds}'));
+  AuthPage.Add(ExpandConstant('{cm:AuthMtls}'));
+
+  CredsPage := CreateInputQueryPage(AuthPage.ID,
+    ExpandConstant('{cm:CredsPageTitle}'),
+    ExpandConstant('{cm:CredsPageSubtitle}'),
+    ExpandConstant('{cm:CredsPageDesc}'));
+  CredsPage.Add(ExpandConstant('{cm:CredsUser}'), False);              // 0
+  CredsPage.Add(ExpandConstant('{cm:CredsPassword}'), True);           // 1
+  CredsPage.Add(ExpandConstant('{cm:CredsToken}'), True);              // 2
+  CredsPage.Add(ExpandConstant('{cm:CredsNKeySeed}'), False);          // 3
+  CredsPage.Add(ExpandConstant('{cm:CredsJwt}'), True);                // 4
+  CredsPage.Add(ExpandConstant('{cm:CredsCredsFile}'), False);         // 5
+  CredsPage.Add(ExpandConstant('{cm:CredsTlsCert}'), False);           // 6
+  CredsPage.Add(ExpandConstant('{cm:CredsTlsCertPassword}'), True);    // 7
+
+  // Seed from silent parameters, then default to no auth.
+  CredsPage.Values[0] := ParamOr('USER', '');
+  CredsPage.Values[1] := ParamOr('PASSWORD', '');
+  CredsPage.Values[2] := ParamOr('TOKEN', '');
+  CredsPage.Values[3] := ParamOr('NKEYSEED', '');
+  CredsPage.Values[4] := ParamOr('JWT', '');
+  CredsPage.Values[5] := ParamOr('CREDS', '');
+  CredsPage.Values[6] := ParamOr('TLSCERT', '');
+  CredsPage.Values[7] := ParamOr('TLSCERTPASSWORD', '');
+  AuthPage.SelectedValueIndex := AuthStyleFromParam();
+
+  OptionsPage := CreateInputOptionPage(CredsPage.ID,
     ExpandConstant('{cm:OptionsPageTitle}'),
     ExpandConstant('{cm:OptionsPageSubtitle}'),
     ExpandConstant('{cm:OptionsPageDesc}'),
@@ -393,12 +509,77 @@ begin
     ExpandConstant('{cm:SummaryIntro}'), '');
 end;
 
+function AuthStyleFromParam(): Integer;
+var s: String;
+begin
+  s := Lowercase(ParamOr('AUTH', 'none'));
+  if s = 'token' then Result := AuthIdxToken
+  else if (s = 'userpass') or (s = 'user') then Result := AuthIdxUserPass
+  else if s = 'nkey' then Result := AuthIdxNKey
+  else if s = 'jwt' then Result := AuthIdxJwt
+  else if s = 'creds' then Result := AuthIdxCreds
+  else if s = 'mtls' then Result := AuthIdxMtls
+  else Result := AuthIdxNone;
+end;
+
+// Which credential fields are meaningful for the selected style.
+function FieldVisible(Style, Field: Integer): Boolean;
+begin
+  Result := False;
+  case Style of
+    AuthIdxToken:    Result := (Field = 2);
+    AuthIdxUserPass: Result := (Field = 0) or (Field = 1);
+    AuthIdxNKey:     Result := (Field = 3);
+    AuthIdxJwt:      Result := (Field = 3) or (Field = 4);
+    AuthIdxCreds:    Result := (Field = 5);
+    AuthIdxMtls:     Result := (Field = 6) or (Field = 7);
+  end;
+end;
+
+procedure UpdateCredsFields();
+var
+  I, Style: Integer;
+  Vis: Boolean;
+begin
+  if CredsPage = nil then Exit;
+  Style := AuthPage.SelectedValueIndex;
+  for I := 0 to 7 do
+  begin
+    Vis := FieldVisible(Style, I);
+    CredsPage.Edits[I].Visible := Vis;
+    CredsPage.PromptLabels[I].Visible := Vis;
+  end;
+end;
+
+function AuthStyle(): Integer;
+begin
+  if WizardSilent() then Result := AuthStyleFromParam()
+  else if AuthPage = nil then Result := AuthIdxNone
+  else Result := AuthPage.SelectedValueIndex;
+end;
+
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   if WizardSilent() then
-    Result := (PageID = ServerPage.ID) or (PageID = ConnPage.ID) or (PageID = OptionsPage.ID)
+    Result := (PageID = ServerPage.ID) or (PageID = ConnPage.ID) or
+              (PageID = AuthPage.ID) or (PageID = CredsPage.ID) or (PageID = OptionsPage.ID)
   else
-    Result := False;
+    // The credentials page is only useful when a style was chosen.
+    Result := (PageID = CredsPage.ID) and (AuthStyle() = AuthIdxNone);
+end;
+
+function FieldsFilled(): Boolean;
+var s: Integer;
+begin
+  s := AuthStyle();
+  Result := True;
+  case s of
+    AuthIdxUserPass: Result := (Trim(CredsPage.Values[0]) <> '');
+    AuthIdxNKey:     Result := (Trim(CredsPage.Values[3]) <> '');
+    AuthIdxJwt:      Result := (Trim(CredsPage.Values[3]) <> '') and (Trim(CredsPage.Values[4]) <> '');
+    AuthIdxCreds:    Result := (Trim(CredsPage.Values[5]) <> '');
+    AuthIdxMtls:     Result := (Trim(CredsPage.Values[6]) <> '');
+  end;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -407,6 +588,11 @@ begin
   if (CurPageID = ConnPage.ID) and (Trim(ConnPage.Values[0]) = '') then
   begin
     MsgBox(ExpandConstant('{cm:UrlRequired}'), mbError, MB_OK);
+    Result := False;
+  end
+  else if (CurPageID = CredsPage.ID) and (not FieldsFilled()) then
+  begin
+    MsgBox(ExpandConstant('{cm:AuthRequired}'), mbError, MB_OK);
     Result := False;
   end;
 end;
@@ -420,12 +606,38 @@ begin
     Result := ParamOr('URL', 'nats://localhost:4222');
 end;
 
-function Token(): String;
+// Credential value by field index (seeded from params when silent).
+function Cred(Field: Integer): String;
 begin
-  if (not WizardSilent()) and (ConnPage <> nil) then
-    Result := Trim(ConnPage.Values[1])
+  if (not WizardSilent()) and (CredsPage <> nil) then
+    Result := Trim(CredsPage.Values[Field])
   else
-    Result := ParamOr('TOKEN', '');
+    case Field of
+      0: Result := ParamOr('USER', '');
+      1: Result := ParamOr('PASSWORD', '');
+      2: Result := ParamOr('TOKEN', '');
+      3: Result := ParamOr('NKEYSEED', '');
+      4: Result := ParamOr('JWT', '');
+      5: Result := ParamOr('CREDS', '');
+      6: Result := ParamOr('TLSCERT', '');
+      7: Result := ParamOr('TLSCERTPASSWORD', '');
+    else
+      Result := '';
+    end;
+end;
+
+function AuthStyleName(): String;
+begin
+  case AuthStyle() of
+    AuthIdxToken:    Result := ExpandConstant('{cm:AuthToken}');
+    AuthIdxUserPass: Result := ExpandConstant('{cm:AuthUserPass}');
+    AuthIdxNKey:     Result := ExpandConstant('{cm:AuthNKey}');
+    AuthIdxJwt:      Result := ExpandConstant('{cm:AuthJwt}');
+    AuthIdxCreds:    Result := ExpandConstant('{cm:AuthCreds}');
+    AuthIdxMtls:     Result := ExpandConstant('{cm:AuthMtls}');
+  else
+    Result := ExpandConstant('{cm:AuthNone}');
+  end;
 end;
 
 // First host:port of the URL list, for the end-of-install test.
@@ -478,26 +690,65 @@ begin
     Result := (OptionsPage <> nil) and OptionsPage.Values[1];
 end;
 
-// The generated config: minimal, with the code's defaults spelled out.
-// Comments are accepted, so the template stays self-documenting.
-function ConfigJson(): String;
-var U, T: String;
+// ---- JSON helpers ---------------------------------------------------------
+// Escape a value for a JSON string: backslash first (a Windows path is the
+// common case), then the quote.
+function JsEscape(const S: String): String;
 begin
-  U := Url();
-  T := Token();
+  Result := S;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '"', '\"', True);
+end;
+
+// The lines inside the "auth" object for the selected style. Empty for no auth.
+function AuthJsonBody(): String;
+var L: String;
+begin
+  L := '';
+  case AuthStyle() of
+    AuthIdxToken:
+      L := '      "token": "' + JsEscape(Cred(2)) + '"';
+    AuthIdxUserPass:
+      begin
+        L := '      "user": "' + JsEscape(Cred(0)) + '"';
+        L := L + ',' + #13#10 + '      "password": "' + JsEscape(Cred(1)) + '"';
+      end;
+    AuthIdxNKey:
+      L := '      "nkeySeed": "' + JsEscape(Cred(3)) + '"';
+    AuthIdxJwt:
+      begin
+        L := '      "jwt": "' + JsEscape(Cred(4)) + '"';
+        L := L + ',' + #13#10 + '      "nkeySeed": "' + JsEscape(Cred(3)) + '"';
+      end;
+    AuthIdxCreds:
+      L := '      "credsFile": "' + JsEscape(Cred(5)) + '"';
+    AuthIdxMtls:
+      begin
+        L := '      "tls": true,' + #13#10 + '      "tlsCert": "' + JsEscape(Cred(6)) + '"';
+        if Cred(7) <> '' then
+          L := L + ',' + #13#10 + '      "tlsCertPassword": "' + JsEscape(Cred(7)) + '"';
+      end;
+  end;
+  Result := L;
+end;
+
+// The generated config: the same shape the add-in ships, with the chosen URL
+// and credential. Comments are accepted, so the template stays self-documenting.
+function ConfigJson(): String;
+var Auth: String;
+begin
+  Auth := AuthJsonBody();
   Result :=
     '{' + #13#10 +
     '  // NATSExcel.json - comments (// and /* */) are allowed.' + #13#10 +
     '  "Default": {' + #13#10 +
     '    "cluster": "local",' + #13#10 +
-    '    "timeout": 1000,' + #13#10 +
-    '    "auth": {' + #13#10;
-  if T <> '' then
-    Result := Result + '      "token": "' + T + '"' + #13#10
+    '    "timeout": 1000,' + #13#10;
+  if Auth = '' then
+    Result := Result + '    "auth": {},' + #13#10
   else
-    Result := Result + '      "token": null' + #13#10;
+    Result := Result + '    "auth": {' + #13#10 + Auth + #13#10 + '    },' + #13#10;
   Result := Result +
-    '    },' + #13#10 +
     '    "reconnect": { "maxAttempts": 60, "waitMs": 2000, "jitterMs": 100 }' + #13#10 +
     '  },' + #13#10 +
     '  "RTD": {' + #13#10 +
@@ -508,7 +759,7 @@ begin
     '  },' + #13#10 +
     '  "UDF": { "timeout": 1000 },' + #13#10 +
     '  "Servers": {' + #13#10 +
-    '    "srv1": "' + U + '"' + #13#10 +
+    '    "srv1": "' + JsEscape(Url()) + '"' + #13#10 +
     '  },' + #13#10 +
     '  "Clusters": {' + #13#10 +
     '    "local": { "urls": ["srv1"] }' + #13#10 +
@@ -619,13 +870,16 @@ end;
 // ---- Finish: TEST the configuration, then optionally open a sample sheet ---
 procedure DeinitializeSetup();
 var
-  HostPort, Args, Msg: String;
+  HostPort, Args, Msg, TokenArg: String;
 begin
   if not InstallCompleted then Exit;
 
   HostPort := FirstHostPort();
   Args := '-ServerHost "' + HostPort + '"';
-  if Token() <> '' then Args := Args + ' -Token "' + Token() + '"';
+  // The connection test can only use a token; other styles are verified by the
+  // add-in itself (the test script speaks the protocol, not the client libs).
+  if AuthStyle() = AuthIdxToken then
+    Args := Args + ' -Token "' + Cred(2) + '"';
   TestOk := (RunScript('test-connection.ps1', Args) = 0);
 
   if not TestOk then
@@ -637,21 +891,26 @@ begin
     MsgBox(Msg, mbInformation, MB_OK);
 
   if OpenExcelChecked() then
-    RunScript('verify-connection.ps1',
-      '-AddInDir "' + ExpandConstant('{app}') + '" -ServerHost "' + HostPort + '" -OpenExcel -Quiet');
+  begin
+    Args := '-AddInDir "' + ExpandConstant('{app}') + '" -ServerHost "' + HostPort + '" -OpenExcel -Quiet';
+    if AuthStyle() = AuthIdxToken then
+      Args := Args + ' -Token "' + Cred(2) + '"';
+    RunScript('verify-connection.ps1', Args);
+  end;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 var
-  Lines, AuthText: String;
+  Lines: String;
 begin
+  if CurPageID = CredsPage.ID then
+    UpdateCredsFields();
+
   if (CurPageID = SummaryPage.ID) and (not WizardSilent()) then
   begin
-    if Token() <> '' then AuthText := ExpandConstant('{cm:SummaryToken}')
-    else AuthText := ExpandConstant('{cm:SummaryNone}');
     Lines :=
       ExpandConstant('{cm:SummaryLabel}') + ':  ' + Url() + #13#10 +
-      ExpandConstant('{cm:SummaryAuth}') + ':  ' + AuthText + #13#10 +
+      ExpandConstant('{cm:SummaryAuth}') + ':  ' + AuthStyleName() + #13#10 +
       ExpandConstant('{cm:SummaryServer}') + ':  ' + ServerKind();
     SummaryPage.RichEditViewer.Lines.Text := Lines;
   end;
