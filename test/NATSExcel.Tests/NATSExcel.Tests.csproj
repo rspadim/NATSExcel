@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <!-- C# 9: the NATS.Net option objects use init-only setters (see IsExternalInit.cs). -->
+    <LangVersion>9.0</LangVersion>
+    <IsPackable>false</IsPackable>
+    <!-- .NET Framework builds compile against reference assemblies whose versions
+         differ from the deployed implementations; generate the redirects so the
+         test host does not fail with FileLoadException. App.config pins the ones
+         the SDK does not infer. -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Dependencies of the linked production sources (see ..\TestSupport\ProductionSources.props). -->
+    <PackageReference Include="ExcelDna.Integration" Version="1.9.0-beta2" />
+    <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NLog" Version="6.0.0-rc3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!--
+    The single production-source list (PLAN D1). Importing it here links every
+    top-level production *.cs except NatsRtd.cs (PLAN D2) plus the embedded
+    NATSExcel.schema.json. Do NOT hand-list production files in this csproj; add
+    them to the props so all four test projects stay in sync.
+  -->
+  <Import Project="..\TestSupport\ProductionSources.props" />
+
+</Project>

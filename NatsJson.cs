@@ -1,0 +1,379 @@
+using ExcelDna.Integration;
+using NLog;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+namespace NATSExcel
+{
+    /// <summary>
+    /// Conversion between Excel matrices and JSON. Ports the behavior and the
+    /// error vocabulary of the sibling project's <c>ExcelJson</c> (RedisExcel).
+    /// </summary>
+    public static class NatsJson
+    {
+        private static readonly Logger logger = LogManager.GetCurrentClassLogger();
+
+        // Excel worksheet limits: a result matrix larger than this cannot be
+        // sized into cells and would only cost memory before failing.
+        private const int MaxExcelRows = 1048576;
+        private const int MaxExcelColumns = 16384;
+        // Total-cell budget: per-dimension checks alone let a 130k x 16k matrix
+        // (2.1 billion cells) through to the allocation, where the cell shows a
+        // raw OutOfMemoryException instead of the documented size error.
+        private const long MaxExcelCells = 50000000;
+        // Input-text bound applied BEFORE parsing. An Excel cell holds at most
+        // 32,767 characters, so a JSON argument arriving from a cell is already
+        // far below this; a programmatic/oversized string gets a fast "too
+        // large" cell instead of being materialized. This bounds the parser's
+        // transient allocation (the parser would otherwise build the whole
+        // token tree before the post-parse matrix guard ran). 8M chars is ~30x
+        // the largest possible cell text and stays well under the 50M-cell
+        // budget in the densest encoding, so no legitimate request is rejected.
+        private const int MaxJsonTextLength = 8_000_000;
+
+        /// <summary>Upper bound on the JSON text produced by the matrix
+        /// conversion. An Excel cell holds at most 32,767 characters, so a larger
+        /// result is unusable as a cell; this constant leaves generous room for
+        /// the publish callers (which send the text to NATS, not to a cell) - a
+        /// matrix denser than this is almost certainly a mistake.</summary>
+        internal const int MaxJsonOutputLength = 32_000_000;
+
+        /// <summary>Serializes an Excel range (1-based <c>object[,]</c>) to a
+        /// JSON string. A 1x1 range becomes a scalar, a single row becomes an
+        /// array and anything else an array of row arrays; the shape round-trips
+        /// through <see cref="JsonToMatrix"/>.</summary>
+        public static string MatrixToJson(object[,] range)
+        {
+            try
+            {
+                if (range == null)
+                    throw new ArgumentException("a range is required");
+                int rows = range.GetLength(0);
+                int cols = range.GetLength(1);
+                // Symmetric with JsonToMatrix: reject an oversized range before
+                // building the row arrays and the JSON string (an 80M-cell range
+                // serializes to tens of MB, which no cell could hold anyway).
+                EnsureMatrixFitsExcel(rows, cols);
+
+                object payload;
+                if (rows == 1 && cols == 1)
+                    payload = ConvertCellValue(range[0, 0]);
+                else if (rows == 1)
+                {
+                    var row = new object[cols];
+                    for (int j = 0; j < cols; j++)
+                        row[j] = ConvertCellValue(range[0, j]);
+                    payload = row;
+                }
+                else
+                {
+                    var array = new object[rows][];
+                    for (int i = 0; i < rows; i++)
+                    {
+                        var row = new object[cols];
+                        for (int j = 0; j < cols; j++)
+                            row[j] = ConvertCellValue(range[i, j]);
+                        array[i] = row;
+                    }
+                    payload = array;
+                }
+
+                var settings = new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Include,
+                    Formatting = Formatting.None,
+                    // Values are primitives nested two levels deep; the explicit
+                    // ceiling keeps both serializer settings symmetric.
+                    MaxDepth = 256
+                };
+                // The cell budget caps the number of CELLS, not the encoded size:
+                // a legal 4000x4000 range serializes to ~128 MB with no cell able
+                // to hold it (max 32,767 chars). Serialize through a bounded
+                // writer so the conversion aborts as soon as the output passes
+                // the limit instead of allocating hundreds of MB on the Excel
+                // thread before returning a value Excel rejects anyway.
+                var buffer = new BoundedStringWriter(MaxJsonOutputLength);
+                using (var writer = new JsonTextWriter(buffer) { Formatting = Formatting.None })
+                {
+                    var serializer = JsonSerializer.Create(settings);
+                    serializer.Serialize(writer, payload);
+                }
+                return buffer.ToString();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "NatsJson.MatrixToJson");
+                return $"Error: {ex.Message}";
+            }
+        }
+
+        /// <summary>Parses a JSON string into a 2-D <c>object[,]</c>. A JSON
+        /// array of objects becomes a header row plus one row per object; a
+        /// scalar becomes a 1x1 matrix; a JSON <c>null</c> element becomes
+        /// <paramref name="nullValue"/>.</summary>
+        public static object[,] JsonToMatrix(string json, object nullValue = null)
+        {
+            try
+            {
+                object fill;
+                if (nullValue == null || nullValue is ExcelMissing || nullValue is ExcelEmpty)
+                    fill = "";
+                else if (nullValue is ExcelError)
+                    throw new ArgumentException("Excel error cells are not valid arguments");
+                else if (nullValue is Array)
+                    throw new ArgumentException("A multi-cell range is not a valid scalar argument");
+                else
+                    fill = nullValue;
+
+                // Empty/missing cells convert to null and return the fill value.
+                if (json == null)
+                    return new object[,] { { fill } };
+                // Pasted JSON often carries a UTF-8 BOM (U+FEFF), sometimes
+                // preceded by stray whitespace; both are invisible and
+                // insignificant at the start of a JSON text, so strip any
+                // combination of them.
+                json = json.TrimStart(' ', '\t', '\r', '\n', '\uFEFF');
+                // Whitespace/BOM-only input is equivalent to a blank cell and
+                // returns the fill value instead of a parser error.
+                if (json.Length == 0)
+                    return new object[,] { { fill } };
+                // Size guard BEFORE parsing: the smallest JSON token is at least
+                // ~2 chars, so a text far larger than the cell budget can never
+                // fit no matter its shape. Without this the parser materialized
+                // the whole document and only the post-parse matrix guard
+                // rejected it - blocking the Excel thread the guard exists to
+                // protect.
+                EnsureTextFitsExcel(json.Length);
+
+                JToken token;
+                try
+                {
+                    token = JsonConvert.DeserializeObject<JToken>(json, new JsonSerializerSettings
+                    {
+                        // Keep date-like strings as text so cells receive the
+                        // original JSON literal instead of a DateTime.
+                        DateParseHandling = DateParseHandling.None,
+                        // The default is 64, which rejects moderately deep
+                        // payloads; 256 raises the ceiling while still guarding
+                        // recursion.
+                        MaxDepth = 256
+                    });
+                }
+                catch (JsonException ex)
+                {
+                    // Newtonsoft's message names the position; surface it as an
+                    // "Error: ..." cell rather than a raw exception.
+                    throw new ArgumentException($"invalid JSON: {ex.Message}", ex);
+                }
+
+                if (token is JArray array)
+                    return JArrayToMatrix(array, fill);
+                if (token is JObject obj)
+                    return JObjectToMatrix(obj, fill);
+                return new object[,] { { JTokenToValue(token, fill) } };
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "NatsJson.JsonToMatrix");
+                return new object[,] { { $"Error: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Converts one raw Excel cell value to a JSON-serializable CLR value.
+        /// </summary>
+        private static object ConvertCellValue(object value)
+        {
+            if (value is ExcelEmpty || value is ExcelMissing || value is ExcelError || value == null)
+                return null;
+            if (value is double d)
+            {
+                // Reject non-finite doubles for symmetry with JsonToMatrix:
+                // Newtonsoft would otherwise emit the raw token NaN/Infinity
+                // (invalid JSON), while the reverse direction rejects them with
+                // this same message.
+                if (double.IsNaN(d) || double.IsInfinity(d))
+                    throw new ArgumentException("JSON contains a non-finite number");
+                // Excel numbers are doubles; serialize whole numbers as longs,
+                // but only when the cast cannot overflow. long.MaxValue is not
+                // representable as a double (it rounds up to 2^63), so compare
+                // strictly: any double >= 2^63 would wrap to long.MinValue.
+                if (d % 1 == 0 && d >= long.MinValue && d < long.MaxValue)
+                    return (long)d;
+                return d;
+            }
+            if (value is int i)
+                return (long)i;
+            // bool and string pass through untouched; any other type is left to
+            // Newtonsoft (which serializes it by its public shape).
+            return value;
+        }
+
+        /// <summary>
+        /// Converts a JToken to a CLR value ExcelDna can marshal into a cell
+        /// (long/double/bool/string). Containers are returned as compact JSON text.
+        /// </summary>
+        private static object JTokenToValue(JToken token, object fill)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+                return fill;
+            // Containers are returned as JSON text; reject a non-finite number
+            // hidden anywhere inside before it gets stringified (e.g.
+            // {"a":{"b":NaN}} would otherwise become the text {"b":"NaN"}).
+            if (token is JContainer container &&
+                container.Descendants().OfType<JValue>().Any(
+                    v => v.Value is double nested && (double.IsNaN(nested) || double.IsInfinity(nested))))
+                throw new ArgumentException("JSON contains a non-finite number");
+            if (token is JValue value)
+            {
+                // JSON integers beyond Int64 arrive as BigInteger and cannot be
+                // marshalled into a cell; send the invariant decimal text.
+                if (value.Value is System.Numerics.BigInteger big)
+                    return big.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                // JSON does not allow NaN/Infinity, but Newtonsoft accepts the
+                // non-standard literals; Excel would render them as #NUM!, so
+                // reject them as an error instead of returning the raw double.
+                // Every raw-double path (top-level scalar, array element, object
+                // value) funnels through here.
+                if (value.Value is double d && (double.IsNaN(d) || double.IsInfinity(d)))
+                    throw new ArgumentException("JSON contains a non-finite number");
+                return value.Value ?? fill;
+            }
+            return token.ToString(Formatting.None);
+        }
+
+        private static object[,] JArrayToMatrix(JArray array, object fill)
+        {
+            // Matrix: [[1,2],[3,4]]
+            if (array.Count > 0 && array.All(x => x is JArray))
+            {
+                var rows = array.Cast<JArray>().ToList();
+                int cols = rows.Max(r => r.Count);
+                // Empty inner arrays ([[]]) would build a 0-column matrix, which
+                // Excel cannot size; return a single fill cell instead.
+                if (cols == 0)
+                    return new object[,] { { fill } };
+                EnsureMatrixFitsExcel(rows.Count, cols);
+                var result = new object[rows.Count, cols];
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    for (int j = 0; j < cols; j++)
+                        result[i, j] = j < rows[i].Count ? JTokenToValue(rows[i][j], fill) : fill;
+                }
+                if (logger.IsDebugEnabled)
+                    logger.Debug($"NatsJson.JsonToMatrix: array of arrays [{rows.Count}, {cols}]");
+                return result;
+            }
+
+            // Flat vector: [1,2,3,4]. Empty [] returns a single fill cell.
+            if (array.Count == 0)
+                return new object[,] { { fill } };
+            EnsureMatrixFitsExcel(1, array.Count);
+            var flat = new object[1, array.Count];
+            for (int i = 0; i < array.Count; i++)
+                flat[0, i] = JTokenToValue(array[i], fill);
+            if (logger.IsDebugEnabled)
+                logger.Debug($"NatsJson.JsonToMatrix: flat array [{array.Count}]");
+            return flat;
+        }
+
+        private static object[,] JObjectToMatrix(JObject obj, object fill)
+        {
+            var keys = obj.Properties().Select(p => p.Name).ToList();
+            if (keys.Count == 0)
+                return new object[,] { { fill } };
+
+            int rows = obj.Properties().Max(p => p.Value is JArray ja ? ja.Count : 1);
+            EnsureMatrixFitsExcel(rows + 1, keys.Count);
+            var result = new object[rows + 1, keys.Count];
+            for (int j = 0; j < keys.Count; j++)
+            {
+                string key = keys[j];
+                result[0, j] = key;
+                for (int i = 0; i < rows; i++)
+                    result[i + 1, j] = fill;
+
+                var value = obj[key];
+                if (value is JArray arr)
+                {
+                    for (int i = 0; i < arr.Count; i++)
+                        result[i + 1, j] = JTokenToValue(arr[i], fill);
+                }
+                else
+                {
+                    result[1, j] = JTokenToValue(value, fill);
+                }
+            }
+            if (logger.IsDebugEnabled)
+                logger.Debug($"NatsJson.JsonToMatrix: object [{rows + 1}, {keys.Count}]");
+            return result;
+        }
+
+        /// <summary>
+        /// Rejects result matrices that cannot fit an Excel worksheet before the
+        /// matrix is allocated, so the cell shows an "Error: ..." value instead
+        /// of a huge allocation.
+        /// </summary>
+        internal static void EnsureMatrixFitsExcel(int rows, int columns)
+        {
+            if (rows > MaxExcelRows || columns > MaxExcelColumns
+                || (long)rows * columns > MaxExcelCells)
+                throw new ArgumentException("JSON is too large for an Excel sheet");
+        }
+
+        /// <summary>Rejects an oversized JSON argument BEFORE parsing it, so the
+        /// parser cannot materialize gigabytes and stall the Excel thread before
+        /// the post-parse matrix guard would have run.</summary>
+        private static void EnsureTextFitsExcel(int length)
+        {
+            if (length > MaxJsonTextLength)
+                throw new ArgumentException("JSON is too large for an Excel sheet");
+        }
+
+        /// <summary>A StringWriter that refuses to grow past a character limit, so
+        /// the serializer aborts at the bound instead of materializing a
+        /// multi-hundred-MB string on the Excel thread.</summary>
+        private sealed class BoundedStringWriter : StringWriter
+        {
+            private readonly int _limit;
+            private readonly System.Text.StringBuilder _buffer = new System.Text.StringBuilder();
+
+            public BoundedStringWriter(int limit)
+            {
+                _limit = limit;
+            }
+
+            public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+            public override void Write(char value)
+            {
+                if (_buffer.Length >= _limit)
+                    throw new ArgumentException("JSON is too large for an Excel cell");
+                _buffer.Append(value);
+            }
+
+            public override void Write(char[] buffer, int index, int count)
+            {
+                if (_buffer.Length + count > _limit)
+                    throw new ArgumentException("JSON is too large for an Excel cell");
+                _buffer.Append(buffer, index, count);
+            }
+
+            public override void Write(string value)
+            {
+                if (value != null)
+                {
+                    if (_buffer.Length + value.Length > _limit)
+                        throw new ArgumentException("JSON is too large for an Excel cell");
+                    _buffer.Append(value);
+                }
+            }
+
+            public override string ToString() => _buffer.ToString();
+        }
+    }
+}

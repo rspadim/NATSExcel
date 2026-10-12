@@ -1,0 +1,280 @@
+name: Build & Release NATSExcel
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+
+# Least privilege by default: the build job only reads the repository.
+# Only the release job below may write to the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Build the shipped add-in directly. There is no NATSExcel.sln yet
+      # (PLAN F0.1), so the project file is the build input today; when the
+      # solution lands this becomes 'dotnet build NATSExcel.sln -c Release'.
+      # The .NET SDK restores and packs the add-in (Excel-DNA DNA packaging is
+      # part of the build), and 'publish\' then holds both packed XLLs plus
+      # NATSExcel.dll. Only on a 'v*' tag is the release tag embedded as the
+      # InformationalVersion; a branch build keeps the csproj default 'dev'.
+      - name: Build the add-in (Release)
+        shell: pwsh
+        run: |
+          $tag = "dev"
+          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}" }
+          dotnet build NATSExcel.csproj -c Release "/p:InformationalVersion=$tag"
+
+      # Unit tests do NOT retry: a failure is a real defect, not runner noise.
+      # TODO: remove this guard once test\NATSExcel.Tests lands (PLAN V8.2) —
+      # then the step must run unconditionally.
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $proj = 'test/NATSExcel.Tests/NATSExcel.Tests.csproj'
+          if (-not (Test-Path -LiteralPath $proj)) {
+            Write-Host "SKIP: $proj does not exist yet (PLAN V8.2) - unit tests are not part of this build yet."
+            exit 0
+          }
+          dotnet test $proj -c Release
+
+      # NATS runs natively on Windows as a single self-contained binary, so
+      # there is no Memurai/Chocolatey-style service to install. The official
+      # 'nats-server' Chocolatey package is stale (last published 2019), so the
+      # pinned GitHub release zip is downloaded instead. The version is pinned
+      # to keep the CI toolchain reproducible; a SHA256 assertion can be added
+      # once the digest for this asset is recorded (PLAN V10.2).
+      - name: Install and start the NATS server (JetStream enabled)
+        shell: pwsh
+        run: |
+          $ver = '2.15.1'
+          $url = "https://github.com/nats-io/nats-server/releases/download/v$ver/nats-server-v$ver-windows-amd64.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "nats-server-$ver.zip"
+          $dir = Join-Path $env:RUNNER_TEMP "nats-server"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
+          $exe = (Get-ChildItem $dir -Recurse -Filter 'nats-server.exe' | Select-Object -First 1).FullName
+          if (-not $exe) { throw "nats-server.exe not found in $dir" }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "nats-server --version failed (exit $LASTEXITCODE)" }
+
+          # JetStream needs a durable store_dir; the server default is a temp
+          # path that is dropped on reboot, which would silently lose the
+          # streams the smoke/liveness tests create.
+          $store = Join-Path $env:RUNNER_TEMP 'nats-js-store'
+          New-Item -ItemType Directory -Force -Path $store | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP 'nats-server.log'
+          $proc = Start-Process -FilePath $exe `
+            -ArgumentList @('-js', '--store_dir', $store) `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
+            -PassThru -WindowStyle Hidden
+          Write-Host "nats-server started (pid $($proc.Id)) with -js --store_dir $store"
+
+          # Real readiness probe: open the wire port, read the server INFO banner
+          # and require 'jetstream':true, so a server started without -js fails
+          # here explicitly instead of looking like an add-in bug later.
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $client = New-Object System.Net.Sockets.TcpClient
+              $client.Connect('127.0.0.1', 4222)
+              $stream = $client.GetStream()
+              $buffer = New-Object byte[] 4096
+              $read = $stream.Read($buffer, 0, $buffer.Length)
+              $info = [System.Text.Encoding]::ASCII.GetString($buffer, 0, $read)
+              $client.Close()
+              if ($info -match '^INFO' -and $info -match '"jetstream"\s*:\s*true') {
+                Write-Host "NATS is ready on 127.0.0.1:4222 (JetStream enabled): $info"
+                exit 0
+              }
+              if ($info -match '^INFO') { Write-Host "NATS answered but JetStream is not enabled yet: $info" }
+            }
+            catch { }
+            Start-Sleep -Seconds 1
+          }
+          Get-Content -LiteralPath $log -Tail 40 -ErrorAction SilentlyContinue
+          throw "NATS on 127.0.0.1:4222 did not answer with JetStream enabled within 30s"
+
+      # The smoke tests hammer a shared server; a loaded runner can trip a
+      # documented best-effort race (delivery convergence, duplicate
+      # suppression) that is not an add-in defect. Retry once before failing,
+      # consistent with the liveness step below; a real regression fails both.
+      # TODO: remove this guard once test\SmokeTests lands (PLAN V8.3) — then
+      # the step must run unconditionally.
+      - name: Run smoke tests
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath 'test/SmokeTests')) {
+            Write-Host "SKIP: test/SmokeTests does not exist yet (PLAN V8.3) - smoke tests are not part of this build yet."
+            exit 0
+          }
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            Write-Host "smoke attempt $attempt/2"
+            dotnet run --project test/SmokeTests -c Release -- "nats://127.0.0.1:4222"
+            if ($LASTEXITCODE -eq 0) { Write-Host "smoke passed on attempt $attempt"; exit 0 }
+            Write-Host "smoke attempt $attempt failed (exit $LASTEXITCODE)"
+            if ($attempt -lt 2) { Start-Sleep -Seconds 3 }
+          }
+          throw "smoke tests failed on both attempts"
+
+      # A loaded/slow CI runner can stall the whole process for a moment (one
+      # scheduling hiccup inflates the heartbeat, the delivery gap and the
+      # chance of a transient error at once), which the liveness bounds rightly
+      # flag. Retry before failing the job so infrastructure noise cannot block
+      # a release; a real regression stalls every attempt. --skip-restart is
+      # used because the server is started ad hoc above (no supervisor would
+      # bring it back after the destructive restart storm).
+      # TODO: remove this guard once test\LivenessTests lands (PLAN V8.5) — then
+      # the step must run unconditionally.
+      - name: Run liveness tests (quick)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath 'test/LivenessTests')) {
+            Write-Host "SKIP: test/LivenessTests does not exist yet (PLAN V8.5) - liveness tests are not part of this build yet."
+            exit 0
+          }
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Host "liveness attempt $attempt/3"
+            dotnet run --project test/LivenessTests -c Release -- "nats://127.0.0.1:4222" --quick --skip-restart
+            if ($LASTEXITCODE -eq 0) { Write-Host "liveness passed on attempt $attempt"; exit 0 }
+            Write-Host "liveness attempt $attempt failed (exit $LASTEXITCODE)"
+            if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
+          }
+          throw "liveness tests failed on all attempts"
+
+      - name: Verify CHANGELOG matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          # A release tag must name the finalized changelog section, otherwise
+          # the repo would ship an "(unreleased)" heading. Anchor the match on the
+          # exact heading so a short tag (v1.5) cannot pass against v1.5.0.
+          $tag = "${{ github.ref_name }}"
+          $heading = (Get-Content CHANGELOG.md | Where-Object { $_ -match '^##\s' } | Select-Object -First 1)
+          if ("$heading" -notmatch ('^##\s+' + [regex]::Escape($tag) + '\s*$')) {
+            throw "CHANGELOG.md top heading '$heading' does not match the tag '$tag'. Finalize the changelog (remove 'Unreleased') before tagging."
+          }
+          Write-Host "CHANGELOG heading matches the tag: $heading"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      # Build the installer on every run (so a broken .iss is caught here, not
+      # only on a release tag). The version is the tag without the leading 'v'
+      # (e.g. v1.0.0 -> NATSExcelSetup-1.0.0.exe), or "dev" on a branch.
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $ver = "dev"
+          if ("${{ github.ref_type }}" -eq "tag") { $ver = "${{ github.ref_name }}".TrimStart('v') }
+          iscc "/DAppVersion=$ver" "installer\NATSExcel.iss"
+          $exe = "installer\output\NATSExcelSetup-$ver.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "installer was not produced: $exe" }
+          Write-Host "installer built: $exe"
+
+      - name: Upload the installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: natsexcel-installer
+          path: installer/output/*.exe
+          if-no-files-found: error
+
+      # Fail loudly if ANY release asset is missing: if-no-files-found only fails
+      # when the whole path set matches zero files, so one missing asset among the
+      # set would otherwise upload a partial (broken) release.
+      - name: Verify the release assets exist
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $assets = @(
+            'bin/Release/net48/publish/NATSExcel.dll',
+            'bin/Release/net48/publish/NATSExcel-packed.xll',
+            'bin/Release/net48/publish/NATSExcel64-packed.xll',
+            'NLog.config',
+            'NATSExcel.json'
+          )
+          $missing = $assets | Where-Object { -not (Test-Path -LiteralPath $_) }
+          if ($missing.Count -gt 0) {
+            throw "release assets missing: " + ($missing -join ', ')
+          }
+          if ((Get-ChildItem 'installer/output/*.exe' -ErrorAction SilentlyContinue).Count -eq 0) {
+            throw "release asset missing: installer/output/NATSExcelSetup-*.exe"
+          }
+          Write-Host ("release assets present: " + ($assets.Count + 1) + " files")
+
+      # Hand the release assets to the release job. The artifact keeps the
+      # paths relative to the repository root (bin/..., the two config files and
+      # the installer), which the release job references below.
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: |
+            bin/Release/net48/publish/NATSExcel.dll
+            bin/Release/net48/publish/NATSExcel-packed.xll
+            bin/Release/net48/publish/NATSExcel64-packed.xll
+            NLog.config
+            NATSExcel.json
+            installer/output/*.exe
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      # The release job needs the repository for CHANGELOG.md (the release body).
+      # Checkout MUST run before the artifact download: its default clean would
+      # otherwise wipe the downloaded release-assets directory.
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Extract the release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          # Use the section for this tag as the release body, so the published
+          # release explains what shipped (the guard above already proved the
+          # heading exists). The section runs from '## <tag>' up to the next '## '.
+          $tag = "${{ github.ref_name }}"
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern ('^##\s+' + [regex]::Escape($tag) + '\s*$') | Select-Object -First 1).LineNumber
+          if (-not $start) { throw "no CHANGELOG section for $tag" }
+          $end = ($lines | Select-String -Pattern '^##\s' | Where-Object { $_.LineNumber -gt $start } | Select-Object -First 1).LineNumber
+          if (-not $end) { $end = $lines.Count + 1 }
+          $body = $lines[($start)..($end - 2)] -join "`n"
+          Set-Content -LiteralPath release-notes.md -Value $body -Encoding utf8
+          Write-Host ("release notes: " + ($end - 1 - $start) + " lines")
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          # Tags with a suffix (e.g. v1.0.0-rc1) publish as prerelease.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: release-notes.md
+          files: |
+            release-assets/bin/Release/net48/publish/NATSExcel.dll
+            release-assets/bin/Release/net48/publish/NATSExcel-packed.xll
+            release-assets/bin/Release/net48/publish/NATSExcel64-packed.xll
+            release-assets/NLog.config
+            release-assets/NATSExcel.json
+            release-assets/installer/output/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

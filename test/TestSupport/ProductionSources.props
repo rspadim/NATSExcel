@@ -1,0 +1,66 @@
+<Project>
+
+  <!--
+    Shared production-source list for every NATSExcel test project (PLAN D1).
+
+    The unit, smoke, load and liveness suites compile the production sources
+    directly (linked Compile items) instead of using a ProjectReference to
+    NATSExcel.csproj: a ProjectReference would run the Excel-DNA packing step on
+    every test run. Putting the item group here ONCE avoids the four hand-
+    maintained lists the RedisExcel layout used and the drift risk that comes
+    with ~20 production files.
+
+    NatsRtd.cs is the ONLY intentional exclusion (PLAN D2): it is the Excel/COM
+    surface (RTD server, [ExcelFunction] status helpers) and is exercised by the
+    Excel end-to-end suite instead. Everything else at the repository root is
+    linked.
+
+    Each item is guarded with Condition="Exists(...)" so the suite compiles
+    while the planned production files are still landing; the parity test
+    (test\NATSExcel.Tests\ProjectFileParityTests.cs) is what enforces that every
+    root source which DOES exist is listed here, so a guard can never silently
+    hide a real file.
+
+    Any NEW top-level production *.cs file must be added below.
+    Paths are relative to THIS file (test\TestSupport\), so every importing
+    project gets the same list: $(MSBuildThisFileDirectory)..\..\ is the repo root.
+  -->
+
+  <ItemGroup Label="ProductionSources">
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\AddIn.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\AddIn.cs')" Link="Production\AddIn.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Config.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\Config.cs')" Link="Production\Config.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\ConfigSchema.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\ConfigSchema.cs')" Link="Production\ConfigSchema.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Conflation.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\Conflation.cs')" Link="Production\Conflation.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\IsExternalInit.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\IsExternalInit.cs')" Link="Production\IsExternalInit.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsConnection.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsConnection.cs')" Link="Production\NatsConnection.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsConnectionManager.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsConnectionManager.cs')" Link="Production\NatsConnectionManager.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsJson.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsJson.cs')" Link="Production\NatsJson.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsResultFormatter.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsResultFormatter.cs')" Link="Production\NatsResultFormatter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsRtdTopic.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsRtdTopic.cs')" Link="Production\NatsRtdTopic.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsRuntime.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsRuntime.cs')" Link="Production\NatsRuntime.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsSubscriptionManager.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsSubscriptionManager.cs')" Link="Production\NatsSubscriptionManager.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdf.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdf.cs')" Link="Production\NatsUdf.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfAsync.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfAsync.cs')" Link="Production\NatsUdfAsync.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfCommon.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfCommon.cs')" Link="Production\NatsUdfCommon.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfCore.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfCore.cs')" Link="Production\NatsUdfCore.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfJetStream.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfJetStream.cs')" Link="Production\NatsUdfJetStream.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfKv.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfKv.cs')" Link="Production\NatsUdfKv.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfObjectStore.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfObjectStore.cs')" Link="Production\NatsUdfObjectStore.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsUdfStatus.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsUdfStatus.cs')" Link="Production\NatsUdfStatus.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\TickGate.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\TickGate.cs')" Link="Production\TickGate.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\UpdateCheck.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\UpdateCheck.cs')" Link="Production\UpdateCheck.cs" />
+  </ItemGroup>
+
+  <!--
+    The configuration schema is an embedded resource of the add-in so the
+    tolerance/schema walk can read it without touching disk. The linked
+    ConfigSchema.cs expects the fixed logical name below (PLAN H8); embedding it
+    here gives the test assembly the same resource.
+  -->
+  <ItemGroup Label="ProductionResources">
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\NATSExcel.schema.json" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NATSExcel.schema.json')">
+      <LogicalName>NATSExcel.schema.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

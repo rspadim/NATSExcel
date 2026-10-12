@@ -34,6 +34,13 @@
     <None Remove="tools\**" />
   </ItemGroup>
 
+  <!-- The JSON Schema ships inside the assembly (read by ConfigSchema at
+       runtime and exposed through NatsUDFConfigSchema). -->
+  <ItemGroup>
+    <EmbeddedResource Include="NATSExcel.schema.json" />
+    <None Remove="NATSExcel.schema.json" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Update="NLog.config">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
