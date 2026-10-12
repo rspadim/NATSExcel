@@ -1,0 +1,66 @@
+{
+  // NATSExcel.json - comments (// and /* */) are allowed.
+  // The add-in searches this file in: its own folder, %USERPROFILE%,
+  // the Excel folder, then C:\Windows (first existing wins).
+
+  "Default": {
+    // The cluster used when a formula passes no endpoint.
+    "cluster": "local",
+    "timeout": 1000,
+    "auth": {
+      // Pick ONE credential style. See the README "Authentication" section.
+      "user": null,
+      "password": null,
+      "token": null,
+      "jwt": null,
+      "nkeySeed": null,
+      "credsFile": null,
+      "tls": false,
+      "tlsCert": null,
+      "tlsCertPassword": null
+    },
+    "reconnect": {
+      "maxAttempts": 60,
+      "waitMs": 2000,
+      "jitterMs": 100
+    }
+  },
+
+  "RTD": {
+    "NatsUpdateRateMs": 1000,        // how often the poll timer reads NATS
+    "ExcelUpdateRateMs": 100,        // how often dirty values are flushed to Excel
+    "MessageCounterThreshold": 10000, // Automatic: msgs/sec above which it switches to timer
+    "NatsUpdateStyle": "Automatic",  // Timer | Realtime | Automatic
+    "cluster": null                  // optional override; null = Default.cluster
+  },
+
+  "UDF": {
+    "timeout": 1000,
+    "cluster": null                  // optional override; null = Default.cluster
+  },
+
+  // A named server: a single URL or a comma-separated URL list.
+  "Servers": {
+    "dev": "nats://localhost:4222"
+  },
+
+  // A cluster: a named set of URLs (Servers aliases or inline URLs).
+  // One URL is enough - the client discovers the rest of the cluster.
+  "Clusters": {
+    "local": { "urls": ["dev"] }
+  },
+
+  "JetStream": {
+    "enabled": true,
+    "defaultTimeoutMs": 5000
+  },
+
+  "AllowAdminWrites": false,          // destructive/admin functions require true
+  "SkipRepeatedMessages": true,       // skip identical consecutive payloads (ordinal)
+  "CoalesceRealtimeUpdates": true,    // real-time: at most one push per window
+  "ConflationMs": 200,                // explicit real-time window in ms (0 = off)
+  "PublishDedupCacheSize": 10000,     // LRU size for PublishIfChanged
+  "SyncWrite": "fireforget",          // sync | fireforget | fireforget-all
+  "AsyncWrites": true,                // dispatch writes off the Excel thread (Observe)
+  "UpdateCheck": true                 // background check for a newer release
+}
