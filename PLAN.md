@@ -546,7 +546,54 @@ Practical conclusions folded into `DESIGN.md` §8.1: the client needs only a URL
 list (it auto-discovers peers), and JetStream durability is the stream admin's
 `num_replicas` choice. The add-in must surface placement failures by name.
 
-## 8. Open items to close before/at P0
+## 8. Where we stopped (current state)
+
+Last updated after the parallel build round. Verified on this machine.
+
+**Working (build + tests green):**
+
+| Layer | State |
+| --- | --- |
+| Add-in build | `dotnet build NATSExcel.csproj -c Release` → **0 warnings, 0 errors**; packs `NATSExcel-packed.xll` (32-bit) and `NATSExcel64-packed.xll` (64-bit) into `bin\Release\net48\publish\` |
+| Packing | `NATSExcel.dna` lists all 29 dependency DLLs; the XLL is ~2.3 MB (proof the pack took effect) |
+| Config | `Config.cs` + `ConfigSchema.cs`: comment-tolerant load, `Default`/`Servers`/`Clusters`, 4-step resolution, `MaskNatsEndpoint`, `ResolveSeed`, `Sanitize` |
+| Pure helpers | `Conflation.cs`, `TickGate.cs`, `NatsJson.cs`, `NatsResultFormatter.cs`, `UpdateCheck.cs` |
+| Shared UDF layer | `NatsUdfCommon.cs` (validation, markers, error vocabulary, write-mode, ranges) |
+| RTD grammar | `NatsRtdTopic.cs` (Excel-free parser, 9 commands) |
+| Runtime | `NatsConnectionManager.cs`, `NatsSubscriptionManager.cs`, `NatsRuntime.cs`, `NatsUdfAsync.cs` — all compile |
+| Exposed UDFs | only 3 diagnostics so far (`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`) |
+| Unit tests | `dotnet test test\NATSExcel.Tests` → **4/4 pass** |
+| Validator | `tools/NatsValidate` — config + connection check with the real client; verified against no-auth/token/user-password/NKey servers |
+| Installer | `NATSExcelSetup-0.1.exe` compiles; 7 auth styles; native-first server; en/es/pt-BR |
+| CI | `.github/workflows/build.yml` present (not yet run on GitHub) |
+
+**Verified by experiment (recorded in DESIGN so it is not re-litigated):**
+cluster R3 survives a leader kill (Docker, 3 nodes); JetStream-disabled error
+text; TCP vs WebSocket wire cost is equal (+0.1%); permessage-deflate is
+unusable on net48 (server needs `compression: true`, client needs .NET 7+);
+runtime stays net48 (DESIGN §13.0).
+
+**The ONE blocking gate — not done:**
+
+- **P0 gate / F0.9**: load the packed XLL in a real Excel and call
+  `=NatsUDFVersion()`. This is what confirms (or refutes) the 29-DLL packing and
+  the COM/RTD registration. Everything else is downstream of it. No Excel
+  automation run has been performed yet.
+
+**Not started (the bulk of the catalog):**
+
+- The write twins (`...NonVolatile`) and the ~89-function UDF catalog
+  (`NatsUdfCore/JetStream/Kv/ObjectStore/Status`).
+- `NatsRtd.cs` (the RTD server itself; the parser exists but nothing consumes it).
+- The smoke / load / liveness / Excel-E2E test programs.
+- The `.sln` (indexes into it are still per-project).
+
+**Next step (in order):** run the P0 gate in Excel → wire `NatsRuntime` +
+`NatsConnectionManager` into the 3 diagnostic UDFs so they report a real
+connection → then implement `NatsUdfCore.cs` (publish/subject-latest/request)
+against the now-live runtime.
+
+## 9. Open items to close before/at P0
 
 1. **License**: NATS.Net is Apache-2.0; pick a license for NATSExcel before the
    first public release (RedisExcel ships none).

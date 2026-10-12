@@ -568,8 +568,64 @@ error cell, RTD `#ERROR`, status cell and log line goes through it. A **cluster
 name is not a secret** and is printed as-is; only the credentials it carries are
 masked.
 
-### 8.2 Clusters and JetStream topology
+### 8.2 Transport, TLS and WebSocket (measured)
 
+The add-in speaks the NATS protocol over **TCP by default** (`nats://host:4222`).
+WebSocket (`ws://` / `wss://`) is supported for the cases TCP cannot reach — a
+browser, a corporate HTTP proxy, a firewall that only allows 80/443 — and is
+configured by simply using a `ws://` URL; there is no extra config key.
+
+**Wire cost, measured (not assumed).** A proxy counted the real bytes on the
+socket for the same publish+subscribe workload, using the actual market-data
+payload shape (`{"venue":"binance",...,"seq":1}`, 306 B):
+
+| Payload | TCP | WebSocket | Difference |
+| --- | --- | --- | --- |
+| 64 B | 238.00 B/msg | 238.27 B/msg | +0.1% |
+| 306 B (real feed) | 326.00 B/msg | 326.37 B/msg | +0.1% |
+| 2048 B | 2068.00 B/msg | 2070.23 B/msg | +0.1% |
+
+The NATS protocol framing is a ~20 B constant per message on TCP; the WebSocket
+frame header plus the mandatory client mask adds a few bytes. **The two are
+effectively equal in bandwidth** — WebSocket is about reachability, not savings.
+(The server's `/connz` counters do NOT show this: `in_bytes` counts payload
+only, so it reported both as identical. The measurement above is real socket
+bytes.)
+
+**permessage-deflate (WebSocket compression): not usable in this add-in.** Three
+verified facts:
+
+1. The server supports it, but only when explicitly enabled:
+   `websocket { port: 8090, compression: true }`. Verified: with that on, the
+   handshake answers `Sec-WebSocket-Extensions: permessage-deflate;
+   server_no_context_takeover; client_no_context_takeover`; without it, no
+   extension is negotiated.
+2. The NATS .NET client does **not** implement compression — `WebSocketConnection`
+   just calls `ClientWebSocket.SendAsync`/`ReceiveAsync`. It only exposes
+   `NatsWebSocketOpts.ConfigureClientWebSocketOptions`, handing the caller the
+   BCL's `ClientWebSocketOptions`. The only door to deflate there is
+   **`DangerousDeflateOptions`, which exists only on .NET 7+**.
+3. Excel-DNA targets .NET Framework 4.8 (see §13), and .NET Framework 4.8's
+   `ClientWebSocketOptions` has **no** `DangerousDeflateOptions` (verified by
+   reflection: only `UseDefaultCredentials`, `Credentials`, `Proxy`,
+   `ClientCertificates`, `Cookies`, `KeepAliveInterval`). Setting the
+   `Sec-WebSocket-Extensions` header by hand connects, but the runtime cannot
+   compress or decompress frames, so it is never negotiated in practice.
+
+Even if it worked, the gain would be modest and partly illusory: measured
+single-message deflate on this payload shape saves **~27-30%** (209 B → 153 B;
+312 B → 220 B), and the server negotiates `no_context_takeover`, so there is no
+dictionary reuse across messages (the 90%+ figure only appears when the *same*
+bytes repeat, a case `SkipRepeatedMessages`/`ConflationMs` already removes). The
+server also skips compression below `wsCompressThreshold = 64` bytes.
+
+**What actually moves the needle on bandwidth** (all already in the design):
+`ConflationMs` (deliver fewer messages), `SkipRepeatedMessages` (drop identical
+payloads), a smaller payload (the feed repeats `venue`/`environment`/
+`marketType` on every message — ~30% of the body), and preferring TCP. TLS adds
+a small constant per record in the opposite direction.
+
+### 8.3 Clusters and JetStream topology
 The add-in **consumes** a cluster; it does not form one. Cluster formation is a
 server-side concern (a `cluster {}` block in each `nats.conf`). The add-in's job
 is to be a *good NATS citizen*: trust discovery, expose what the server
@@ -750,6 +806,27 @@ silently.
   `Servers`/`Auth`/`JetStream`).
 
 ## 13. Open decisions
+
+0. **Runtime: stay on .NET Framework 4.8 — DECIDED (verified).** Excel-DNA 1.9.0
+   supports `net6.0-windows` through `net10.0-windows` as well as .NET Framework
+   4.6.2-4.8.1, so a modern runtime IS possible. It is deliberately not taken:
+
+   | | net48 (chosen) | .NET 6+ |
+   | --- | --- | --- |
+   | Runtime install on the user's machine | none (a Windows component) | the matching **.NET Desktop Runtime**, per bitness |
+   | Add-in isolation | separate AppDomain; coexists with any other add-in | no AppDomain ("weak isolation") |
+   | Coexistence | always | **only one .NET core runtime per Excel process** — a version mismatch with another add-in blocks a load (mitigated, not fixed, by `<RollForward>`) |
+   | Microsoft support horizon | none announced (as long as Windows) | a new major every year, LTS/STS alternating |
+   | Modern C# / BCL | no | yes |
+
+   The Excel-DNA author's own guidance is to target .NET Framework for an add-in
+   "distributed outside your organization, or on machines you don't have much
+   control over" — exactly this add-in's case. The concrete thing a modern
+   runtime would buy is WebSocket permessage-deflate (§8.2), which saves ~27% on
+   a payload the add-in already trims via `ConflationMs`/`SkipRepeatedMessages`
+   — not worth a mandatory runtime install plus a cross-add-in version hazard.
+   Revisit only if a different requirement forces a modern runtime (modern TLS,
+   `System.Text.Json`, new C#); deflate then comes along for free.
 
 1. **Language version — RESOLVED (verified).** A spike built `net48` against
    `NATS.Client.*` 3.3.0 and connected to a live server: publish + `await foreach`
