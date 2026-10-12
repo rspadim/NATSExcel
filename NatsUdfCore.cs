@@ -54,9 +54,6 @@ namespace NATSExcel
         /// formula can hold a thread arbitrarily long.</summary>
         private const int MaxRequestBoundMs = 60000;
 
-        /// <summary>Payload head length kept in log lines and error contexts.</summary>
-        private const int ValueLogLimit = 32;
-
         // ==================================================================
         // Construction
         // ==================================================================
@@ -1173,7 +1170,20 @@ namespace NATSExcel
                 }
             }
 
-            string endpoint = AppConfig.ResolveUdfEndpoint(reference);
+            string endpoint;
+            try
+            {
+                endpoint = AppConfig.ResolveUdfEndpoint(reference);
+            }
+            catch (Exception ex)
+            {
+                // Config access must never fault a formula; report it as the
+                // usual masked runtime error (a bad file is a #CONFIG-class
+                // problem, not a raw exception in a cell).
+                error = RuntimeError("host=" + NatsUdfCommon.ShortForLog(display, 128), ex);
+                return null;
+            }
+
             if (string.IsNullOrWhiteSpace(endpoint))
             {
                 error = NatsUdfCommon.VerboseError(

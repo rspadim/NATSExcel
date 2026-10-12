@@ -204,6 +204,11 @@ namespace NATSExcel
         /// across an add-in reload (no write is lost or duplicated - the docs
         /// describe async dedup as best-effort).
         /// </summary>
+        /// <summary>
+        /// Enqueue a write for its endpoint and return a task that completes with
+        /// the result. (The name has no "Async" suffix by contract: the caller is
+        /// a synchronous UDF.)
+        /// </summary>
         internal static Task<object> Enqueue(string endpoint, Func<object> work)
         {
             while (true)
