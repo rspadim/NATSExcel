@@ -27,7 +27,6 @@
   -->
 
   <ItemGroup Label="ProductionSources">
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\AddIn.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\AddIn.cs')" Link="Production\AddIn.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Config.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\Config.cs')" Link="Production\Config.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\ConfigSchema.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\ConfigSchema.cs')" Link="Production\ConfigSchema.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Conflation.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\Conflation.cs')" Link="Production\Conflation.cs" />

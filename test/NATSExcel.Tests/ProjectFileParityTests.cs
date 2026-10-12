@@ -12,8 +12,10 @@ namespace NATSExcel.Tests
     /// <c>test\TestSupport\ProductionSources.props</c> (PLAN D1): the test
     /// projects compile the production sources directly (no ProjectReference),
     /// so a new root production file that is missing from the props would never
-    /// be exercised by the unit suite. <c>NatsRtd.cs</c> is the only intentional
-    /// exclusion (PLAN D2): its RTD/COM surface needs Excel and is covered by the
+    /// be exercised by the unit suite. Two files are intentional exclusions
+    /// (PLAN D2): <c>NatsRtd.cs</c> (the RTD/COM surface, needs Excel) and
+    /// <c>AddIn.cs</c> (it calls into <c>NatsRtd</c> and <c>ComServer</c>, so it
+    /// cannot compile without the excluded file); both are covered by the Excel
     /// E2E script instead.
     ///
     /// This mirrors the RedisExcel.Tests parity test, with two differences: the
@@ -23,10 +25,10 @@ namespace NATSExcel.Tests
     /// </summary>
     public class ProjectFileParityTests
     {
-        private const string ExcludedFileName = "NatsRtd.cs";
+        private static readonly string[] ExcludedFileNames = { "NatsRtd.cs", "AddIn.cs" };
 
         [Fact]
-        public void ProductionSourcesProps_CoversEveryRootProductionSourceExceptNatsRtd()
+        public void ProductionSourcesProps_CoversEveryRootProductionSourceExceptTheExcelSurfaceFiles()
         {
             string repoRoot = FindRepoRoot();
             string propsPath = Path.Combine(
@@ -37,11 +39,11 @@ namespace NATSExcel.Tests
 
             // Every top-level production source (the repository root is the only
             // place production .cs files live) must be listed by the props, except
-            // the deliberately excluded RTD/COM file.
+            // the deliberately excluded Excel-surface files.
             List<string> required = Directory.GetFiles(repoRoot, "*.cs", SearchOption.TopDirectoryOnly)
                 .Select(Path.GetFullPath)
-                .Where(path => !string.Equals(
-                    Path.GetFileName(path), ExcludedFileName, StringComparison.OrdinalIgnoreCase))
+                .Where(path => !ExcludedFileNames.Any(
+                    name => string.Equals(Path.GetFileName(path), name, StringComparison.OrdinalIgnoreCase)))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -50,10 +52,11 @@ namespace NATSExcel.Tests
                 "production sources missing from ProductionSources.props: "
                 + string.Join(", ", missing));
 
-            // The exclusion is intentional: listing NatsRtd.cs would pull the
-            // RTD/COM surface into the unit suite and mask that gap.
-            Assert.DoesNotContain(
-                Path.GetFullPath(Path.Combine(repoRoot, ExcludedFileName)), compiled);
+            // The exclusion is intentional: listing these would pull the RTD/COM
+            // surface into the unit suite and mask that gap.
+            foreach (string name in ExcludedFileNames)
+                Assert.DoesNotContain(
+                    Path.GetFullPath(Path.Combine(repoRoot, name)), compiled);
         }
 
         [Fact]

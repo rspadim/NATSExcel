@@ -42,10 +42,13 @@ namespace NATSExcel.Tests
             var root = JObject.Parse(stripped);
 
             // Shape pinned by the shipped sample and NATSExcel.schema.json.
-            Assert.NotNull(root["Default"]);
-            Assert.Equal("local", (string)root["Default"]["cluster"]);
+            // Default is a NAME (a Clusters/Servers name or a raw URL).
+            Assert.Equal(JTokenType.String, root["Default"].Type);
+            Assert.Equal("local", (string)root["Default"]);
             Assert.Equal("nats://localhost:4222", (string)root["Servers"]["dev"]);
             Assert.NotNull(root["Clusters"]["local"]);
+            Assert.NotNull(root["Auth"]);
+            Assert.NotNull(root["Reconnect"]);
             Assert.NotNull(root["JetStream"]);
             Assert.Equal("fireforget", (string)root["SyncWrite"]);
             Assert.False((bool)root["AllowAdminWrites"]);

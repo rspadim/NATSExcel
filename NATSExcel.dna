@@ -18,6 +18,7 @@
 	<Reference Path="NATS.Client.Core.dll" Pack="true" />
 	<Reference Path="NATS.Client.JetStream.dll" Pack="true" />
 	<Reference Path="NATS.Client.KeyValueStore.dll" Pack="true" />
+	<Reference Path="NATS.Client.ObjectStore.dll" Pack="true" />
 	<Reference Path="NATS.NKeys.dll" Pack="true" />
 	<Reference Path="Nerdbank.Streams.dll" Pack="true" />
 	<Reference Path="Newtonsoft.Json.dll" Pack="true" />

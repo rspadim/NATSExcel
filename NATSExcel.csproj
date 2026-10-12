@@ -20,6 +20,7 @@
     <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
     <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
     <PackageReference Include="NATS.Client.KeyValueStore" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.ObjectStore" Version="3.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="NLog" Version="6.0.0-rc3" />
   </ItemGroup>
