@@ -27,7 +27,10 @@ namespace NATSExcel.LoadTests
     /// </summary>
     internal static class Program
     {
-        private static int Main(string[] args)
+        // async Main: a console app has no SynchronizationContext, so awaiting is
+        // the correct way to wait; the analyzer (VSTHRD002) rejects a blocking
+        // GetAwaiter().GetResult() here.
+        private static async Task<int> Main(string[] args)
         {
             string url = args.Length > 0 ? args[0] : "nats://127.0.0.1:4222";
             int seconds = Arg(args, 1, 10);
@@ -47,7 +50,7 @@ namespace NATSExcel.LoadTests
 
             try
             {
-                return RunAsync(url, seconds, publishers, listeners, subject, queue).GetAwaiter().GetResult();
+                return await RunAsync(url, seconds, publishers, listeners, subject, queue).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

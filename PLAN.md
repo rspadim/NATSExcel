@@ -49,8 +49,8 @@ Consolidated from three independent plans; interface names were reconciled
 
 | Set | Count |
 | --- | --- |
-| `[ExcelFunction]` total (`NatsUDF*`) | **89** |
-| Base UDFs (before twins) | **64** |
+| `[ExcelFunction]` total (`NatsUDF*`) | **91** |
+| Base UDFs (before twins) | **66** |
 | Volatile | **63** (25 write bases + 38 reads/status) |
 | Writes with a `...NonVolatile` twin | **25** |
 | Reads/status without a twin | **38** |
@@ -365,7 +365,7 @@ covered by the Excel E2E rather than a unit test.
 
 **DONE** — the whole catalog exists: Core (`NatsUdfCore.cs`), JetStream + admin
 (`NatsUdfJetStream.cs`), KV (`NatsUdfKv.cs`), Object Store
-(`NatsUdfObjectStore.cs`) with their `...NonVolatile` twins. 89 `NatsUDF*`
+(`NatsUdfObjectStore.cs`) with their `...NonVolatile` twins. 91 `NatsUDF*`
 `[ExcelFunction]` total (see §1.1).
 
 Core (`NatsUdfCore.cs`) — S5.1..S5.9: publish / publishJSON / publishIfChanged
@@ -408,7 +408,7 @@ unbounded-blocking source scan (`V7.3`) are still TODO. `S7.4` is **DONE** —
 | ID | Task | Acceptance |
 | --- | --- | --- |
 | S7.1 | `PublicSurfaceParityTests` + `PublicSurface.baseline.txt` | any rename/reorder fails |
-| S7.2 | `NonVolatileTwinTests` (25 pairs; counts 64 base / 25 twins) | delegation identical offline |
+| S7.2 | `NonVolatileTwinTests` (25 pairs; counts 66 base / 25 twins) | delegation identical offline |
 | V7.3 | `NoUnboundedBlockingTests`: source scan fails on `.GetAwaiter().GetResult()`, `.Result`, `.Wait(` outside the bounded helper | zero hits |
 | S7.4 | Update `DESIGN.md` §5.1 and `AGENTS.md` layout for `NatsRtdTopic.cs`, `NatsUdfCommon.cs` | tables match tree |
 
@@ -550,7 +550,7 @@ and the release cut (V10.*). The medium/low audit findings are listed in §9.
   `NatsRuntime` has a shutdown tombstone and reload reset; the async bridge is a
   pure passthrough when off and an `Observe` FIFO when on; unit suite green with
   no NATS and no Excel.
-- **S**: all **89** functions with frozen signatures; all 25 twins pass parity;
+- **S**: all **91** functions with frozen signatures; all 25 twins pass parity;
   all **9** RTD commands behave per §1.2 with malformed topics rejected before
   registration; every marker/error string matches literally; the 11 gated
   functions return the exact gate error and are the only gated ones; zero
@@ -617,7 +617,7 @@ machine.
 | RTD grammar | `NatsRtdTopic.cs` (Excel-free parser, 9 commands incl. `RTDCLUSTER`) |
 | RTD server | `NatsRtd.cs` (the `NatsRtd` server + the six `NatsRTD*` helpers) |
 | Runtime | `NatsConnectionManager.cs`, `NatsSubscriptionManager.cs`, `NatsRuntime.cs`, `NatsUdfAsync.cs` |
-| Exposed UDFs | the full catalog: **89** `NatsUDF*` `[ExcelFunction]` (64 base + 25 twins) + 6 `NatsRTD*` |
+| Exposed UDFs | the full catalog: **91** `NatsUDF*` `[ExcelFunction]` (66 base + 25 twins) + 6 `NatsRTD*` |
 | Unit tests | `dotnet test test\NATSExcel.Tests` → **88 facts + 5 theories green** |
 | Excel E2E | `test\Run-ExcelE2E.ps1` → **11/11 pass** locally (UDF round trip, RTD push, KV/JS named errors, multi-workbook, node-kill failover, Excel restart) |
 | Load | `test\LoadTests` drives the real `NatsSubscriptionManager`; **~204k msg/s** measured on a local manager run |

@@ -18,7 +18,7 @@ contract; this file is the working guidance.
 
 > **Implementation status (read this first).** The add-in is now largely
 > implemented: the packed XLL loads in real Excel and answers UDFs (the P0 gate
-> passed), the full `NatsUDF*` catalog (**89** functions) plus the six `NatsRTD*`
+> passed), the full `NatsUDF*` catalog (**91** functions) plus the six `NatsRTD*`
 > status helpers exist, the RTD server runs, the Excel E2E passes 11/11 and a
 > load test measures ~204k msg/s. The unit, load and E2E test layers are real;
 > the smoke and liveness layers, the solution file and the release cut are still

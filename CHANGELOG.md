@@ -1,7 +1,105 @@
 # Changelog
 
-## Unreleased
+All notable changes to this project are documented in this file. The format follows the spirit of
+[Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
+
+## v0.1.0
+
+First release. NATSExcel is an Excel add-in (XLL) that integrates NATS with Excel: worksheet
+functions (UDFs) for Core NATS and JetStream, plus an RTD server for streaming topics.
 
 ### Added
 
-- Placeholder: no release has been cut yet.
+- **Add-in skeleton and packaging.** `NATSExcel.csproj` (net48, C# 9 via the `IsExternalInit`
+  shim) and the `NATSExcel.dna` packing manifest. The `.dna` file name is what makes Excel-DNA
+  emit `NATSExcel-packed.xll` / `NATSExcel64-packed.xll`, and it packs the full net48 dependency
+  closure (ExcelDna, NATS.Client.Core/JetStream/KeyValueStore/ObjectStore, Newtonsoft.Json,
+  NLog). A build target copies `NATSExcel.dll` next to the packed XLLs, and `AddIn.cs` wires the
+  `AutoOpen`/`AutoClose` lifecycle.
+- **Configuration layer.** `AppConfig` loads `NATSExcel.json` once and supports comment-tolerant
+  parsing (`StripComments`), endpoint resolution over `Default` / `Servers` / `Clusters`, a shared
+  top-level `Auth` and `Reconnect` block with per-cluster overrides, and a JSON-Schema walk
+  (`ConfigSchema.cs`) that drops a single wrongly-typed value instead of reverting the whole file.
+  NKey `seed_or_path` is resolved by reading a `.nk` file first. `NatsUDFConfigReload` re-reads the
+  file without restarting Excel.
+- **Runtime layer.** `NatsRuntime`, `NatsConnectionManager` and `NatsSubscriptionManager`: one
+  cached `NatsConnection` per resolved endpoint, ref-counted Core subscriptions keyed by
+  `(endpoint, subject, queueGroup)`, an async bridge via `ExcelAsyncUtil.Observe`, bounded waits,
+  and a process-wide shutdown tombstone with a same-process reload reset.
+- **RTD server.** The `NatsRtd` `ExcelRtdServer` with nine topic kinds (`SUB`, `KV`, `KVGET`,
+  `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`, `RTDCLUSTER`), a poll timer and an Excel flush timer behind
+  a reentrancy gate, subscribe backoff, real-time conflation, and a frozen, Excel-free topic
+  grammar (`NatsRtdTopic.cs`). Six `NatsRTD*` status helpers accompany the server.
+- **UDF catalog.** The full `NatsUDF*` surface across Core NATS, JetStream, Key/Value, Object
+  Store and status/diagnostics, including the `...NonVolatile` write twins, and the two pure
+  conversions `NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix`. The catalog exposes the base functions
+  plus the write twins and six `NatsRTD*` status helpers; identifiers and values are written with
+  the invariant culture, and admin/destructive operations are gated by `AllowAdminWrites`
+  (default off).
+- **Installer.** An Inno Setup script (`installer/NATSExcel.iss`), per-user and native-first, with
+  an Authentication page covering seven auth styles (none, token, user/password, NKey, JWT + seed,
+  creds file, mTLS), silent parameters for each, and en/es/pt-BR languages. The native server
+  helper writes `nats.conf` without a BOM (the NATS parser rejects one), and a service helper is
+  provided for the isolated-service path.
+- **Validator tool.** `tools/NatsValidate` validates a `NATSExcel.json` and, with `--test`,
+  connects with the same NATS.Net client the add-in uses, so every credential style is exercised
+  for real (the PowerShell helpers only speak the wire protocol).
+- **Test layers.** The five-layer model: the config/connection validator, the xUnit unit suite
+  (config, schema drop, masking, the RTD grammar, the UDF argument vocabulary, the JSON helpers,
+  conflation, project-file and `.dna` parity, and an unbounded-blocking source scan), the native
+  cluster harness, the Excel end-to-end script, the load test, and the smoke and liveness suites
+  (ref-counted subscriptions, wildcards, queue groups, request/reply, JetStream/KV/Object Store,
+  the admin gate and the JetStream-disabled path; plus adversarial liveness with a heartbeat
+  watchdog).
+- **Credential-safe logging.** A `maskedException` NLog layout renderer masks credentials in
+  every logged exception (outer and inner), and `MaskNatsEndpoint` redacts userinfo, `password=`,
+  JWTs, NKey seeds, creds-file paths and TLS cert paths in error cells, RTD `#ERROR`, status cells
+  and log lines.
+- **CI.** `.github/workflows/build.yml`: a Release build, unit tests, native `nats-server -js`
+  provisioning with a 4222/`jetstream:true` probe, the smoke and liveness suites, an Inno Setup
+  installer build on every run, tag guards (CHANGELOG heading, release-asset existence), and a
+  release job that uses the CHANGELOG section as the release body.
+
+### Changed
+
+- **Config shape.** `Default` is a plain endpoint name (a `Clusters` name, a `Servers` name or a
+  raw URL); endpoints live under `Servers`/`Clusters`; the shared connection defaults moved to
+  top-level `Auth`/`Reconnect` blocks that a cluster can override. The earlier nested-`Default`
+  shape still loads as a fallback.
+- **Transport unified.** Removed the RTD/UDF server split inherited from RedisExcel: one
+  `NatsConnection` per endpoint multiplexes reads, subscriptions and JetStream, so a second pool
+  bought nothing. The config, loader and schema were aligned to the single-pool model.
+- **Per-cluster auth applied.** A cluster's `auth`, `timeout` and `reconnect` settings are now
+  actually resolved and applied (matching the resolved URL back to its cluster), instead of only
+  the shared block being read.
+- **Reconnect policy wired.** The `maxAttempts`/`waitMs`/`jitterMs` knobs now reach `NatsOpts`
+  (`MaxReconnectRetry`/`ReconnectWaitMin`/`ReconnectJitter`) rather than being inert config.
+
+### Fixed
+
+- **`NatsUDFRequest` timeout marker.** A request with no responder returned the raw client error
+  instead of the frozen `TIMEOUT` marker (`NatsNoReplyException` was unclassified). Found by the
+  smoke suite.
+- **`NatsUDFObjectGet` missing-object name.** Fetching an absent object rendered `object '' not
+  found` with an empty name because the read path passed `null` instead of the object name. Found
+  by the smoke suite.
+- **`NatsUDFLogPath` on a byte-loaded XLL.** It returned `#VALUE!` because `Assembly.Location` is
+  empty inside Excel; it now falls back to the Excel-DNA `XllPath` and never throws.
+- **Connection vs JetStream errors.** An unreachable endpoint reported "JetStream is not enabled",
+  sending users to the wrong problem; the manager now distinguishes "nobody answered" from "the
+  server has no JetStream".
+- **Install and service bugs.** The uninstaller removed every `OPEN` entry containing
+  `NATSExcel`, stripping other installs from Excel's add-ins list; it now removes only this
+  install's XLL. The native server helper now copies `nats-server.exe` into the target folder so
+  the service path has a real binary.
+- **Bounded teardown and shutdown races.** Dispose loops run under a total budget instead of a
+  per-connection bound (a many-endpoint workbook could freeze Excel for minutes), and
+  `GetJetStream` re-checks the shutdown fence after the lazy factory materializes.
+- **Excel error cells in a range.** A keys/subjects range containing an Excel error cell was
+  silently dropped (rows shifted, streams could be created with fewer subjects than shown); both
+  readers now reject it with the frozen error text.
+- **`PublishIfChanged` dedup.** A fire-and-forget publish that was never confirmed no longer
+  records a dedup marker, which used to starve the feed permanently.
+- **Reload and config edge cases.** `ResetAfterAddInReload` removes only the instances it tore
+  down; a dangling `Default` falls back to the built-in URL; the `RTD.cluster`/`UDF.cluster`
+  overrides are read and declared in the schema.

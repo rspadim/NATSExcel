@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,7 +33,7 @@ namespace NatsExcel.Tools
         private const string ConfigFileName = "NATSExcel.json";
         private const string DefaultUrl = "nats://localhost:4222";
 
-        private static int Main(string[] args)
+        private static async Task<int> Main(string[] args)
         {
             var opts = CommandLine.Parse(args);
             if (opts.Help)
@@ -92,6 +92,9 @@ namespace NatsExcel.Tools
             Console.WriteLine();
             Console.WriteLine("Connection");
             Console.WriteLine("  urls      : " + ConfigLoader.MaskUrls(endpoint.Urls));
+            if (!string.IsNullOrEmpty(endpoint.ClusterLabel))
+                Console.WriteLine("  cluster   : " + endpoint.ClusterLabel
+                    + (string.IsNullOrEmpty(endpoint.ExpectCluster) ? "" : " (expectCluster='" + endpoint.ExpectCluster + "')"));
             Console.WriteLine("  auth      : " + DescribeAuth(endpoint.Auth));
             Console.WriteLine("  tls       : " + (endpoint.Auth.Tls ? "yes" : "no"));
             Console.WriteLine("  timeout   : " + endpoint.TimeoutMs + " ms");
@@ -114,7 +117,10 @@ namespace NatsExcel.Tools
 
             Console.WriteLine();
             Console.WriteLine("Testing the connection (NATS.Net client)...");
-            var result = ConnectionTester.Test(endpoint, opts.TimeoutMs).GetAwaiter().GetResult();
+            // `await` (not a blocking .GetAwaiter().GetResult()): a validator is a
+            // console app with no synchronization context, and the vs-threading
+            // analyzers promote an unbounded blocking wait to a build error.
+            var result = await ConnectionTester.TestAsync(endpoint, opts.TimeoutMs).ConfigureAwait(false);
             foreach (var line in result.Lines)
                 Console.WriteLine("  " + line);
 
@@ -162,3 +168,4 @@ namespace NatsExcel.Tools
         }
     }
 }
+

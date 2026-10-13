@@ -2,14 +2,17 @@ using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
+using NATS.NKeys;
 using NATSExcel;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,6 +34,11 @@ namespace NATSExcel.SmokeTests
     /// <item>The frozen admin-gate text, both with the gate closed and open.</item>
     /// <item>The JetStream-disabled path (skipped, with a reason, when the server
     /// has JetStream on).</item>
+    /// <item>The auth matrix: one disposable local server per credential style
+    /// (no-auth, token, user/password, NKey), each with the right secret AND a
+    /// wrong one; the NKey <c>nkeySeed</c> as both the raw <c>SU...</c> text and a
+    /// <c>.nk</c> file path (golden rule 11). It starts its own servers on free
+    /// ports and skips, with a reason, when no <c>nats-server.exe</c> is found.</item>
     /// </list>
     ///
     /// <para>Usage:
@@ -38,7 +46,7 @@ namespace NATSExcel.SmokeTests
     /// The URL is a command-line argument only; no real endpoint is ever committed.
     /// Pass <c>--require-jetstream</c> to fail (instead of skip) when the server
     /// runs without <c>-js</c>; pass <c>--read-only</c> to skip every write/admin
-    /// section.</para>
+    /// section (the auth matrix still runs: its probes are reads).</para>
     ///
     /// <para>The production sources are compiled directly into this assembly
     /// (linked <c>Compile</c> items), so the internal test seams
@@ -148,6 +156,14 @@ namespace NATSExcel.SmokeTests
                         await RunJetStreamDisabledChecksAsync(raw).ConfigureAwait(false);
                     }
                 }
+
+                // The auth matrix runs LAST: it resets the shared runtime between
+                // its own disposable servers, so it must not run while the JetStream
+                // checks above hold a connection or a JetStream context. It starts
+                // its OWN servers on free ports and only needs a reachable
+                // nats-server.exe, not the CLI URL, and its probes are reads
+                // (PING/RTT), so it also runs under --read-only.
+                await RunAuthMatrixChecksAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -453,6 +469,448 @@ namespace NATSExcel.SmokeTests
             ordToken.Dispose();
             wildToken.Dispose();
             await Task.Delay(100).ConfigureAwait(false);
+        }
+
+        // ==================================================================
+        // 10. The auth matrix: one disposable local server per credential
+        //     style. Proves the add-in's real auth mapping (NatsConnectionManager
+        //     .BuildAuth + AppConfig.ResolveSeed) end to end, plus the negative
+        //     (a wrong secret fails fast with a clear error, never a hang) and
+        //     golden rule 11 (the nkeySeed field is the text OR a .nk file).
+        // ==================================================================
+
+        private static async Task RunAuthMatrixChecksAsync()
+        {
+            string serverExe = FindNatsServer();
+            if (serverExe == null)
+            {
+                Skip("auth matrix", "no nats-server.exe found (PUT it on PATH or in "
+                    + "%TEMP%\\natsexcel-cluster\\server); cannot start a per-style server");
+                return;
+            }
+
+            Console.WriteLine("  auth matrix: server " + serverExe);
+            string workRoot = Path.Combine(Path.GetTempPath(),
+                "natsexcel-smoke-auth-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                // Every probe is a READ (a PING round trip plus the connection
+                // state), so the whole matrix is safe under --read-only: it starts
+                // only its own disposable local servers and never writes to the
+                // user's endpoint.
+                await AuthNoAuthAsync(serverExe, workRoot).ConfigureAwait(false);
+                await AuthSecretMatrixAsync(serverExe, workRoot).ConfigureAwait(false);
+                await AuthNkeyAsync(serverExe, workRoot).ConfigureAwait(false);
+            }
+            finally
+            {
+                try { Directory.Delete(workRoot, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>The control: an unauthenticated server still answers.</summary>
+        private static async Task AuthNoAuthAsync(string serverExe, string workRoot)
+        {
+            using (var server = StartNatsServer(serverExe, workRoot, "noauth",
+                       new[] { "authorization { }" }))
+            {
+                if (!server.Ready)
+                {
+                    Skip("auth(no-auth): connects", "the disposable server did not become ready");
+                    return;
+                }
+
+                // The whole add-in config/auth path, with no credentials (a READ:
+                // no publish, so it is safe under --read-only).
+                AppConfig.CurrentOverrideForTests = AuthRoot(null, server.Url, "sync");
+                NatsRuntime.Shutdown();
+                NatsRuntime.ResetAfterAddInReload();
+
+                string marker = await AuthProbeAsync(server.Url).ConfigureAwait(false);
+                Check(marker == "OK",
+                    "auth(no-auth): the add-in connects and a call succeeds"
+                    + (marker == "OK" ? "" : " (got '" + marker + "')"));
+            }
+        }
+
+        /// <summary>
+        /// Token and user/password, each with the matching secret and with a WRONG
+        /// one: the positive proves the credential is really sent, the negative
+        /// proves a bad credential fails fast with a clear error, never a hang.
+        /// </summary>
+        private static async Task AuthSecretMatrixAsync(string serverExe, string workRoot)
+        {
+            const string token = "smoke-example-token-8f3a";
+            using (var server = StartNatsServer(serverExe, workRoot, "token",
+                       new[] { "authorization { token: " + token + " }" }))
+            {
+                if (!server.Ready)
+                {
+                    Skip("auth(token): connects", "the disposable server did not become ready");
+                    Skip("auth(token): a wrong token fails fast", "the disposable server did not become ready");
+                }
+                else
+                {
+                    await AssertAuthAsync(server.Url, AuthWithToken(token), success: true,
+                        label: "auth(token): the right token connects and a call succeeds").ConfigureAwait(false);
+                    await AssertAuthAsync(server.Url, AuthWithToken(token + "-wrong"), success: false,
+                        label: "auth(token): a wrong token fails with a clear error").ConfigureAwait(false);
+                }
+            }
+
+            using (var server = StartNatsServer(serverExe, workRoot, "userpass",
+                       new[] { "authorization { users: [ { user: smoke, password: smoke-pass } ] }" }))
+            {
+                if (!server.Ready)
+                {
+                    Skip("auth(user/password): connects", "the disposable server did not become ready");
+                    Skip("auth(user/password): a wrong password fails fast", "the disposable server did not become ready");
+                }
+                else
+                {
+                    await AssertAuthAsync(server.Url, AuthWithUserPass("smoke", "smoke-pass"), success: true,
+                        label: "auth(user/password): the right pair connects and a call succeeds").ConfigureAwait(false);
+                    await AssertAuthAsync(server.Url, AuthWithUserPass("smoke", "nope"), success: false,
+                        label: "auth(user/password): a wrong password fails with a clear error").ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// NKey: the server holds only the public key, the client signs the nonce
+        /// with the seed. Exercises golden rule 11: the seed field is the raw
+        /// <c>SU...</c> text AND a path to a <c>.nk</c> file, both of which must
+        /// connect. A wrong seed is the negative.
+        /// </summary>
+        private static async Task AuthNkeyAsync(string serverExe, string workRoot)
+        {
+            string seed;
+            string publicKey;
+            try
+            {
+                using (var pair = KeyPair.CreatePair(PrefixByte.User))
+                {
+                    seed = pair.GetSeed();
+                    publicKey = pair.GetPublicKey();
+                }
+            }
+            catch (Exception ex)
+            {
+                Skip("auth(nkey): connects", "could not generate an NKey pair (" + Describe(ex) + ")");
+                Skip("auth(nkey): the .nk file path case", "could not generate an NKey pair");
+                return;
+            }
+
+            using (var server = StartNatsServer(serverExe, workRoot, "nkey",
+                       new[] { "authorization { users: [ { nkey: " + publicKey + " } ] }" }))
+            {
+                if (!server.Ready)
+                {
+                    Skip("auth(nkey): connects", "the disposable server did not become ready");
+                    Skip("auth(nkey): the .nk file path case", "the disposable server did not become ready");
+                    return;
+                }
+
+                // The raw "SU..." seed text.
+                await AssertAuthAsync(server.Url, AuthWithSeed(seed), success: true,
+                    label: "auth(nkey): the \"SU...\" seed text connects and a call succeeds").ConfigureAwait(false);
+
+                // Golden rule 11, proven independently of the connection: the
+                // seed field is the text itself OR a path to a .nk file, and a
+                // path is READ (and trimmed), never passed through as base32.
+                Check(string.Equals(AppConfig.ResolveSeed(seed), seed, StringComparison.Ordinal),
+                    "auth(nkey): an \"SU...\" nkeySeed is returned unchanged (the text form)");
+
+                string nkPath = Path.Combine(server.Dir, "user.nk");
+                File.WriteAllText(nkPath, seed + Environment.NewLine, new UTF8Encoding(false));
+                Check(string.Equals(AppConfig.ResolveSeed(nkPath), seed, StringComparison.Ordinal),
+                    "auth(nkey): a .nk file path in nkeySeed is read and trimmed (golden rule 11)");
+
+                await AssertAuthAsync(server.Url, AuthWithSeed(nkPath), success: true,
+                    label: "auth(nkey): a path to a .nk file is read as the seed and connects").ConfigureAwait(false);
+
+                // A different, valid seed the server does not know is the negative.
+                string otherSeed;
+                using (var other = KeyPair.CreatePair(PrefixByte.User))
+                    otherSeed = other.GetSeed();
+                await AssertAuthAsync(server.Url, AuthWithSeed(otherSeed), success: false,
+                    label: "auth(nkey): an unknown seed fails with a clear error").ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Runs the add-in's real connection path
+        /// (<see cref="NatsRuntime"/> + the connection manager's auth mapping)
+        /// against <paramref name="url"/> with the given auth and asserts success
+        /// or a bounded, clear failure.
+        /// </summary>
+        private static async Task AssertAuthAsync(string url, AppConfig.Auth auth, bool success, string label)
+        {
+            AppConfig.CurrentOverrideForTests = AuthRoot(auth, url, "sync");
+            NatsRuntime.Shutdown();
+            NatsRuntime.ResetAfterAddInReload();
+
+            var watch = Stopwatch.StartNew();
+            string marker = await AuthProbeAsync(url).ConfigureAwait(false);
+            watch.Stop();
+
+            if (success)
+            {
+                Check(marker == "OK",
+                    label + (marker == "OK" ? "" : " (got '" + marker + "')"));
+                return;
+            }
+
+            // The negative: a clear error, never the OK marker and never a hang.
+            bool clearError = marker != "OK"
+                && (marker.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                    || marker == NatsUdfCommon.Timeout);
+            Check(clearError, label + " (got '" + marker + "' in " + watch.ElapsedMilliseconds + " ms)");
+            Check(watch.ElapsedMilliseconds < 15000,
+                "auth: the failure is bounded, never a hang (" + watch.ElapsedMilliseconds + " ms)");
+        }
+
+        /// <summary>
+        /// One real add-in call with a bounded wait, through the Excel-facing
+        /// surface: <c>NatsUDFRtt</c> resolves the endpoint the way a formula does
+        /// (<c>NatsRuntime.ResolveEndpointForDispatch</c>), opens the connection
+        /// with its auth and runs a PING/PONG. It is a READ (nothing is published),
+        /// so the matrix is safe under <c>--read-only</c>. Returns
+        /// NatsUdfCommon.Ok on success, otherwise the frozen marker / masked error
+        /// text.
+        /// </summary>
+        private static async Task<string> AuthProbeAsync(string url)
+        {
+            try
+            {
+                // NatsUDFRtt resolves the endpoint the way a formula does, opens
+                // the connection with the configured auth and runs a PING/PONG. A
+                // numeric result is the success; any error text is returned as-is.
+                object rtt = NatsUdfStatus.NatsUDFRtt(null); // null host -> Default (url)
+                if (rtt is double)
+                    return NatsUdfCommon.Ok;
+                if (rtt is int || rtt is long || rtt is float)
+                    return NatsUdfCommon.Ok;
+
+                string text = AsString(rtt);
+                if (!string.IsNullOrEmpty(text)
+                    && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    return NatsUdfCommon.Ok;
+
+                // Defensive: if the RTT surface ever changes shape, fall back to a
+                // direct bounded ping on the add-in's own connection so the probe
+                // still proves the credential was accepted end to end.
+                NatsConnection connection = NatsRuntime.Connections.GetConnection(url);
+                var measured = await WithTimeoutAsync(connection.PingAsync().AsTask(), 8000).ConfigureAwait(false);
+                return measured >= TimeSpan.Zero ? NatsUdfCommon.Ok : (text ?? "no PONG");
+            }
+            catch (Exception ex)
+            {
+                return NatsUdfCommon.ErrorPrefix + NatsUdfAsync.SafeMessage(ex);
+            }
+        }
+
+        private static AppConfig.Root AuthRoot(AppConfig.Auth auth, string url, string syncWrite)
+        {
+            var root = NewRoot(url, allowAdminWrites: false, syncWrite: syncWrite);
+            root.Auth = auth ?? new AppConfig.Auth();
+            return root;
+        }
+
+        private static AppConfig.Auth AuthWithToken(string token)
+            => new AppConfig.Auth { Token = token };
+
+        private static AppConfig.Auth AuthWithUserPass(string user, string password)
+            => new AppConfig.Auth { User = user, Password = password };
+
+        private static AppConfig.Auth AuthWithSeed(string seedOrPath)
+            => new AppConfig.Auth { NkeySeed = seedOrPath };
+
+        // ------------------------------------------------------------------
+        // Disposable per-style nats-server
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Locates <c>nats-server.exe</c> the way Start-Cluster.ps1 does: on PATH
+        /// first, else under the test work dir. Never downloads (a network fetch in
+        /// a test is not acceptable); null means the caller SKIPs with a reason.
+        /// </summary>
+        private static string FindNatsServer()
+        {
+            string onPath = FindOnPath("nats-server.exe");
+            if (onPath != null)
+                return onPath;
+
+            string work = Path.Combine(Path.GetTempPath(), "natsexcel-cluster", "server", "nats-server.exe");
+            return File.Exists(work) ? work : null;
+        }
+
+        private static string FindOnPath(string exeName)
+        {
+            string path = Environment.GetEnvironmentVariable("PATH");
+            if (string.IsNullOrEmpty(path))
+                return null;
+            foreach (string dir in path.Split(Path.PathSeparator))
+            {
+                if (string.IsNullOrWhiteSpace(dir))
+                    continue;
+                try
+                {
+                    string candidate = Path.Combine(dir.Trim(), exeName);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+                catch
+                {
+                    // A malformed PATH entry is skipped, never fatal.
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Reserves a free loopback TCP port for a disposable server.</summary>
+        private static int FreePort()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
+        }
+
+        /// <summary>
+        /// Starts a throwaway <c>nats-server</c> with the given authorization
+        /// lines on a free port, writing its config without a BOM (the NATS parser
+        /// rejects one). The returned handle kills the server on Dispose.
+        /// </summary>
+        private static NatsAuthServer StartNatsServer(
+            string serverExe, string workRoot, string name, string[] authorizationLines)
+        {
+            string dir = Path.Combine(workRoot, name);
+            Directory.CreateDirectory(dir);
+            int port = FreePort();
+            string url = "nats://127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture);
+
+            var lines = new List<string>
+            {
+                "server_name: smoke-" + name,
+                "port: " + port.ToString(CultureInfo.InvariantCulture),
+            };
+            lines.AddRange(authorizationLines);
+            string conf = Path.Combine(dir, "nats.conf");
+            File.WriteAllText(conf, string.Join("\r\n", lines) + "\r\n", new UTF8Encoding(false));
+
+            var server = new NatsAuthServer(url, dir);
+            try
+            {
+                server.Start(serverExe, conf, port);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("  auth matrix: could not start the '" + name + "' server: " + Describe(ex));
+                server.Dispose();
+                return new NatsAuthServer(url, dir);
+            }
+            return server;
+        }
+
+        /// <summary>
+        /// A disposable <c>nats-server</c>: readiness is a real NATS <c>INFO</c>
+        /// line on the socket, never just an open port. It is killed in Dispose.
+        /// </summary>
+        private sealed class NatsAuthServer : IDisposable
+        {
+            private Process _process;
+
+            public NatsAuthServer(string url, string dir)
+            {
+                Url = url;
+                Dir = dir;
+            }
+
+            public string Url { get; }
+
+            public string Dir { get; }
+
+            /// <summary>True once the server's INFO line arrived on the port.</summary>
+            public bool Ready { get; private set; }
+
+            public void Start(string serverExe, string conf, int port)
+            {
+                var psi = new ProcessStartInfo(serverExe)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = Dir,
+                    // net48 has no ProcessStartInfo.ArgumentList; quote the paths
+                    // (the temp root may contain spaces).
+                    Arguments = "-c \"" + conf + "\" -l \"" + Path.Combine(Dir, "server.log") + "\"",
+                };
+                _process = Process.Start(psi);
+
+                var deadline = Stopwatch.StartNew();
+                while (deadline.ElapsedMilliseconds < 15000)
+                {
+                    if (NatsHandshake(port))
+                    {
+                        Ready = true;
+                        return;
+                    }
+                    Thread.Sleep(200);
+                }
+            }
+
+            private void Kill()
+            {
+                try
+                {
+                    if (_process != null && !_process.HasExited)
+                        _process.Kill();
+                }
+                catch
+                {
+                    // Best effort; the process may already be gone.
+                }
+                try { _process?.Dispose(); } catch { }
+            }
+
+            public void Dispose() => Kill();
+        }
+
+        /// <summary>
+        /// A real readiness probe: the server must send a NATS <c>INFO</c> line
+        /// (so a socket that merely opened does not pass). It does NOT require a
+        /// PONG: an auth-required server rejects a PING sent before CONNECT, which
+        /// is the correct behavior, not a readiness failure.
+        /// </summary>
+        private static bool NatsHandshake(int port)
+        {
+            try
+            {
+                using (var client = new TcpClient())
+                {
+                    // The client's own task APIs are async-only; a bounded
+                    // synchronous Connect inside the readiness probe is the one
+                    // deliberate block here (a console harness, no sync context).
+#pragma warning disable VSTHRD002 // Bounded readiness-probe wait; see the summary above.
+                    Task connect = client.ConnectAsync(IPAddress.Loopback, port);
+                    if (!connect.Wait(2000))
+                        return false;
+#pragma warning restore VSTHRD002
+                    using (NetworkStream stream = client.GetStream())
+                    {
+                        stream.ReadTimeout = 3000;
+                        var buffer = new byte[4096];
+                        int read = stream.Read(buffer, 0, buffer.Length);
+                        return read > 0
+                            && Encoding.ASCII.GetString(buffer, 0, read).StartsWith("INFO ", StringComparison.Ordinal);
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ==================================================================

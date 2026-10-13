@@ -22,7 +22,7 @@ namespace NatsExcel.Tools
     /// </summary>
     internal static class ConnectionTester
     {
-        public static async Task<TestResult> Test(ResolvedEndpoint endpoint, int timeoutMs)
+        public static async Task<TestResult> TestAsync(ResolvedEndpoint endpoint, int timeoutMs)
         {
             var result = new TestResult();
             if (endpoint.Urls.Count == 0)

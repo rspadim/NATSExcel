@@ -56,7 +56,7 @@ E2E / unit / load layers run.
   `MaskedExceptionRenderer.cs`.
 - **Excel surface**: `NatsRtd.cs` (the `NatsRtd` RTD server + the six
   `NatsRTD*` status helpers), `NatsRtdTopic.cs` (the Excel-free frozen
-  grammar), and the `NatsUdf*` catalog — **89** `NatsUDF*` `[ExcelFunction]`s
+  grammar), and the `NatsUdf*` catalog — **91** `NatsUDF*` `[ExcelFunction]`s
   across `NatsUdf.cs` / `NatsUdfCore.cs` / `NatsUdfJetStream.cs` /
   `NatsUdfKv.cs` / `NatsUdfObjectStore.cs` / `NatsUdfStatus.cs`, plus
   `NatsUdfCommon.cs`.
@@ -420,36 +420,34 @@ Notes:
 The catalog is counted mechanically from the tables, not from memory. Two
 families:
 
-- **UDF functions** (`NatsUDF*`, all in `NatsUdf*.cs`): **64 base** + the
-  **25** `...NonVolatile` write twins (§7.7) = **89** `[ExcelFunction]`.
+- **UDF functions** (`NatsUDF*`, all in `NatsUdf*.cs`): **66 base** + the
+  **25** `...NonVolatile` write twins (§7.7) = **91** `[ExcelFunction]`.
 - **RTD status helpers** (`NatsRTD*`, in `NatsRtd.cs`): **6**
   (`ConnectionCount`, `TopicCount`, `SubscriptionCount`, `SubjectCount`,
   `DefaultHost`, `Cluster`). They carry `[ExcelFunction]` too, but live with the
   RTD server rather than in a `NatsUdf*.cs` source.
 
-So the add-in exposes **89 UDF functions + 6 RTD status helpers** and **9 RTD
+So the add-in exposes **91 UDF functions + 6 RTD status helpers** and **9 RTD
 commands** (§6).
 
-Base-function split (the 64 `NatsUDF*` base):
+Base-function split (the 66 `NatsUDF*` base):
 
 | Group | Count |
 | --- | --- |
 | Write bases (each with a `...NonVolatile` twin) | **25** |
 | Reads/status (volatile, twin-less) | **38** |
-| Standalone non-volatile, twin-less (`ConfigReload`) | **1** |
-| **Base total** | **64** |
+| Standalone non-volatile, twin-less (`ConfigReload`, `MatrixToJSON`, `JSONToMatrix`) | **3** |
+| **Base total** | **66** |
 
 Volatile/non-volatile: **63 volatile** (25 write bases + 38 reads/status) +
-**26 non-volatile** (25 twins + the standalone `ConfigReload`) = 89. Functions
+**28 non-volatile** (25 twins + 3 standalone) = 91. Functions
 gated by `AllowAdminWrites`: **11** (§7.3 plus `JSDeleteMessage`/`JSPurge`,
 `KVDelete`/`KVPurge`, `ObjectDelete`).
 
-The count is verified mechanically against the code: **89** `[ExcelFunction]`
-`NatsUDF*` (64 base + 25 twins) + **6** `NatsRTD*` = **95** functions, **plus**
-the two standalone non-volatile conversions `NatsUDFMatrixToJSON` /
-`NatsUDFJSONToMatrix` (§7.6). Earlier drafts of this document said
-"95 / 88 / 66 / roughly 70" and a 61/28 volatile split; those numbers were wrong
-and are superseded by the figures above.
+The count is verified mechanically against the code: **91** `[ExcelFunction]`
+`NatsUDF*` (66 base + 25 twins) + **6** `NatsRTD*` = **97** functions. Earlier
+drafts of this document said "95 / 88 / 66 / roughly 70" and a 61/28 volatile
+split; those numbers were wrong and are superseded by the figures above.
 
 ## 8. Configuration
 

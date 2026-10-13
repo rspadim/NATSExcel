@@ -19,32 +19,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      # Build the shipped add-in directly. There is no NATSExcel.sln yet
-      # (PLAN F0.1), so the project file is the build input today; when the
-      # solution lands this becomes 'dotnet build NATSExcel.sln -c Release'.
-      # The .NET SDK restores and packs the add-in (Excel-DNA DNA packaging is
-      # part of the build), and 'publish\' then holds both packed XLLs plus
-      # NATSExcel.dll. Only on a 'v*' tag is the release tag embedded as the
-      # InformationalVersion; a branch build keeps the csproj default 'dev'.
-      - name: Build the add-in (Release)
+      # Build the whole solution: the add-in (Excel-DNA packs the XLLs as part of
+      # the build, and 'publish\' then holds both packed XLLs plus NATSExcel.dll),
+      # the four test projects and the validator. Only on a 'v*' tag is the
+      # release tag embedded as the InformationalVersion; a branch build keeps the
+      # csproj default 'dev'.
+      - name: Build the solution (Release)
         shell: pwsh
         run: |
           $tag = "dev"
           if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}" }
-          dotnet build NATSExcel.csproj -c Release "/p:InformationalVersion=$tag"
+          dotnet build NATSExcel.sln -c Release "/p:InformationalVersion=$tag"
 
       # Unit tests do NOT retry: a failure is a real defect, not runner noise.
-      # TODO: remove this guard once test\NATSExcel.Tests lands (PLAN V8.2) —
-      # then the step must run unconditionally.
       - name: Run unit tests
         shell: pwsh
         run: |
-          $proj = 'test/NATSExcel.Tests/NATSExcel.Tests.csproj'
-          if (-not (Test-Path -LiteralPath $proj)) {
-            Write-Host "SKIP: $proj does not exist yet (PLAN V8.2) - unit tests are not part of this build yet."
-            exit 0
-          }
-          dotnet test $proj -c Release
+          dotnet test test/NATSExcel.Tests/NATSExcel.Tests.csproj -c Release
 
       # NATS runs natively on Windows as a single self-contained binary, so
       # there is no Memurai/Chocolatey-style service to install. The official
@@ -107,15 +98,9 @@ jobs:
       # documented best-effort race (delivery convergence, duplicate
       # suppression) that is not an add-in defect. Retry once before failing,
       # consistent with the liveness step below; a real regression fails both.
-      # TODO: remove this guard once test\SmokeTests lands (PLAN V8.3) — then
-      # the step must run unconditionally.
       - name: Run smoke tests
         shell: pwsh
         run: |
-          if (-not (Test-Path -LiteralPath 'test/SmokeTests')) {
-            Write-Host "SKIP: test/SmokeTests does not exist yet (PLAN V8.3) - smoke tests are not part of this build yet."
-            exit 0
-          }
           for ($attempt = 1; $attempt -le 2; $attempt++) {
             Write-Host "smoke attempt $attempt/2"
             dotnet run --project test/SmokeTests -c Release -- "nats://127.0.0.1:4222"
@@ -132,15 +117,9 @@ jobs:
       # a release; a real regression stalls every attempt. --skip-restart is
       # used because the server is started ad hoc above (no supervisor would
       # bring it back after the destructive restart storm).
-      # TODO: remove this guard once test\LivenessTests lands (PLAN V8.5) — then
-      # the step must run unconditionally.
       - name: Run liveness tests (quick)
         shell: pwsh
         run: |
-          if (-not (Test-Path -LiteralPath 'test/LivenessTests')) {
-            Write-Host "SKIP: test/LivenessTests does not exist yet (PLAN V8.5) - liveness tests are not part of this build yet."
-            exit 0
-          }
           for ($attempt = 1; $attempt -le 3; $attempt++) {
             Write-Host "liveness attempt $attempt/3"
             dotnet run --project test/LivenessTests -c Release -- "nats://127.0.0.1:4222" --quick --skip-restart

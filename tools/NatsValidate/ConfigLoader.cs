@@ -91,14 +91,34 @@ namespace NatsExcel.Tools
             }
 
             var config = new ConfigRoot { FilePath = path };
-            var def = root["Default"] as JObject;
-            if (def != null)
+
+            // Default is a plain NAME in the shipped shape (a Clusters name, a
+            // Servers name or a raw URL) - it holds no connection settings. The
+            // add-in accepts the older nested object { "cluster": ..., "auth":
+            // ... } as a back-compat fallback (Config.cs); mirror both here, or a
+            // shipped-shape config resolves nothing and the cluster (and its
+            // expectCluster assertion) is never reached.
+            var defToken = root["Default"];
+            if (defToken != null && defToken.Type == JTokenType.String)
+            {
+                config.DefaultCluster = ((string)defToken).Trim();
+            }
+            else if (defToken is JObject def)
             {
                 config.DefaultCluster = (string)def["cluster"];
                 config.TimeoutMs = ReadInt(def, "timeout", config.TimeoutMs, problems, "/Default/timeout");
                 config.DefaultAuth = ReadAuth(def["auth"], problems, "/Default/auth") ?? config.DefaultAuth;
                 config.Reconnect = ReadReconnect(def["reconnect"], problems, "/Default/reconnect") ?? config.Reconnect;
             }
+
+            // The shared, process-wide blocks; a cluster overrides them field by
+            // field (DESIGN.md section 8). The top-level Auth/Reconnect are the
+            // shipped location and merge OVER the nested Default fallback above
+            // field by field, exactly like the add-in (Config.cs).
+            var sharedAuth = ReadAuth(root["Auth"], problems, "/Auth");
+            if (sharedAuth != null) config.DefaultAuth = Merge(config.DefaultAuth, sharedAuth);
+            var sharedReconnect = ReadReconnect(root["Reconnect"], problems, "/Reconnect");
+            if (sharedReconnect != null) config.Reconnect = sharedReconnect;
 
             var js = root["JetStream"] as JObject;
             if (js != null)
@@ -141,12 +161,15 @@ namespace NatsExcel.Tools
             return config;
         }
 
-        /// <summary>Resolve the cluster a formula would use (label = an argument, or the default).</summary>
+        /// <summary>
+        /// Resolve the cluster a formula would use (label = an argument, or the default).
+        /// </summary>
         public static ResolvedEndpoint Resolve(ConfigRoot config, string reference)
         {
             string label = string.IsNullOrWhiteSpace(reference) ? config.DefaultCluster : reference.Trim();
 
-            // 1) a Clusters name
+            // 1) a Clusters name (the dictionary is ordinal-ignore-case, so the
+            //    label resolves case-insensitively like the add-in's resolver).
             if (!string.IsNullOrEmpty(label) && config.Clusters.TryGetValue(label, out var cluster))
             {
                 var ep = new ResolvedEndpoint
@@ -168,14 +191,64 @@ namespace NatsExcel.Tools
 
             // 3) a raw URL (or list)
             if (!string.IsNullOrEmpty(label) && LooksLikeUrl(label))
-                return new ResolvedEndpoint { Urls = SplitUrls(label).ToList(), Auth = config.DefaultAuth, TimeoutMs = config.TimeoutMs, Reconnect = config.Reconnect };
+                return FromRawUrls(config, SplitUrls(label).ToList());
 
             // 4) nothing configured -> the built-in default
             if (string.IsNullOrEmpty(label))
-                return new ResolvedEndpoint { Urls = { DefaultUrlOr(config) }, Auth = config.DefaultAuth, TimeoutMs = config.TimeoutMs, Reconnect = config.Reconnect };
+                return FromRawUrls(config, new List<string> { DefaultUrlOr(config) });
 
             throw new ConfigReferenceException(
                 "'" + label + "' is not a known cluster or server; check Default.cluster, Clusters and Servers (a dangling name is not silently ignored).");
+        }
+
+        /// <summary>
+        /// Builds an endpoint from concrete URLs. Because the add-in resolves a
+        /// formula to a URL list before dispatch and maps that URL back to the
+        /// cluster that owns it (AppConfig.ResolveSettings/FindCluster), a raw
+        /// URL that happens to be one of a cluster's URLs must still surface that
+        /// cluster's <c>expectCluster</c> - otherwise the assertion is dead for a
+        /// config whose Default is a URL.
+        /// </summary>
+        private static ResolvedEndpoint FromRawUrls(ConfigRoot config, List<string> urls)
+        {
+            var ep = new ResolvedEndpoint
+            {
+                Urls = urls,
+                Auth = config.DefaultAuth,
+                TimeoutMs = config.TimeoutMs,
+                Reconnect = config.Reconnect,
+            };
+
+            // Only an unambiguous URL match is used (two clusters sharing a URL
+            // must not pick arbitrarily). The reference matches a cluster URL
+            // ordinal-ignore-case, after a trim - the same compare the add-in uses.
+            ClusterConfig unique = null;
+            string uniqueLabel = null;
+            foreach (var kv in config.Clusters)
+            {
+                if (kv.Value == null) continue;
+                foreach (var raw in kv.Value.Urls)
+                {
+                    string resolved = LooksLikeUrl(raw) ? raw
+                        : (config.Servers.TryGetValue(raw, out var mapped) ? mapped : raw);
+                    if (urls.Any(u => string.Equals(u.Trim(), resolved.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (unique != null && !ReferenceEquals(unique, kv.Value)) return ep; // ambiguous: stay silent
+                        unique = kv.Value;
+                        uniqueLabel = kv.Key;
+                    }
+                }
+            }
+
+            if (unique != null)
+            {
+                ep.ClusterLabel = uniqueLabel;
+                ep.ExpectCluster = unique.ExpectCluster;
+                ep.TimeoutMs = unique.TimeoutMs ?? config.TimeoutMs;
+                ep.Reconnect = unique.Reconnect ?? config.Reconnect;
+                ep.Auth = Merge(config.DefaultAuth, unique.Auth);
+            }
+            return ep;
         }
 
         private static string DefaultUrlOr(ConfigRoot config)

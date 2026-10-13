@@ -619,7 +619,27 @@ namespace NATSExcel
             if (!string.IsNullOrWhiteSpace(auth.Jwt))
                 return new NatsAuthOpts { Jwt = auth.Jwt.Trim(), Seed = AppConfig.ResolveSeed(auth.NkeySeed) };
             if (!string.IsNullOrWhiteSpace(auth.NkeySeed))
-                return new NatsAuthOpts { Seed = AppConfig.ResolveSeed(auth.NkeySeed) };
+            {
+                string seed = AppConfig.ResolveSeed(auth.NkeySeed);
+                // The client signs the nonce from Seed but only emits the "nkey"
+                // field when NKey is ALSO set. With Seed alone the CONNECT carries
+                // a signature and no public key, and an NKey-authenticated server
+                // rejects it with Authorization Violation. Derive the public key
+                // from the seed exactly as the client's own credential path does.
+                string publicKey = null;
+                try
+                {
+                    using (var keyPair = NATS.NKeys.KeyPair.FromSeed(seed.AsSpan()))
+                        publicKey = keyPair.GetPublicKey();
+                }
+                catch (Exception ex)
+                {
+                    // A malformed seed stays a clear failure at connect time rather
+                    // than an exception out of the config layer.
+                    logger.Warn("BuildAuth: could not derive the public NKey from the seed: " + ex.Message);
+                }
+                return new NatsAuthOpts { Seed = seed, NKey = publicKey };
+            }
             if (!string.IsNullOrWhiteSpace(auth.Token))
                 return new NatsAuthOpts { Token = auth.Token.Trim() };
             if (!string.IsNullOrWhiteSpace(auth.User) || !string.IsNullOrWhiteSpace(auth.Password))
