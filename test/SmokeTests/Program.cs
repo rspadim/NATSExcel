@@ -484,8 +484,9 @@ namespace NATSExcel.SmokeTests
             string serverExe = FindNatsServer();
             if (serverExe == null)
             {
-                Skip("auth matrix", "no nats-server.exe found (PUT it on PATH or in "
-                    + "%TEMP%\\natsexcel-cluster\\server); cannot start a per-style server");
+                Skip("auth matrix", "no nats-server.exe found (PUT it on PATH, set "
+                    + "NATSEXCEL_NATS_SERVER, or use %TEMP%\\natsexcel-cluster\\server); "
+                    + "cannot start a per-style server");
                 return;
             }
 
@@ -737,6 +738,14 @@ namespace NATSExcel.SmokeTests
         /// </summary>
         private static string FindNatsServer()
         {
+            // An explicit override first: the CI downloads nats-server.exe to a
+            // runner temp dir (not on PATH), so without this the whole auth matrix
+            // - the only layer that proves NKey/token/user-password against a real
+            // server - would be silently SKIPPED there. The workflow sets it.
+            string fromEnv = Environment.GetEnvironmentVariable("NATSEXCEL_NATS_SERVER");
+            if (!string.IsNullOrEmpty(fromEnv) && File.Exists(fromEnv))
+                return fromEnv;
+
             string onPath = FindOnPath("nats-server.exe");
             if (onPath != null)
                 return onPath;

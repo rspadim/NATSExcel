@@ -69,6 +69,12 @@ jobs:
             -PassThru -WindowStyle Hidden
           Write-Host "nats-server started (pid $($proc.Id)) with -js --store_dir $store"
 
+          # Hand the binary path to the test layers: the smoke auth matrix starts
+          # its own per-style servers and would otherwise SKIP when no nats-server
+          # is on PATH (the download lives in RUNNER_TEMP).
+          "NATSEXCEL_NATS_SERVER=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "NATSEXCEL_NATS_SERVER=$exe"
+
           # Real readiness probe: open the wire port, read the server INFO banner
           # and require 'jetstream':true, so a server started without -js fails
           # here explicitly instead of looking like an add-in bug later.
