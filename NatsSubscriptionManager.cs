@@ -427,7 +427,9 @@ namespace NATSExcel
                 }
             }
 
-            Task.Run(() => ConsumeLoopAsync(state, epoch, cts));
+            // VSTHRD110: the consume loop is deliberately fire-and-forget; it runs
+            // until the state is torn down and never surfaces a value here.
+            _ = Task.Run(() => ConsumeLoopAsync(state, epoch, cts));
         }
 
         /// <summary>

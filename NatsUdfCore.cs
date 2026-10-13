@@ -1050,12 +1050,21 @@ namespace NATSExcel
         {
             if (ex is TimeoutException || ex is NatsTimeoutException || ex is OperationCanceledException)
                 return NatsUdfCommon.Timeout;
+            // The client throws NatsNoReplyException when nothing replied within
+            // the request timeout (see the RTD REQ path, which maps it the same
+            // way). Without this the cell showed the raw
+            // "Error: request subject='...': No reply received" instead of the
+            // frozen TIMEOUT marker.
+            if (ex is NatsNoReplyException)
+                return NatsUdfCommon.Timeout;
             if (ex is NatsNoRespondersException)
                 return NatsUdfCommon.NoResponders;
 
             string message = ex.Message;
             if (!string.IsNullOrEmpty(message) && message.IndexOf("no responders", StringComparison.OrdinalIgnoreCase) >= 0)
                 return NatsUdfCommon.NoResponders;
+            if (!string.IsNullOrEmpty(message) && message.IndexOf("no reply", StringComparison.OrdinalIgnoreCase) >= 0)
+                return NatsUdfCommon.Timeout;
             return null;
         }
 

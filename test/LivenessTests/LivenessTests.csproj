@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <!-- C# 9: the NATS.Net option objects use init-only setters (see IsExternalInit.cs). -->
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>NATSExcel.LivenessTests</AssemblyName>
+    <RootNamespace>NATSExcel.LivenessTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <!-- .NET Framework builds compile against reference assemblies whose versions
+         differ from the deployed implementations; generate the redirects so the
+         host does not fail with FileLoadException on CI (same set as the unit project). -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Dependencies of the linked production sources (see ..\TestSupport\ProductionSources.props). -->
+    <PackageReference Include="ExcelDna.Integration" Version="1.9.0-beta2" />
+    <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.KeyValueStore" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.ObjectStore" Version="3.3.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NLog" Version="6.0.0-rc3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <!-- Win32_Process: phase C reads the nats-server command line before it kills
+         it so the same node can be relaunched (never a hand-written command). -->
+    <Reference Include="System.Management" />
+  </ItemGroup>
+
+  <!--
+    The single production-source list (PLAN D1). Importing it here links every
+    top-level production *.cs except NatsRtd.cs (PLAN D2, the Excel/COM surface)
+    plus the embedded NATSExcel.schema.json. Do NOT hand-list production files in
+    this csproj; add them to the props so every test project stays in sync.
+  -->
+  <Import Project="..\TestSupport\ProductionSources.props" />
+
+</Project>

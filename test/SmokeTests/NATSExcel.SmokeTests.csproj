@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <!-- C# 9: the NATS.Net option objects use init-only setters (see IsExternalInit.cs). -->
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>NATSExcel.SmokeTests</AssemblyName>
+    <RootNamespace>NATSExcel.SmokeTests</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- .NET Framework builds compile against reference assemblies whose versions
+         differ from the deployed implementations; generate the redirects so the
+         console host does not fail with FileLoadException. App.config pins the
+         ones the SDK does not infer (mirrors the unit project). -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Dependencies of the linked production sources (see
+         ..\TestSupport\ProductionSources.props), the same set the unit project uses. -->
+    <PackageReference Include="ExcelDna.Integration" Version="1.9.0-beta2" />
+    <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.KeyValueStore" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.ObjectStore" Version="3.3.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NLog" Version="6.0.0-rc3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!--
+    The single production-source list (PLAN D1). Importing it here links every
+    top-level production *.cs except NatsRtd.cs and AddIn.cs (the Excel/COM
+    surface), plus the embedded NATSExcel.schema.json. Do NOT hand-list production
+    files here; the smoke suite compiles the same sources the add-in ships.
+  -->
+  <Import Project="..\TestSupport\ProductionSources.props" />
+
+</Project>

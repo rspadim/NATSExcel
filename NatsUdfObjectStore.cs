@@ -1,4 +1,4 @@
-using ExcelDna.Integration;
+﻿using ExcelDna.Integration;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
@@ -306,7 +306,6 @@ namespace NATSExcel
                     return NatsUdfCommon.NullValue;
                 if (data.Length > NatsUdfCommon.MaxObjectCellBytes)
                     return OversizeError(name, (ulong)data.Length);
-
                 string text;
                 try
                 {
@@ -323,7 +322,7 @@ namespace NATSExcel
                     return BinaryError(name);
 
                 return NatsResultFormatter.BoundCellText(text);
-            });
+            }, objectName: name);
         }
 
         private static object ReadInfo(string endpoint, string bucket, string name)
@@ -337,7 +336,7 @@ namespace NATSExcel
                     ToLong(info.Size),
                     ToInt(info.Chunks),
                     info.Description));
-            });
+            }, objectName: name);
         }
 
         /// <summary>
@@ -422,7 +421,10 @@ namespace NATSExcel
             string what,
             string bucket,
             Func<INatsObjStore, CancellationToken, Task<object>> body,
-            bool listing = false)
+            bool listing = false,
+            // The object name, so a "not found" error names it (the KV sibling
+            // does; without it the cell said "object '' not found").
+            string objectName = null)
         {
             if (!TryOpenStore(endpoint, bucket, out INatsObjStore store, out string error))
                 return error;
@@ -437,12 +439,12 @@ namespace NATSExcel
             catch (TimeoutException)
             {
                 CancelQuietly(cts);
-                return MapObjError(what, new ObjTimeoutException(what, bound), bucket, null);
+                return MapObjError(what, new ObjTimeoutException(what, bound), bucket, objectName);
             }
             catch (Exception ex)
             {
                 CancelQuietly(cts);
-                return MapObjError(what, ex, bucket, null);
+                return MapObjError(what, ex, bucket, objectName);
             }
         }
 

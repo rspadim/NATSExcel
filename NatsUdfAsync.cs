@@ -209,6 +209,9 @@ namespace NATSExcel
         /// the result. (The name has no "Async" suffix by contract: the caller is
         /// a synchronous UDF.)
         /// </summary>
+        // VSTHRD200: the "Async" suffix is deliberately omitted; this name is the
+        // frozen internal contract consumed by NatsWriteObservable (PLAN H6).
+#pragma warning disable VSTHRD200 // Enqueue is the frozen internal name; see above.
         internal static Task<object> Enqueue(string endpoint, Func<object> work)
         {
             while (true)
@@ -233,7 +236,9 @@ namespace NATSExcel
                     // must never throw once the item is scheduled.
                     try
                     {
-                        next.ContinueWith(
+                        // VSTHRD110: this continuation only drops the idle queue
+                        // entry; it is intentionally fire-and-forget.
+                        _ = next.ContinueWith(
                             _ => ReleaseQueue(endpoint, queue, next),
                             CancellationToken.None,
                             TaskContinuationOptions.None,
@@ -248,6 +253,7 @@ namespace NATSExcel
                 }
             }
         }
+#pragma warning restore VSTHRD200
 
         private static void ReleaseQueue(string endpoint, EndpointQueue queue, Task<object> completed)
         {
@@ -392,10 +398,10 @@ namespace NATSExcel
             // One-shot enqueue guard: Excel-DNA never subscribes twice for one
             // registered call, but a duplicate Subscribe must never enqueue the
             // write again (Excel-DNA's own ThreadPoolDelegateObservable threw in
-            // that case). The latch is published before any enqueue so a
-            // duplicate subscription never blocks the calling (Excel) thread: it
-            // waits for the queued task asynchronously and receives the very same
-            // result, including an enqueue failure.
+            // that case). The latch publishes the queued write task (never its
+            // value) before any delivery, so a duplicate subscription never blocks
+            // the calling (Excel) thread: it attaches asynchronously and receives
+            // the very same result, including an enqueue failure.
             private int _subscribed;
             private readonly TaskCompletionSource<Task<object>> _queuedReady =
                 new TaskCompletionSource<Task<object>>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -442,30 +448,79 @@ namespace NATSExcel
                 // asynchronously and deliver the very same result to this
                 // observer.
                 logger.Warn("NatsWriteObservable: duplicate Subscribe; the same queued result is delivered");
-                _queuedReady.Task.ContinueWith(
-                    inner => AttachDelivery(inner.Result, observer),
-                    CancellationToken.None,
-                    TaskContinuationOptions.RunContinuationsAsynchronously,
-                    TaskScheduler.Default);
+                // Delivery is dispatched to the thread pool, never run inline on
+                // the calling (Excel) thread: the observer is notified
+                // asynchronously. VSTHRD110: deliberately fire-and-forget;
+                // DeliverWhenReadyAsync observes every failure itself.
+                _ = Task.Run(() =>
+                {
+                    // Discard is deliberate: DeliverWhenReadyAsync observes every
+                    // failure itself (VSTHRD110 accepts a discard).
+                    _ = DeliverWhenReadyAsync(_queuedReady.Task, observer);
+                });
                 return NoOpDisposable;
             }
 
             private static void AttachDelivery(Task<object> queued, IExcelObserver observer)
             {
-                queued.ContinueWith(
-                    OnQueuedCompleted,
-                    observer,
-                    CancellationToken.None,
-                    TaskContinuationOptions.RunContinuationsAsynchronously,
-                    TaskScheduler.Default);
+                // Same rule as above: delivery runs on the thread pool, not on the
+                // thread that happens to complete the queued task (which may be the
+                // Excel thread for a synchronous first write).
+                // VSTHRD110: deliberately fire-and-forget; see DeliverQueuedAsync.
+                _ = Task.Run(() =>
+                {
+                    _ = DeliverQueuedAsync(queued, observer);
+                });
             }
 
-            private static void OnQueuedCompleted(Task<object> queued, object state)
+            /// <summary>
+            /// Waits asynchronously for the first Subscribe to publish the queued
+            /// write task, then delivers it to this (duplicate) observer. Runs as
+            /// a thread-pool continuation, never on the Excel thread.
+            /// </summary>
+            // VSTHRD003: the queued/ready tasks are started on the thread pool by
+            // Enqueue; this method only ever runs as a thread-pool continuation
+            // (ConfigureAwait(false)), so there is no synchronization context to
+            // deadlock on.
+#pragma warning disable VSTHRD003 // cross-context await is safe off the Excel thread; see above.
+            private static async Task DeliverWhenReadyAsync(Task<Task<object>> ready, IExcelObserver observer)
+            {
+                try
+                {
+                    Task<object> queued = await ready.ConfigureAwait(false);
+                    await DeliverQueuedAsync(queued, observer).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logger.Error(ex, "NatsWriteObservable: waiting for the queued write failed");
+                    DeliverAndComplete(observer, NatsUdfCommon.Fail(NatsUdfAsync.SafeMessage(ex)));
+                }
+            }
+#pragma warning restore VSTHRD003
+
+            /// <summary>
+            /// Maps the queued task's outcome to the value Excel should show.
+            /// ExecuteSafely already converts a work failure into "Error: ..."
+            /// text; a cancelled/faulted task is handled defensively. The
+            /// <c>await</c> is the non-blocking result read: this method only runs
+            /// as a thread-pool continuation, never on the Excel thread.
+            /// </summary>
+            // VSTHRD003: same as DeliverWhenReadyAsync - the queued task is
+            // thread-pool work and this continuation has no synchronization
+            // context, so the cross-context await cannot deadlock.
+#pragma warning disable VSTHRD003 // cross-context await is safe off the Excel thread; see above.
+            private static async Task DeliverQueuedAsync(Task<object> queued, IExcelObserver observer)
             {
                 object result;
                 try
                 {
-                    result = ResultForExcel(queued);
+                    result = await queued.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // ExecuteSafely converts a work failure into "Error: ..." text,
+                    // so a cancellation here is a defensive terminal signal.
+                    result = NatsUdfCommon.Fail("async write was cancelled");
                 }
                 catch (Exception ex)
                 {
@@ -474,26 +529,11 @@ namespace NATSExcel
                     // itself throws) would skip the delivery entirely and leave
                     // Excel pending forever.
                     logger.Error(ex, "NatsWriteObservable: computing the async write result failed");
-                    result = NatsUdfCommon.Fail("async write failed");
+                    result = NatsUdfCommon.Fail(NatsUdfAsync.SafeMessage(ex));
                 }
-                DeliverAndComplete((IExcelObserver)state, result);
+                DeliverAndComplete(observer, result);
             }
-
-            /// <summary>
-            /// Maps the queued task's outcome to the value Excel should show.
-            /// ExecuteSafely already converts a work failure into "Error: ..."
-            /// text; cancelled/faulted tasks are handled defensively.
-            /// </summary>
-            private static object ResultForExcel(Task<object> queued)
-            {
-                if (queued.Status == TaskStatus.RanToCompletion)
-                    return queued.Result;
-
-                if (queued.IsCanceled)
-                    return NatsUdfCommon.Fail("async write was cancelled");
-
-                return NatsUdfCommon.Fail(NatsUdfAsync.SafeMessage(queued.Exception));
-            }
+#pragma warning restore VSTHRD003
 
             /// <summary>
             /// Delivers one value and then completes, never throwing into the

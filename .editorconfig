@@ -1,0 +1,37 @@
+# EditorConfig for the NATSExcel repository.
+# https://editorconfig.org
+root = true
+
+# ---------------------------------------------------------------------------
+# .NET / C# conventions
+# ---------------------------------------------------------------------------
+[*.cs]
+charset = utf-8
+end_of_line = crlf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# ---------------------------------------------------------------------------
+# vs-threading analyzer tripwire (PLAN V7.3 / R3: never block the Excel thread
+# unbounded). The Microsoft.VisualStudio.Threading.Analyzers package reports the
+# diagnostics below as WARNINGS by default; here they are promoted to ERRORS so
+# a new unbounded block fails the build outright, not only the
+# NoUnboundedBlockingTests source scan.
+#
+# The few deliberate sites are suppressed locally with a one-line justification
+# (#pragma warning disable VSTHRD002/003/200 at the exact site) - never a
+# blanket NoWarn for a whole diagnostic:
+#   - VSTHRD002: NatsConnectionManager.WaitBounded*/WaitBoundedResult (the ONE
+#     bounded-blocking primitive) and nothing else.
+#   - VSTHRD003: the thread-pool continuations in NatsUdfAsync.NatsWriteObservable
+#     (no synchronization context to deadlock on).
+#   - VSTHRD200: NatsUdfAsync.Enqueue keeps its frozen (suffix-less) name.
+#   - VSTHRD110: resolved by assigning the fire-and-forget tasks to `_` with a
+#     justification comment at each site.
+# ---------------------------------------------------------------------------
+dotnet_diagnostic.VSTHRD002.severity = error
+dotnet_diagnostic.VSTHRD003.severity = error
+dotnet_diagnostic.VSTHRD110.severity = error
+dotnet_diagnostic.VSTHRD200.severity = error

@@ -23,6 +23,14 @@
     <PackageReference Include="NATS.Client.ObjectStore" Version="3.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="NLog" Version="6.0.0-rc3" />
+    <!-- The vs-threading analyzer tripwire (PLAN V7.3 / R3): it makes the
+         VSTHRD002/VSTHRD110/VSTHRD200 suppressions in the code real and flags
+         new unbounded blocking on the Excel thread. Analyzer-only: it ships no
+         lib, so it adds nothing to the packed closure (.dna). -->
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.6.40">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
