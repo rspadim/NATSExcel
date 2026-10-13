@@ -39,24 +39,79 @@ namespace NATSExcel
         internal static Root CurrentOverrideForTests;
 #pragma warning restore 0649
 
-        public static Root Current => CurrentOverrideForTests ?? _current.Value;
+        public static Root Current => CurrentOverrideForTests ?? _installed ?? _current.Value;
+
+        /// <summary>
+        /// The production reload target. A plain reference assignment is atomic,
+        /// but not volatile: without the modifier a reloaded root can stay
+        /// invisible to another core for an unbounded time (a weakly-ordered CPU
+        /// such as ARM64 Office). The test seam
+        /// (<see cref="CurrentOverrideForTests"/>) stays test-only; production
+        /// reloads through this field.
+        /// </summary>
+        private static volatile Root _installed;
 
         /// <summary>
         /// Re-reads the configuration file and installs the freshly parsed root,
-        /// so `NatsUDFConfigReload` does not have to restart Excel. Returns the
-        /// new root, or null when no file is in use. Thread-safe: readers of
-        /// <see cref="Current"/> see either the old or the new root, never a
-        /// half-built one.
+        /// so `NatsUDFConfigReload` does not have to restart Excel. Thread-safe:
+        /// a reader of <see cref="Current"/> sees either the old root or the new
+        /// one, never a half-built object. Returns the new root, or the current
+        /// one when no file is in use.
         /// </summary>
         public static Root Reload()
         {
             string path = ConfigPath;
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                return Current;
-            Root reloaded = Sanitize(Parse(File.ReadAllText(path)));
-            CurrentOverrideForTests = reloaded;
+            {
+                // No file was ever loaded (the add-in runs on defaults). Re-run
+                // the search so a file created after startup is picked up, and
+                // stay on the current root when there still is none.
+                Root current = _current.Value;
+                return current;
+            }
+            Root reloaded = Sanitize(Install(Parse(File.ReadAllText(path)), path));
+            _installed = reloaded;
             logger.Info("AppConfig: reloaded configuration from " + path);
             return reloaded;
+        }
+
+        /// <summary>
+        /// Applies the schema walk so one wrong-typed value is DROPPED on its own
+        /// and the rest of the file is kept (the headline config contract, PLAN
+        /// F1.3). Without it a value the strict cast cannot convert throws and the
+        /// whole file silently reverts to defaults - repointing the host at
+        /// localhost and turning the write mode off.
+        /// </summary>
+        private static Root Install(Root parsed, string path)
+        {
+            if (parsed == null)
+                return new Root();
+            try
+            {
+                // The schema walk removes each value that does not match, so one
+                // bad value is dropped on its own and the rest of the file is
+                // kept (the headline config contract, PLAN F1.3). A structural
+                // failure (not JSON) is left to the caller's catch.
+                string raw = File.ReadAllText(path);
+                var issues = new List<ConfigIssue>();
+                JObject root = ConfigSchema.ParseWithComments(raw);
+                if (root != null)
+                {
+                    JToken cleaned = ConfigSchema.Clean(root, issues);
+                    if (issues.Count > 0)
+                    {
+                        foreach (var issue in issues)
+                            logger.Warn("AppConfig: value dropped in " + path + " -> " + issue);
+                        if (cleaned != null)
+                            return Sanitize(cleaned.ToObject<Root>() ?? parsed);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "AppConfig: schema walk skipped for " + path);
+            }
+            return Sanitize(parsed);
         }
 
         internal static string ConfigPath { get; private set; }
@@ -73,8 +128,9 @@ namespace NATSExcel
                 try
                 {
                     ConfigPath = path;
+                    var root = Install(Parse(File.ReadAllText(path)), path);
                     logger.Info("AppConfig: loaded configuration from " + path);
-                    return Parse(File.ReadAllText(path));
+                    return root;
                 }
                 catch (Exception ex)
                 {

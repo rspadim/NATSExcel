@@ -16,6 +16,21 @@ namespace NATSExcel
 
         public void AutoOpen()
         {
+            // Register the credential-masking exception renderer BEFORE the first
+            // log line. NLog resolves a custom layout renderer by scanning the
+            // assembly, but do it explicitly so the order is guaranteed and an
+            // unknown renderer never silently logs an unmasked exception.
+            try
+            {
+                // NLog 6: register through the setup builder.
+                NLog.LogManager.Setup().SetupExtensions(ext =>
+                    ext.RegisterLayoutRenderer<MaskedExceptionRenderer>("maskedException"));
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "AutoOpen: could not register the exception layout renderer");
+            }
+
             // A same-process reload (Excel re-opening the add-in without a new
             // AppDomain) must not reuse the shut-down runtime.
             try
@@ -25,6 +40,18 @@ namespace NATSExcel
             catch (Exception ex)
             {
                 logger.Error(ex, "AutoOpen: runtime reset failed");
+            }
+            try
+            {
+                // The UDF-level state (cached latest values, the async queues) is
+                // owned by static maps that a same-process reload would otherwise
+                // keep serving from the dead session.
+                NatsUdfAsync.ResetAfterAddInReload();
+                NatsUdfCore.ResetAfterAddInReload();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "AutoOpen: UDF reset failed");
             }
             try
             {

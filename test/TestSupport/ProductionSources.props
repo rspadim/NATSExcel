@@ -31,6 +31,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)..\..\ConfigSchema.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\ConfigSchema.cs')" Link="Production\ConfigSchema.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Conflation.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\Conflation.cs')" Link="Production\Conflation.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\IsExternalInit.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\IsExternalInit.cs')" Link="Production\IsExternalInit.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\MaskedExceptionRenderer.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\MaskedExceptionRenderer.cs')" Link="Production\MaskedExceptionRenderer.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsConnection.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsConnection.cs')" Link="Production\NatsConnection.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsConnectionManager.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsConnectionManager.cs')" Link="Production\NatsConnectionManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\NatsJson.cs" Condition="Exists('$(MSBuildThisFileDirectory)..\..\NatsJson.cs')" Link="Production\NatsJson.cs" />
