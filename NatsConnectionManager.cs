@@ -547,10 +547,16 @@ namespace NATSExcel
         private static NatsOpts BuildOptions(string endpoint)
         {
             var config = AppConfig.Current;
-            var auth = config.Auth;
+
+            // The EFFECTIVE settings for THIS endpoint: the shared auth/timeout,
+            // with the named cluster's overrides merged on top. Without this a
+            // cluster that declares its own token/user would silently connect
+            // with the global auth (or none) - the per-cluster block was dead.
+            AppConfig.ConnectionSettings settings = AppConfig.ResolveSettings(endpoint);
+            var auth = settings.Auth;
 
             int connectTimeoutMs = Clamp(
-                config.TimeoutMs <= 0 ? 1000 : config.TimeoutMs,
+                settings.TimeoutMs <= 0 ? (config.TimeoutMs <= 0 ? 1000 : config.TimeoutMs) : settings.TimeoutMs,
                 MinConnectTimeoutMs, MaxConnectTimeoutMs);
 
             var options = NatsOpts.Default with
@@ -561,11 +567,22 @@ namespace NATSExcel
                 ConnectTimeout = TimeSpan.FromMilliseconds(connectTimeoutMs),
             };
 
-            // mTLS is a config flag today (Config.cs reads only "tls"; the cert
-            // fields of DESIGN.md Â§8 are planned, PLAN F1.5b). Require makes the
-            // intent explicit instead of the opportunistic Auto mode.
+            // TLS is required when the effective auth asks for it. The mTLS client
+            // certificate fields are modeled (auth.tlsCert / tlsCertPassword).
             if (auth != null && auth.Tls)
-                options = options with { TlsOpts = NatsTlsOpts.Default with { Mode = TlsMode.Require } };
+            {
+                var tls = NatsTlsOpts.Default with { Mode = TlsMode.Require };
+                if (!string.IsNullOrEmpty(auth.TlsCert))
+                {
+                    tls = tls with
+                    {
+                        CertBundleFile = auth.TlsCert,
+                        CertBundleFilePassword = string.IsNullOrEmpty(auth.TlsCertPassword)
+                            ? null : auth.TlsCertPassword,
+                    };
+                }
+                options = options with { TlsOpts = tls };
+            }
 
             return options;
         }

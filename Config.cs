@@ -446,21 +446,24 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// The effective connection settings for a resolved endpoint: the shared
-        /// auth/reconnect, with the named cluster's overrides merged on top when
-        /// the reference names one. A URL or a Servers name uses the shared block.
+        /// The effective connection settings for an endpoint. The argument may be
+        /// either the endpoint reference the user typed (a Clusters name, a Servers
+        /// name, a raw URL) OR a URL already resolved from one: the connection
+        /// manager receives the resolved URL, so the cluster's auth/timeout must
+        /// still be found by matching that URL back to the cluster that owns it.
+        /// Without this a cluster that declares its own token silently connects
+        /// with the shared auth instead.
         /// </summary>
         public static ConnectionSettings ResolveSettings(string endpoint)
         {
             var cfg = Current;
             string name = string.IsNullOrWhiteSpace(endpoint) ? cfg.Default : endpoint.Trim();
-            Cluster cluster = null;
-            if (!string.IsNullOrWhiteSpace(name))
-                TryGet(cfg.Clusters, name, out cluster);
 
             var settings = new ConnectionSettings { TimeoutMs = cfg.TimeoutMs };
             ApplyAuth(cfg.Auth, settings.Auth);
             ApplyReconnect(cfg.Reconnect, settings.Reconnect);
+
+            Cluster cluster = FindCluster(cfg, name);
             if (cluster != null)
             {
                 if (cluster.AuthOverrides) ApplyAuth(cluster.Auth, settings.Auth, over: true);
@@ -468,6 +471,40 @@ namespace NATSExcel
                 ApplyReconnect(cluster.Reconnect, settings.Reconnect, over: true);
             }
             return settings;
+        }
+
+        /// <summary>
+        /// Finds the cluster an endpoint reference belongs to: by name first, then
+        /// by matching the reference (or a resolved URL) against each cluster's
+        /// URL list. The URL compare is ordinal after a trim, so the resolved
+        /// "nats://h:4222" matches the cluster whose urls produced it.
+        /// </summary>
+        private static Cluster FindCluster(Root cfg, string reference)
+        {
+            if (string.IsNullOrWhiteSpace(reference))
+                return null;
+
+            if (TryGet(cfg.Clusters, reference, out var byName) && byName != null)
+                return byName;
+
+            Cluster match = null;
+            foreach (var kv in cfg.Clusters)
+            {
+                if (kv.Value == null)
+                    continue;
+                foreach (var url in kv.Value.Urls)
+                {
+                    if (string.Equals(url, reference, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // A name collision (two clusters share a URL) must not pick
+                        // arbitrarily: only a unique match is used.
+                        if (match != null && !ReferenceEquals(match, kv.Value))
+                            return null;
+                        match = kv.Value;
+                    }
+                }
+            }
+            return match;
         }
 
         private static void ApplyAuth(Auth from, Auth to, bool over = false)

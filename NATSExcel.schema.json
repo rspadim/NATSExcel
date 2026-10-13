@@ -6,55 +6,8 @@
   "additionalProperties": false,
   "properties": {
     "Default": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "cluster": { "type": "string", "description": "Cluster used when a formula passes no endpoint." },
-        "timeout": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "Connect and sync timeout in milliseconds." },
-        "auth": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "user": { "type": ["string", "null"] },
-            "password": { "type": ["string", "null"] },
-            "token": { "type": ["string", "null"], "description": "Single server-wide shared secret." },
-            "jwt": { "type": ["string", "null"], "description": "Operator-mode user JWT." },
-            "nkeySeed": { "type": ["string", "null"], "description": "NKey seed (SU...); used alone or with jwt." },
-            "credsFile": { "type": ["string", "null"], "description": "Path to a .creds file (JWT + seed)." },
-            "tls": { "type": "boolean" },
-            "tlsCert": { "type": ["string", "null"], "description": "Client certificate path for mTLS." },
-            "tlsCertPassword": { "type": ["string", "null"] }
-          }
-        },
-        "reconnect": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647 },
-            "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
-            "jitterMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
-          }
-        }
-      }
-    },
-    "RTD": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "NatsUpdateRateMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "How often the poll timer reads NATS." },
-        "ExcelUpdateRateMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "How often dirty values are flushed to Excel." },
-        "MessageCounterThreshold": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807, "description": "Messages/second above which Automatic switches to timer delivery." },
-        "NatsUpdateStyle": { "type": "string", "pattern": "^(?:[Tt][Ii][Mm][Ee][Rr]|[Rr][Ee][Aa][Ll][Tt][Ii][Mm][Ee]|[Aa][Uu][Tt][Oo][Mm][Aa][Tt][Ii][Cc])$", "description": "Timer, Realtime or Automatic (case-insensitive; ASCII)." },
-        "cluster": { "type": ["string", "null"], "description": "Optional cluster override for RTD topics." }
-      }
-    },
-    "UDF": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "timeout": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "Connect and sync timeout in milliseconds." },
-        "cluster": { "type": ["string", "null"], "description": "Optional cluster override for UDF calls." }
-      }
+      "type": "string",
+      "description": "The endpoint a formula uses when it passes none: a Clusters name, a Servers name, or a raw nats:// URL."
     },
     "Servers": {
       "type": "object",
@@ -70,6 +23,7 @@
         "properties": {
           "urls": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Server aliases or inline nats:// URLs." },
           "expectCluster": { "type": "string", "description": "Optional: assert the cluster name the server announces (warning only)." },
+          "timeout": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "Optional per-cluster timeout in milliseconds." },
           "auth": {
             "type": "object",
             "additionalProperties": false,
@@ -102,6 +56,42 @@
             }
           }
         }
+      }
+    },
+    "Auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Shared connection credentials; a cluster may override them field by field.",
+      "properties": {
+        "user": { "type": ["string", "null"] },
+        "password": { "type": ["string", "null"] },
+        "token": { "type": ["string", "null"] },
+        "jwt": { "type": ["string", "null"] },
+        "nkeySeed": { "type": ["string", "null"] },
+        "credsFile": { "type": ["string", "null"] },
+        "tls": { "type": "boolean" },
+        "tlsCert": { "type": ["string", "null"], "description": "mTLS client certificate path (.pfx/.p12)." },
+        "tlsCertPassword": { "type": ["string", "null"] }
+      }
+    },
+    "Reconnect": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Shared reconnection defaults; a cluster may override them.",
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647, "description": "-1 means unlimited." },
+        "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "jitterMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+      }
+    },
+    "RTD": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "NatsUpdateRateMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "How often the poll timer reads NATS." },
+        "ExcelUpdateRateMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "How often dirty values are flushed to Excel." },
+        "MessageCounterThreshold": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807, "description": "Messages/second above which Automatic switches to timer delivery." },
+        "NatsUpdateStyle": { "type": "string", "pattern": "^(?:[Tt][Ii][Mm][Ee][Rr]|[Rr][Ee][Aa][Ll][Tt][Ii][Mm][Ee]|[Aa][Uu][Tt][Oo][Mm][Aa][Tt][Ii][Cc])$", "description": "Timer, Realtime or Automatic (case-insensitive; ASCII)." }
       }
     },
     "JetStream": {

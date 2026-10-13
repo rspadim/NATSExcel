@@ -4,63 +4,41 @@
   // the Excel folder, then C:\Windows (first existing wins).
 
   // Default: the endpoint a formula uses when it passes none.
-  // It is just a NAME, resolved in this order:
-  //   1. a Clusters name   2. a Servers name   3. a raw URL (nats://...)
-  // Nothing else lives here - the connection settings are per endpoint below.
+  // A Clusters name, a Servers name, or a raw nats:// URL.
   "Default": "local",
 
-  // The servers and clusters, all in one place.
-  //   Servers  : a name -> one URL (or a comma-separated URL list)
-  //   Clusters : a name -> a set of URLs (Server names or inline URLs)
-  //              plus the optional per-cluster settings
-  // A name referenced but not defined is a #CONFIG error, never a silent
-  // fallback to localhost.
   "Servers": {
     "dev": "nats://localhost:4222"
   },
 
   "Clusters": {
-    "local": {
-      "urls": ["dev"],
-      "timeout": 1000
-    }
+    "local": { "urls": ["dev"] }
   },
 
-  // Defaults applied to every cluster unless the cluster overrides them.
-  // Keeping them here means a cluster entry stays short and a shared
-  // credential is written once.
+  // Shared connection credentials; a cluster overrides them field by field.
   "Auth": {
     "user": null, "password": null, "token": null,
     "jwt": null, "nkeySeed": null, "credsFile": null,
     "tls": false, "tlsCert": null, "tlsCertPassword": null
   },
 
-  "Reconnect": {
-    "maxAttempts": 60,
-    "waitMs": 2000,
-    "jitterMs": 100
-  },
+  "Reconnect": { "maxAttempts": 60, "waitMs": 2000, "jitterMs": 100 },
 
-  // RTD delivery tuning: how the add-in pushes values into Excel. Not a
-  // connection setting, so it is not in Default.
   "RTD": {
-    "NatsUpdateRateMs": 1000,        // how often the poll timer reads NATS
-    "ExcelUpdateRateMs": 100,        // how often dirty values are flushed to Excel
-    "MessageCounterThreshold": 10000, // Automatic: msgs/sec above which it switches to timer
-    "NatsUpdateStyle": "Automatic"   // Timer | Realtime | Automatic
+    "NatsUpdateRateMs": 1000,
+    "ExcelUpdateRateMs": 100,
+    "MessageCounterThreshold": 10000,
+    "NatsUpdateStyle": "Automatic"
   },
 
-  "JetStream": {
-    "enabled": true,
-    "defaultTimeoutMs": 5000
-  },
+  "JetStream": { "enabled": true, "defaultTimeoutMs": 5000 },
 
-  "AllowAdminWrites": false,          // destructive/admin functions require true
-  "SkipRepeatedMessages": true,       // skip identical consecutive payloads (ordinal)
-  "CoalesceRealtimeUpdates": true,    // real-time: at most one push per window
-  "ConflationMs": 200,                // explicit real-time window in ms (0 = off)
-  "PublishDedupCacheSize": 10000,     // LRU size for PublishIfChanged
-  "SyncWrite": "fireforget",          // sync | fireforget | fireforget-all
-  "AsyncWrites": true,                // dispatch writes off the Excel thread (Observe)
-  "UpdateCheck": true                 // background check for a newer release
+  "AllowAdminWrites": false,
+  "SkipRepeatedMessages": true,
+  "CoalesceRealtimeUpdates": true,
+  "ConflationMs": 200,
+  "PublishDedupCacheSize": 10000,
+  "SyncWrite": "fireforget",
+  "AsyncWrites": true,
+  "UpdateCheck": true
 }
