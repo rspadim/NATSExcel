@@ -35,9 +35,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) }
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath) }
 $RepoRoot = (Resolve-Path $RepoRoot).Path
-if (-not $Xll) { $Xll = Join-Path $RepoRoot 'bin\Release\net48\publish\NATSExcel64-packed.xll' }
+
+# Prefer a COPY of the build output over an install: no COM registration, no
+# autoload entry, no wizard to click. Pass -Xll to point at a real install.
+if (-not $Xll) {
+    $copyDir = Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e-addin'
+    Remove-Item -Recurse -Force $copyDir -ErrorAction SilentlyContinue
+    $Xll = powershell -NoProfile -ExecutionPolicy Bypass -File `
+        (Join-Path $RepoRoot 'test\TestSupport\New-AddInFolder.ps1') `
+        -Path $copyDir -Url $NatsUrl
+}
+$Xll = "$Xll".Trim()
 
 # Bound per assertion: enough for a slow COM call, short enough not to waste
 # minutes. A -Fast run trusts the machine and uses a tight bound.

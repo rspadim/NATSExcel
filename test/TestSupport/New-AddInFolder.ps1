@@ -34,7 +34,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) }
+if (-not $RepoRoot) {
+    # This script lives in <repo>\test\TestSupport\, so the repo root is two
+    # levels up from its own folder. Do not use $MyInvocation: it points at the
+    # CALLER when the script is invoked by path.
+    $here = Split-Path -Parent $PSCommandPath
+    $RepoRoot = (Resolve-Path (Join-Path $here '..\..')).Path
+}
 $RepoRoot = (Resolve-Path $RepoRoot).Path
 
 $publish = Join-Path $RepoRoot 'bin\Release\net48\publish'
