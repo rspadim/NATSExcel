@@ -1151,7 +1151,17 @@ namespace NATSExcel
 
             if (!NatsRuntime.Connections.IsJetStreamEnabled(endpoint))
             {
-                error = NatsUdfCommon.RequireJetStream(false);
+                // Two different causes must not share one message (same rule as
+                // the KV probe): a server that answered but has no JetStream is a
+                // config problem, while an endpoint that never answered is a
+                // connectivity problem. Saying "JetStream is not enabled" for an
+                // unreachable host sends the user looking in the wrong place.
+                if (!NatsRuntime.Connections.HasConnection(endpoint))
+                    error = NatsUdfCommon.VerboseError(
+                        "connection", "no server answered at the endpoint",
+                        "check that the server is running and that the URL/token are right");
+                else
+                    error = NatsUdfCommon.RequireJetStream(false); // exact frozen text
                 return false;
             }
 

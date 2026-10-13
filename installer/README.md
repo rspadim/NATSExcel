@@ -13,6 +13,12 @@ service registration, which is isolated in `nats-service.ps1`.
    pick (default `C:\NATSExcel`).
 2. Detects the Office bitness and keeps only the matching XLL
    (`NATSExcel64-packed.xll` for 64-bit, `NATSExcel-packed.xll` for 32-bit).
+   The wizard is localized in **11 languages** (简体中文, English, 繁體中文,
+   Português, Español, Русский, Français, 한국어, Deutsch, 日本語 and Português
+   (Brasil)), every one with the same 63 wizard strings. The Excel-facing
+   function names and cell markers stay in **English** on purpose (see the main
+   README "Languages" section): a formula must return the same text whatever the
+   user's locale.
 3. Asks for the **connection**: the server URL (a comma-separated list for a
    cluster) and an optional **token**. Other credential styles (user/password,
    NKey, JWT+seed, creds file, mTLS) are edited in `NATSExcel.json` afterwards.

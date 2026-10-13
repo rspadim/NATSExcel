@@ -62,11 +62,30 @@ UninstallDisplayName={#AppName} {#AppVersion}
 UninstallDisplayIcon={app}\NATSExcel64-packed.xll
 
 [Languages]
+; The wizard is localized in 11 languages. The first (english) is the default.
+; The per-language text lives in [CustomMessages] below; every language carries
+; the SAME key set, so a missing translation is a hard failure of the key-count
+; check, never a silent English string.
+;
+; The Excel-facing surface is deliberately NOT localized: the UDF names,
+; markers and error text are English on purpose so a formula's return value
+; does not change with the user's locale (see AGENTS.md golden rule 1 and the
+; README "Languages" note).
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
+Name: "chinesetraditional"; MessagesFile: "languages\ChineseTraditional.isl"
+Name: "portuguese"; MessagesFile: "compiler:Languages\Portuguese.isl"
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
-; All user-visible text. Order: english (default) / spanish / brazilianportuguese.
+; All user-visible text. 11 languages, every one with the SAME 63 keys
+; (english is the source of truth; installer\languages\messages.ps1 reports a
+; missing or extra key for a tag).
 [CustomMessages]
 english.ServerPageTitle=NATS server
 english.ServerPageSubtitle=Do you want to install a NATS server now?
@@ -259,6 +278,518 @@ brazilianportuguese.SummaryIntro=Estes valores serao salvos no NATSExcel.json na
 brazilianportuguese.SummaryLabel=Conexao
 brazilianportuguese.SummaryAuth=Autenticacao
 brazilianportuguese.SummaryServer=Servidor
+
+german.ServerPageTitle=NATS-Server
+german.ServerPageSubtitle=Möchten Sie jetzt einen NATS-Server installieren?
+german.ServerPageDesc=NATSExcel benötigt einen NATS-Server. NATS läuft nativ unter Windows (eine kleine nats-server.exe) und JetStream ist dieselbe Binärdatei mit -js, daher ist Docker nicht nötig. Docker wird nur als Komfort angeboten. Zuerst wird der Server installiert, dann NATSExcel, und die Verbindung wird am Ende getestet.
+german.ServerNone=Nein - ich habe bereits einen Server (oder richte später einen ein)
+german.ServerNative=Ja - natives Windows (nats-server.exe herunterladen, empfohlen)
+german.ServerDocker=Ja - Docker (nats:latest, JetStream an)
+german.ConnPageTitle=NATS-Verbindung
+german.ConnPageSubtitle=Womit soll NATSExcel sich verbinden?
+german.ConnPageDesc=Klicken Sie auf Weiter für die Standardeinstellung (nats://localhost:4222). Trennen Sie bei einem Cluster die URLs durch Kommas - eine genügt, der Client findet die übrigen. Sie können dies später in NATSExcel.json ändern.
+german.ConnUrl=Server-URL(s) (kommagetrennt für einen Cluster):
+german.AuthPageTitle=Authentifizierung
+german.AuthPageSubtitle=Wie soll sich NATSExcel authentifizieren?
+german.AuthPageDesc=Wählen Sie den Credential-Stil, den dieser Server erwartet. Token ist bei einer einfachen Einrichtung am häufigsten; Benutzer/Passwort, NKey, JWT + Seed, eine Creds-Datei und mTLS werden ebenfalls unterstützt. Sie können dies später in NATSExcel.json ändern.
+german.AuthNone=Keine Authentifizierung (der Server erlaubt anonyme Verbindungen)
+german.AuthToken=Token (ein einzelnes gemeinsames Geheimnis)
+german.AuthUserPass=Benutzer und Passwort
+german.AuthNKey=NKey (die .nk-Seed-Datei signiert die Server-Nonce)
+german.AuthJwt=JWT + NKey-Seed (Operator-Modus / dezentrale Authentifizierung)
+german.AuthCreds=Credentials-Datei (.creds: ein JWT + Seed in einer Datei)
+german.AuthMtls=mTLS (ein Client-Zertifikat ist das Credential; impliziert TLS)
+german.CredsPageTitle=Credentials
+german.CredsPageSubtitle=Geben Sie die Credentials für den gewählten Stil ein
+german.CredsPageDesc=Es werden nur die Felder des ausgewählten Stils angezeigt. Die Werte werden in NATSExcel.json im Installationsordner geschrieben; halten Sie diese Datei aus der Versionsverwaltung heraus.
+german.CredsUser=Benutzer:
+german.CredsPassword=Passwort:
+german.CredsToken=Token:
+german.CredsNKeySeed=NKey-Seed (der Text oder ein Pfad zur .nk-Datei):
+german.CredsJwt=Benutzer-JWT:
+german.CredsCredsFile=Pfad zur Credentials-Datei (.creds):
+german.CredsTlsCert=Pfad zum Client-Zertifikat (.pfx / .pem):
+german.CredsTlsCertPassword=Passwort des Client-Zertifikats (optional):
+german.OptionsPageTitle=Zusätzliche Prüfungen
+german.OptionsPageSubtitle=Fast fertig
+german.OptionsPageDesc=Der Installer testet die Verbindung am Ende. Optional wird eine Beispiel-Arbeitsmappe in Excel geöffnet, die es zeigt.
+german.OptionsOpenExcel=Am Ende eine Beispiel-Arbeitsmappe von NATSExcel öffnen
+german.OptionsService=NATS als Windows-Dienst registrieren (erfordert Admin; wird ohne Erhöhung übersprungen)
+german.TaskConfigDesc=NATSExcel.json im Installationsordner erstellen (Verbindungseinstellungen)
+german.TaskNlogDesc=NLog.config erstellen (eine Protokolldatei neben dem Add-in schreiben)
+german.TaskAutoLoadDesc=Das Add-in registrieren, damit Excel es automatisch lädt (empfohlen)
+german.GroupConfig=Konfiguration:
+german.GroupExcel=Excel:
+german.IconUninstall={#AppName} deinstallieren
+german.UrlRequired=Bitte geben Sie eine NATS-Server-URL ein (zum Beispiel nats://localhost:4222).
+german.AuthRequired=Bitte füllen Sie die Felder für den gewählten Authentifizierungsstil aus.
+german.ServerFailed=%1 konnte nicht automatisch eingerichtet werden (Exit %2).%nSie können später einen Server installieren und NATSExcel.json darauf verweisen.
+german.ConfigWriteFailed=%1 konnte nicht geschrieben werden. Erstellen Sie sie manuell anhand des Beispiels (NATSExcel.json).
+german.TestFailed=Installiert, aber der NATS-Server unter %1 hat nicht geantwortet.%nPrüfen Sie, ob der Server läuft, und passen Sie NATSExcel.json an, falls er unter einer anderen URL läuft.
+german.TestOk=Alles bereit! NATS hat unter %1 geantwortet.%n%nSo verwenden Sie es: Öffnen Sie Excel. Falls das Add-in nicht automatisch geladen wird, gehen Sie zu Datei > Optionen > Add-Ins > Gehe zu... > Durchsuchen... und wählen Sie die .xll in %2.
+german.FinishedText=NATSExcel ist installiert in:%n%2%n%nFalls das Add-in nicht automatisch geladen wird, aktivieren Sie es in Excel:%nDatei > Optionen > Add-Ins > Gehe zu... > Durchsuchen... und wählen Sie NATSExcel64-packed.xll (oder NATSExcel-packed.xll für 32-Bit-Office).%n%nProbieren Sie dann =RTD("NatsRtd",,"SUB","test.>") in einer Zelle.
+german.UninstServersTitle=Server
+german.UninstServersSubtitle=Auch einen NATS-Server entfernen?
+german.UninstServersDesc=Diese NATS-Server wurden auf diesem Computer gefunden. Markieren Sie die, die Sie mit NATSExcel entfernen möchten.%nStandardmäßig wird NICHTS entfernt.
+german.UninstServerFound=%1  [gefunden]
+german.UninstKeepConfig=Ihre NATSExcel.json-Einstellungen behalten?
+german.ServerNameNative=NATS (natives nats-server.exe)
+german.ServerNameDocker=NATS (Docker)
+german.ServerNameGeneric=der Server
+german.SummaryPageTitle=Ihre Einstellungen
+german.SummaryPageSubtitle=Prüfen Sie die Verbindung, die in NATSExcel.json geschrieben wird
+german.SummaryIntro=Diese Werte werden in NATSExcel.json im Installationsordner gespeichert.
+german.SummaryLabel=Verbindung
+german.SummaryAuth=Authentifizierung
+german.SummaryServer=Server-Einrichtung
+
+french.ServerPageTitle=Serveur NATS
+french.ServerPageSubtitle=Voulez-vous installer un serveur NATS maintenant ?
+french.ServerPageDesc=NATSExcel a besoin d'un serveur NATS. NATS s'exécute nativement sous Windows (un petit nats-server.exe) et JetStream est le même binaire avec -js, donc Docker n'est pas nécessaire. Docker est proposé par commodité. Le serveur est installé d'abord, puis NATSExcel, et la connexion est testée à la fin.
+french.ServerNone=Non - j'ai déjà un serveur (ou j'en installerai un plus tard)
+french.ServerNative=Oui - Windows natif (télécharger nats-server.exe, recommandé)
+french.ServerDocker=Oui - Docker (nats:latest, JetStream activé)
+french.ConnPageTitle=Connexion NATS
+french.ConnPageSubtitle=Où NATSExcel doit-il se connecter ?
+french.ConnPageDesc=Cliquez sur Suivant pour la valeur par défaut (nats://localhost:4222). Pour un cluster, séparez les URL par des virgules - une suffit, le client découvre les autres. Vous pouvez modifier cela plus tard en éditant NATSExcel.json.
+french.ConnUrl=URL du serveur (séparées par des virgules pour un cluster) :
+french.AuthPageTitle=Authentification
+french.AuthPageSubtitle=Comment NATSExcel doit-il s'authentifier ?
+french.AuthPageDesc=Choisissez le style d'identifiants attendu par ce serveur. Le token est le plus courant pour une installation simple ; utilisateur/mot de passe, NKey, JWT + seed, un fichier creds et mTLS sont tous pris en charge. Vous pouvez modifier cela plus tard en éditant NATSExcel.json.
+french.AuthNone=Aucune authentification (le serveur accepte les connexions anonymes)
+french.AuthToken=Token (un unique secret partagé)
+french.AuthUserPass=Utilisateur et mot de passe
+french.AuthNKey=NKey (le fichier seed .nk signe le nonce du serveur)
+french.AuthJwt=JWT + seed NKey (mode opérateur / authentification décentralisée)
+french.AuthCreds=Fichier d'identifiants (.creds : un JWT + seed dans un seul fichier)
+french.AuthMtls=mTLS (un certificat client est l'identifiant ; implique TLS)
+french.CredsPageTitle=Identifiants
+french.CredsPageSubtitle=Saisissez les identifiants du style choisi
+french.CredsPageDesc=Seuls les champs du style sélectionné sont affichés. Les valeurs sont écrites dans NATSExcel.json dans le dossier d'installation ; gardez ce fichier hors du contrôle de version.
+french.CredsUser=Utilisateur :
+french.CredsPassword=Mot de passe :
+french.CredsToken=Token :
+french.CredsNKeySeed=Seed NKey (le texte, ou un chemin vers le fichier .nk) :
+french.CredsJwt=JWT utilisateur :
+french.CredsCredsFile=Chemin du fichier d'identifiants (.creds) :
+french.CredsTlsCert=Chemin du certificat client (.pfx / .pem) :
+french.CredsTlsCertPassword=Mot de passe du certificat client (facultatif) :
+french.OptionsPageTitle=Vérifications supplémentaires
+french.OptionsPageSubtitle=Presque terminé
+french.OptionsPageDesc=L'installateur teste la connexion à la fin. Il peut ouvrir un classeur Excel d'exemple le montrant en fonctionnement.
+french.OptionsOpenExcel=Ouvrir un classeur NATSExcel d'exemple à la fin
+french.OptionsService=Enregistrer NATS comme service Windows (nécessite admin ; ignoré si non élevé)
+french.TaskConfigDesc=Créer NATSExcel.json dans le dossier d'installation (paramètres de connexion)
+french.TaskNlogDesc=Créer NLog.config (écrire un fichier journal à côté de l'add-in)
+french.TaskAutoLoadDesc=Enregistrer l'add-in pour qu'Excel le charge automatiquement (recommandé)
+french.GroupConfig=Configuration :
+french.GroupExcel=Excel :
+french.IconUninstall=Désinstaller {#AppName}
+french.UrlRequired=Veuillez saisir une URL de serveur NATS (par exemple nats://localhost:4222).
+french.AuthRequired=Veuillez remplir les champs du style d'authentification sélectionné.
+french.ServerFailed=Impossible de configurer %1 automatiquement (sortie %2).%nVous pouvez installer un serveur plus tard et pointer NATSExcel.json vers celui-ci.
+french.ConfigWriteFailed=Impossible d'écrire %1. Créez-le manuellement à partir de l'exemple (NATSExcel.json).
+french.TestFailed=Installé, mais le serveur NATS à %1 n'a pas répondu.%nVérifiez que le serveur est en cours d'exécution et ajustez NATSExcel.json s'il est sur une autre URL.
+french.TestOk=Tout est prêt ! NATS a répondu à %1.%n%nPour l'utiliser : ouvrez Excel. Si l'add-in ne se charge pas automatiquement, allez dans Fichier > Options > Compléments > Atteindre... > Parcourir... et choisissez le .xll dans %2.
+french.FinishedText=NATSExcel est installé dans :%n%2%n%nSi l'add-in ne se charge pas automatiquement, activez-le dans Excel :%nFichier > Options > Compléments > Atteindre... > Parcourir... et choisissez NATSExcel64-packed.xll (ou NATSExcel-packed.xll pour Office 32 bits).%n%nEssayez ensuite =RTD("NatsRtd",,"SUB","test.>") dans une cellule.
+french.UninstServersTitle=Serveurs
+french.UninstServersSubtitle=Supprimer aussi un serveur NATS ?
+french.UninstServersDesc=Ces serveurs NATS ont été trouvés sur cette machine. Cochez ceux que vous voulez supprimer avec NATSExcel.%nPar défaut, RIEN n'est supprimé.
+french.UninstServerFound=%1  [trouvé]
+french.UninstKeepConfig=Conserver vos paramètres NATSExcel.json ?
+french.ServerNameNative=NATS (nats-server.exe natif)
+french.ServerNameDocker=NATS (Docker)
+french.ServerNameGeneric=le serveur
+french.SummaryPageTitle=Vos paramètres
+french.SummaryPageSubtitle=Vérifiez la connexion qui sera écrite dans NATSExcel.json
+french.SummaryIntro=Ces valeurs seront enregistrées dans NATSExcel.json dans le dossier d'installation.
+french.SummaryLabel=Connexion
+french.SummaryAuth=Authentification
+french.SummaryServer=Installation du serveur
+
+portuguese.ServerPageTitle=Servidor NATS
+portuguese.ServerPageSubtitle=Pretende instalar agora um servidor NATS?
+portuguese.ServerPageDesc=O NATSExcel precisa de um servidor NATS. O NATS é executado nativamente no Windows (um pequeno nats-server.exe) e o JetStream é o mesmo binário com -js, pelo que não é necessário Docker. O Docker é disponibilizado por conveniência. O servidor é instalado primeiro, depois o NATSExcel, e a ligação é testada no final.
+portuguese.ServerNone=Não - já tenho um servidor (ou vou configurá-lo mais tarde)
+portuguese.ServerNative=Sim - Windows nativo (transferir nats-server.exe, recomendado)
+portuguese.ServerDocker=Sim - Docker (nats:latest, JetStream ativado)
+portuguese.ConnPageTitle=Ligação NATS
+portuguese.ConnPageSubtitle=Onde deve o NATSExcel ligar-se?
+portuguese.ConnPageDesc=Prima Seguinte para a predefinição (nats://localhost:4222). Para um cluster, separe os URLs por vírgulas - um basta, o cliente descobre os restantes. Pode alterar isto mais tarde editando o NATSExcel.json.
+portuguese.ConnUrl=URL(s) do servidor (separados por vírgulas para um cluster):
+portuguese.AuthPageTitle=Autenticação
+portuguese.AuthPageSubtitle=Como deve o NATSExcel autenticar-se?
+portuguese.AuthPageDesc=Escolha o estilo de credenciais que este servidor espera. O token é o mais comum numa configuração simples; utilizador/palavra-passe, NKey, JWT + seed, um ficheiro creds e mTLS são todos suportados. Pode alterar isto mais tarde editando o NATSExcel.json.
+portuguese.AuthNone=Sem autenticação (o servidor aceita ligações anónimas)
+portuguese.AuthToken=Token (um único segredo partilhado)
+portuguese.AuthUserPass=Utilizador e palavra-passe
+portuguese.AuthNKey=NKey (o ficheiro seed .nk assina o nonce do servidor)
+portuguese.AuthJwt=JWT + seed NKey (modo operador / autenticação descentralizada)
+portuguese.AuthCreds=Ficheiro de credenciais (.creds: um JWT + seed num só ficheiro)
+portuguese.AuthMtls=mTLS (um certificado de cliente é a credencial; implica TLS)
+portuguese.CredsPageTitle=Credenciais
+portuguese.CredsPageSubtitle=Introduza as credenciais do estilo escolhido
+portuguese.CredsPageDesc=Só são mostrados os campos do estilo selecionado. Os valores são escritos no NATSExcel.json na pasta de instalação; mantenha esse ficheiro fora do controlo de versões.
+portuguese.CredsUser=Utilizador:
+portuguese.CredsPassword=Palavra-passe:
+portuguese.CredsToken=Token:
+portuguese.CredsNKeySeed=Seed NKey (o texto, ou um caminho para o ficheiro .nk):
+portuguese.CredsJwt=JWT do utilizador:
+portuguese.CredsCredsFile=Caminho do ficheiro de credenciais (.creds):
+portuguese.CredsTlsCert=Caminho do certificado de cliente (.pfx / .pem):
+portuguese.CredsTlsCertPassword=Palavra-passe do certificado de cliente (opcional):
+portuguese.OptionsPageTitle=Verificações adicionais
+portuguese.OptionsPageSubtitle=Quase pronto
+portuguese.OptionsPageDesc=O instalador testa a ligação ao terminar. Opcionalmente abre um livro de Excel de exemplo a mostrar o funcionamento.
+portuguese.OptionsOpenExcel=Abrir um livro NATSExcel de exemplo no final
+portuguese.OptionsService=Registar o NATS como serviço do Windows (requer admin; ignorado se não elevado)
+portuguese.TaskConfigDesc=Criar o NATSExcel.json na pasta de instalação (definições de ligação)
+portuguese.TaskNlogDesc=Criar o NLog.config (escrever um ficheiro de registo junto ao add-in)
+portuguese.TaskAutoLoadDesc=Registar o add-in para que o Excel o carregue automaticamente (recomendado)
+portuguese.GroupConfig=Configuração:
+portuguese.GroupExcel=Excel:
+portuguese.IconUninstall=Desinstalar {#AppName}
+portuguese.UrlRequired=Introduza um URL de servidor NATS (por exemplo nats://localhost:4222).
+portuguese.AuthRequired=Preencha os campos do estilo de autenticação que selecionou.
+portuguese.ServerFailed=Não foi possível configurar %1 automaticamente (saída %2).%nPode instalar um servidor mais tarde e apontar o NATSExcel.json para ele.
+portuguese.ConfigWriteFailed=Não foi possível escrever %1. Crie-o manualmente a partir do exemplo (NATSExcel.json).
+portuguese.TestFailed=Instalado, mas o servidor NATS em %1 não respondeu.%nVerifique se o servidor está em execução e ajuste o NATSExcel.json se estiver noutro URL.
+portuguese.TestOk=Tudo pronto! O NATS respondeu em %1.%n%nPara usar: abra o Excel. Se o add-in não carregar automaticamente, vá a Ficheiro > Opções > Suplementos > Ir... > Procurar... e escolha o .xll em %2.
+portuguese.FinishedText=O NATSExcel está instalado em:%n%2%n%nSe o add-in não carregar automaticamente, ative-o no Excel:%nFicheiro > Opções > Suplementos > Ir... > Procurar... e escolha NATSExcel64-packed.xll (ou NATSExcel-packed.xll para Office de 32 bits).%n%nDepois experimente =RTD("NatsRtd",,"SUB","test.>") numa célula.
+portuguese.UninstServersTitle=Servidores
+portuguese.UninstServersSubtitle=Remover também um servidor NATS?
+portuguese.UninstServersDesc=Estes servidores NATS foram encontrados nesta máquina. Assinale os que pretende remover com o NATSExcel.%nPor predefinição NADA é removido.
+portuguese.UninstServerFound=%1  [encontrado]
+portuguese.UninstKeepConfig=Manter as suas definições do NATSExcel.json?
+portuguese.ServerNameNative=NATS (nats-server.exe nativo)
+portuguese.ServerNameDocker=NATS (Docker)
+portuguese.ServerNameGeneric=o servidor
+portuguese.SummaryPageTitle=As suas definições
+portuguese.SummaryPageSubtitle=Reveja a ligação que será escrita no NATSExcel.json
+portuguese.SummaryIntro=Estes valores serão guardados no NATSExcel.json na pasta de instalação.
+portuguese.SummaryLabel=Ligação
+portuguese.SummaryAuth=Autenticação
+portuguese.SummaryServer=Configuração do servidor
+
+russian.ServerPageTitle=Сервер NATS
+russian.ServerPageSubtitle=Установить сервер NATS сейчас?
+russian.ServerPageDesc=NATSExcel требует сервер NATS. NATS работает в Windows изначально (небольшой nats-server.exe), а JetStream — это тот же бинарник с -js, поэтому Docker не нужен. Docker предлагается для удобства. Сначала устанавливается сервер, затем NATSExcel, а подключение проверяется в конце.
+russian.ServerNone=Нет — у меня уже есть сервер (или настрою позже)
+russian.ServerNative=Да — изначально в Windows (загрузить nats-server.exe, рекомендуется)
+russian.ServerDocker=Да — Docker (nats:latest, JetStream включён)
+russian.ConnPageTitle=Подключение к NATS
+russian.ConnPageSubtitle=Куда должен подключаться NATSExcel?
+russian.ConnPageDesc=Нажмите «Далее» для значения по умолчанию (nats://localhost:4222). Для кластера разделите URL запятыми — одного достаточно, клиент найдёт остальные. Это можно изменить позже, отредактировав NATSExcel.json.
+russian.ConnUrl=URL сервера (через запятую для кластера):
+russian.AuthPageTitle=Аутентификация
+russian.AuthPageSubtitle=Как NATSExcel должен проходить аутентификацию?
+russian.AuthPageDesc=Выберите стиль учётных данных, который ожидает этот сервер. Token чаще всего используется в простой настройке; также поддерживаются пользователь/пароль, NKey, JWT + seed, файл creds и mTLS. Это можно изменить позже, отредактировав NATSExcel.json.
+russian.AuthNone=Без аутентификации (сервер допускает анонимные подключения)
+russian.AuthToken=Token (один общий секрет)
+russian.AuthUserPass=Пользователь и пароль
+russian.AuthNKey=NKey (файл seed .nk подписывает nonce сервера)
+russian.AuthJwt=JWT + seed NKey (режим оператора / децентрализованная аутентификация)
+russian.AuthCreds=Файл учётных данных (.creds: JWT + seed в одном файле)
+russian.AuthMtls=mTLS (учётные данные — это клиентский сертификат; подразумевает TLS)
+russian.CredsPageTitle=Учётные данные
+russian.CredsPageSubtitle=Введите учётные данные для выбранного стиля
+russian.CredsPageDesc=Показываются только поля выбранного стиля. Значения записываются в NATSExcel.json в папке установки; не добавляйте этот файл в систему контроля версий.
+russian.CredsUser=Пользователь:
+russian.CredsPassword=Пароль:
+russian.CredsToken=Token:
+russian.CredsNKeySeed=Seed NKey (текст или путь к файлу .nk):
+russian.CredsJwt=JWT пользователя:
+russian.CredsCredsFile=Путь к файлу учётных данных (.creds):
+russian.CredsTlsCert=Путь к клиентскому сертификату (.pfx / .pem):
+russian.CredsTlsCertPassword=Пароль клиентского сертификата (необязательно):
+russian.OptionsPageTitle=Дополнительные проверки
+russian.OptionsPageSubtitle=Почти готово
+russian.OptionsPageDesc=Установщик проверяет подключение после завершения. При желании открывается пример книги Excel с демонстрацией работы.
+russian.OptionsOpenExcel=Открыть пример книги NATSExcel в конце
+russian.OptionsService=Зарегистрировать NATS как службу Windows (нужны права администратора; пропускается без повышения прав)
+russian.TaskConfigDesc=Создать NATSExcel.json в папке установки (параметры подключения)
+russian.TaskNlogDesc=Создать NLog.config (записывать файл журнала рядом с add-in)
+russian.TaskAutoLoadDesc=Зарегистрировать add-in, чтобы Excel загружал его автоматически (рекомендуется)
+russian.GroupConfig=Конфигурация:
+russian.GroupExcel=Excel:
+russian.IconUninstall=Удалить {#AppName}
+russian.UrlRequired=Введите URL сервера NATS (например, nats://localhost:4222).
+russian.AuthRequired=Заполните поля для выбранного стиля аутентификации.
+russian.ServerFailed=Не удалось настроить %1 автоматически (код выхода %2).%nВы можете установить сервер позже и указать на него в NATSExcel.json.
+russian.ConfigWriteFailed=Не удалось записать %1. Создайте его вручную по образцу (NATSExcel.json).
+russian.TestFailed=Установлено, но сервер NATS по адресу %1 не ответил.%nУбедитесь, что сервер запущен, и измените NATSExcel.json, если он находится по другому URL.
+russian.TestOk=Всё готово! NATS ответил по адресу %1.%n%nЧтобы использовать: откройте Excel. Если add-in не загружается автоматически, перейдите в Файл > Параметры > Надстройки > Перейти... > Обзор... и выберите .xll в %2.
+russian.FinishedText=NATSExcel установлен в:%n%2%n%nЕсли add-in не загружается автоматически, включите его в Excel:%nФайл > Параметры > Надстройки > Перейти... > Обзор... и выберите NATSExcel64-packed.xll (или NATSExcel-packed.xll для 32-разрядного Office).%n%nЗатем попробуйте =RTD("NatsRtd",,"SUB","test.>") в ячейке.
+russian.UninstServersTitle=Серверы
+russian.UninstServersSubtitle=Также удалить сервер NATS?
+russian.UninstServersDesc=На этом компьютере найдены следующие серверы NATS. Отметьте те, которые хотите удалить вместе с NATSExcel.%nПо умолчанию НИЧЕГО не удаляется.
+russian.UninstServerFound=%1  [найдено]
+russian.UninstKeepConfig=Сохранить ваши настройки NATSExcel.json?
+russian.ServerNameNative=NATS (изначальный nats-server.exe)
+russian.ServerNameDocker=NATS (Docker)
+russian.ServerNameGeneric=сервер
+russian.SummaryPageTitle=Ваши параметры
+russian.SummaryPageSubtitle=Проверьте подключение, которое будет записано в NATSExcel.json
+russian.SummaryIntro=Эти значения будут сохранены в NATSExcel.json в папке установки.
+russian.SummaryLabel=Подключение
+russian.SummaryAuth=Аутентификация
+russian.SummaryServer=Настройка сервера
+
+korean.ServerPageTitle=NATS 서버
+korean.ServerPageSubtitle=지금 NATS 서버를 설치하시겠습니까?
+korean.ServerPageDesc=NATSExcel에는 NATS 서버가 필요합니다. NATS는 Windows에서 기본 실행되며(작은 nats-server.exe 하나) JetStream은 -js를 붙인 같은 바이너리이므로 Docker가 필요하지 않습니다. Docker는 편의를 위해 제공됩니다. 서버를 먼저 설치하고 그다음 NATSExcel을 설치하며 연결은 마지막에 테스트합니다.
+korean.ServerNone=아니요 - 이미 서버가 있습니다(또는 나중에 설정합니다)
+korean.ServerNative=예 - Windows 기본(nats-server.exe 다운로드, 권장)
+korean.ServerDocker=예 - Docker(nats:latest, JetStream 사용)
+korean.ConnPageTitle=NATS 연결
+korean.ConnPageSubtitle=NATSExcel이 어디에 연결해야 합니까?
+korean.ConnPageDesc=기본값(nats://localhost:4222)을 사용하려면 다음을 누르십시오. 클러스터의 경우 URL을 쉼표로 구분하십시오 - 하나면 충분하며 클라이언트가 나머지를 찾습니다. 나중에 NATSExcel.json을 편집하여 변경할 수 있습니다.
+korean.ConnUrl=서버 URL(클러스터의 경우 쉼표로 구분):
+korean.AuthPageTitle=인증
+korean.AuthPageSubtitle=NATSExcel은 어떻게 인증해야 합니까?
+korean.AuthPageDesc=이 서버가 기대하는 자격 증명 방식을 선택하십시오. 간단한 설정에서는 token이 가장 흔하며, 사용자/비밀번호, NKey, JWT + seed, creds 파일, mTLS도 모두 지원됩니다. 나중에 NATSExcel.json을 편집하여 변경할 수 있습니다.
+korean.AuthNone=인증 없음(서버가 익명 연결을 허용함)
+korean.AuthToken=Token(단일 공유 비밀)
+korean.AuthUserPass=사용자 및 비밀번호
+korean.AuthNKey=NKey(.nk seed 파일이 서버 nonce에 서명함)
+korean.AuthJwt=JWT + NKey seed(운영자 모드 / 분산 인증)
+korean.AuthCreds=자격 증명 파일(.creds: JWT + seed가 한 파일에)
+korean.AuthMtls=mTLS(클라이언트 인증서가 자격 증명이며 TLS를 암시함)
+korean.CredsPageTitle=자격 증명
+korean.CredsPageSubtitle=선택한 방식의 자격 증명을 입력하십시오
+korean.CredsPageDesc=선택한 방식의 필드만 표시됩니다. 값은 설치 폴더의 NATSExcel.json에 기록되며, 이 파일은 버전 관리에서 제외하십시오.
+korean.CredsUser=사용자:
+korean.CredsPassword=비밀번호:
+korean.CredsToken=Token:
+korean.CredsNKeySeed=NKey seed(텍스트 또는 .nk 파일 경로):
+korean.CredsJwt=사용자 JWT:
+korean.CredsCredsFile=자격 증명 파일(.creds) 경로:
+korean.CredsTlsCert=클라이언트 인증서 경로(.pfx / .pem):
+korean.CredsTlsCertPassword=클라이언트 인증서 비밀번호(선택):
+korean.OptionsPageTitle=추가 확인
+korean.OptionsPageSubtitle=거의 완료됨
+korean.OptionsPageDesc=설치 프로그램이 완료될 때 연결을 테스트합니다. 원하면 작동을 보여주는 예제 Excel 통합 문서를 엽니다.
+korean.OptionsOpenExcel=마지막에 예제 NATSExcel 통합 문서 열기
+korean.OptionsService=NATS를 Windows 서비스로 등록(관리자 필요, 권한이 없으면 건너뜀)
+korean.TaskConfigDesc=설치 폴더에 NATSExcel.json 만들기(연결 설정)
+korean.TaskNlogDesc=NLog.config 만들기(add-in 옆에 로그 파일 기록)
+korean.TaskAutoLoadDesc=Excel이 자동으로 로드하도록 add-in 등록(권장)
+korean.GroupConfig=구성:
+korean.GroupExcel=Excel:
+korean.IconUninstall={#AppName} 제거
+korean.UrlRequired=NATS 서버 URL을 입력하십시오(예: nats://localhost:4222).
+korean.AuthRequired=선택한 인증 방식의 필드를 채우십시오.
+korean.ServerFailed=%1을(를) 자동으로 설정할 수 없습니다(종료 %2).%n나중에 서버를 설치하고 NATSExcel.json이 이를 가리키도록 할 수 있습니다.
+korean.ConfigWriteFailed=%1을(를) 쓸 수 없습니다. 예제(NATSExcel.json)에서 직접 만드십시오.
+korean.TestFailed=설치되었지만 %1의 NATS 서버가 응답하지 않았습니다.%n서버가 실행 중인지 확인하고 다른 URL이라면 NATSExcel.json을 조정하십시오.
+korean.TestOk=모두 완료! NATS가 %1에서 응답했습니다.%n%n사용 방법: Excel을 여십시오. add-in이 자동으로 로드되지 않으면 파일 > 옵션 > 추가 기능 > 이동... > 찾아보기...로 가서 %2의 .xll을 선택하십시오.
+korean.FinishedText=NATSExcel이 설치되었습니다:%n%2%n%nadd-in이 자동으로 로드되지 않으면 Excel에서 활성화하십시오:%n파일 > 옵션 > 추가 기능 > 이동... > 찾아보기...에서 NATSExcel64-packed.xll(32비트 Office는 NATSExcel-packed.xll)을 선택하십시오.%n%n그런 다음 셀에 =RTD("NatsRtd",,"SUB","test.>")를 시도하십시오.
+korean.UninstServersTitle=서버
+korean.UninstServersSubtitle=NATS 서버도 제거하시겠습니까?
+korean.UninstServersDesc=이 컴퓨터에서 다음 NATS 서버를 찾았습니다. NATSExcel과 함께 제거할 항목을 선택하십시오.%n기본적으로 아무것도 제거되지 않습니다.
+korean.UninstServerFound=%1  [발견됨]
+korean.UninstKeepConfig=NATSExcel.json 설정을 유지하시겠습니까?
+korean.ServerNameNative=NATS(기본 nats-server.exe)
+korean.ServerNameDocker=NATS(Docker)
+korean.ServerNameGeneric=서버
+korean.SummaryPageTitle=설정
+korean.SummaryPageSubtitle=NATSExcel.json에 기록될 연결을 검토하십시오
+korean.SummaryIntro=이 값은 설치 폴더의 NATSExcel.json에 저장됩니다.
+korean.SummaryLabel=연결
+korean.SummaryAuth=인증
+korean.SummaryServer=서버 설정
+
+japanese.ServerPageTitle=NATS サーバー
+japanese.ServerPageSubtitle=今すぐ NATS サーバーをインストールしますか?
+japanese.ServerPageDesc=NATSExcel には NATS サーバーが必要です。NATS は Windows でネイティブに動作し(小さな nats-server.exe 1 つ)、JetStream は -js を付けた同じバイナリなので Docker は不要です。Docker は便宜上提供されています。先にサーバーをインストールし、次に NATSExcel をインストールし、最後に接続をテストします。
+japanese.ServerNone=いいえ - 既にサーバーがあります(または後で設定します)
+japanese.ServerNative=はい - Windows ネイティブ(nats-server.exe をダウンロード、推奨)
+japanese.ServerDocker=はい - Docker(nats:latest、JetStream 有効)
+japanese.ConnPageTitle=NATS 接続
+japanese.ConnPageSubtitle=NATSExcel はどこに接続しますか?
+japanese.ConnPageDesc=既定値(nats://localhost:4222)を使うには [次へ] を押します。クラスターの場合は URL をカンマで区切ります - 1 つで十分で、クライアントが残りを検出します。後で NATSExcel.json を編集して変更できます。
+japanese.ConnUrl=サーバー URL(クラスターの場合はカンマ区切り):
+japanese.AuthPageTitle=認証
+japanese.AuthPageSubtitle=NATSExcel はどのように認証しますか?
+japanese.AuthPageDesc=このサーバーが期待する資格情報の方式を選びます。単純な構成では token が最も一般的で、ユーザー/パスワード、NKey、JWT + seed、creds ファイル、mTLS もすべてサポートされます。後で NATSExcel.json を編集して変更できます。
+japanese.AuthNone=認証なし(サーバーが匿名接続を許可します)
+japanese.AuthToken=Token(単一の共有シークレット)
+japanese.AuthUserPass=ユーザーとパスワード
+japanese.AuthNKey=NKey(.nk seed ファイルがサーバーの nonce に署名します)
+japanese.AuthJwt=JWT + NKey seed(オペレーターモード / 分散認証)
+japanese.AuthCreds=資格情報ファイル(.creds: JWT + seed を 1 ファイルに)
+japanese.AuthMtls=mTLS(クライアント証明書が資格情報。TLS を意味します)
+japanese.CredsPageTitle=資格情報
+japanese.CredsPageSubtitle=選択した方式の資格情報を入力します
+japanese.CredsPageDesc=選択した方式のフィールドだけが表示されます。値はインストール フォルダーの NATSExcel.json に書き込まれます。このファイルはバージョン管理に含めないでください。
+japanese.CredsUser=ユーザー:
+japanese.CredsPassword=パスワード:
+japanese.CredsToken=Token:
+japanese.CredsNKeySeed=NKey seed(テキスト、または .nk ファイルへのパス):
+japanese.CredsJwt=ユーザー JWT:
+japanese.CredsCredsFile=資格情報ファイル(.creds)のパス:
+japanese.CredsTlsCert=クライアント証明書のパス(.pfx / .pem):
+japanese.CredsTlsCertPassword=クライアント証明書のパスワード(省略可):
+japanese.OptionsPageTitle=追加の確認
+japanese.OptionsPageSubtitle=ほぼ完了
+japanese.OptionsPageDesc=インストーラーは終了時に接続をテストします。必要に応じて、動作を示すサンプル Excel ブックを開きます。
+japanese.OptionsOpenExcel=最後にサンプルの NATSExcel ブックを開く
+japanese.OptionsService=NATS を Windows サービスとして登録(管理者が必要。昇格していない場合はスキップ)
+japanese.TaskConfigDesc=インストール フォルダーに NATSExcel.json を作成(接続設定)
+japanese.TaskNlogDesc=NLog.config を作成(add-in の隣にログ ファイルを書き込む)
+japanese.TaskAutoLoadDesc=Excel が自動で読み込むように add-in を登録(推奨)
+japanese.GroupConfig=構成:
+japanese.GroupExcel=Excel:
+japanese.IconUninstall={#AppName} をアンインストール
+japanese.UrlRequired=NATS サーバー URL を入力してください(例: nats://localhost:4222)。
+japanese.AuthRequired=選択した認証方式のフィールドを入力してください。
+japanese.ServerFailed=%1 を自動的に設定できませんでした(終了コード %2)。%n後でサーバーをインストールし、NATSExcel.json をそちらに向けることができます。
+japanese.ConfigWriteFailed=%1 を書き込めませんでした。サンプル(NATSExcel.json)から手動で作成してください。
+japanese.TestFailed=インストールしましたが、%1 の NATS サーバーが応答しませんでした。%nサーバーが実行中か確認し、別の URL にある場合は NATSExcel.json を調整してください。
+japanese.TestOk=準備完了! NATS が %1 で応答しました。%n%n使用方法: Excel を開きます。add-in が自動で読み込まれない場合は、ファイル > オプション > アドイン > 設定... > 参照... に進み、%2 の .xll を選びます。
+japanese.FinishedText=NATSExcel は次にインストールされています:%n%2%n%nadd-in が自動で読み込まれない場合は、Excel で有効にします:%nファイル > オプション > アドイン > 設定... > 参照... に進み、NATSExcel64-packed.xll(32 ビット Office の場合は NATSExcel-packed.xll)を選びます。%n%n次に、セルで =RTD("NatsRtd",,"SUB","test.>") を試します。
+japanese.UninstServersTitle=サーバー
+japanese.UninstServersSubtitle=NATS サーバーも削除しますか?
+japanese.UninstServersDesc=このマシンで次の NATS サーバーが見つかりました。NATSExcel と一緒に削除するものを選んでください。%n既定では何も削除されません。
+japanese.UninstServerFound=%1  [検出]
+japanese.UninstKeepConfig=NATSExcel.json の設定を保持しますか?
+japanese.ServerNameNative=NATS(ネイティブ nats-server.exe)
+japanese.ServerNameDocker=NATS(Docker)
+japanese.ServerNameGeneric=サーバー
+japanese.SummaryPageTitle=設定
+japanese.SummaryPageSubtitle=NATSExcel.json に書き込まれる接続を確認してください
+japanese.SummaryIntro=これらの値はインストール フォルダーの NATSExcel.json に保存されます。
+japanese.SummaryLabel=接続
+japanese.SummaryAuth=認証
+japanese.SummaryServer=サーバー セットアップ
+
+chinesesimplified.ServerPageTitle=NATS 服务器
+chinesesimplified.ServerPageSubtitle=现在安装 NATS 服务器吗?
+chinesesimplified.ServerPageDesc=NATSExcel 需要一个 NATS 服务器。NATS 在 Windows 上原生运行(一个小的 nats-server.exe), JetStream 就是同一个二进制文件加上 -js, 因此不需要 Docker。Docker 只是作为便利选项提供。先安装服务器, 再安装 NATSExcel, 最后测试连接。
+chinesesimplified.ServerNone=否 - 我已经有服务器(或稍后自行设置)
+chinesesimplified.ServerNative=是 - Windows 原生(下载 nats-server.exe, 推荐)
+chinesesimplified.ServerDocker=是 - Docker(nats:latest, 启用 JetStream)
+chinesesimplified.ConnPageTitle=NATS 连接
+chinesesimplified.ConnPageSubtitle=NATSExcel 应连接到何处?
+chinesesimplified.ConnPageDesc=按 [下一步] 使用默认值(nats://localhost:4222)。对于集群, 请用逗号分隔 URL - 一个即可, 客户端会发现其余的。你可以稍后编辑 NATSExcel.json 来更改。
+chinesesimplified.ConnUrl=服务器 URL(集群请用逗号分隔):
+chinesesimplified.AuthPageTitle=身份验证
+chinesesimplified.AuthPageSubtitle=NATSExcel 应如何身份验证?
+chinesesimplified.AuthPageDesc=选择此服务器所需的凭据方式。简单设置中 token 最常见; 用户/密码、NKey、JWT + seed、creds 文件和 mTLS 都受支持。你可以稍后编辑 NATSExcel.json 来更改。
+chinesesimplified.AuthNone=无身份验证(服务器接受匿名连接)
+chinesesimplified.AuthToken=Token(单个共享密钥)
+chinesesimplified.AuthUserPass=用户名和密码
+chinesesimplified.AuthNKey=NKey(.nk seed 文件对服务器 nonce 签名)
+chinesesimplified.AuthJwt=JWT + NKey seed(操作员模式 / 去中心化身份验证)
+chinesesimplified.AuthCreds=凭据文件(.creds: 一个文件中包含 JWT + seed)
+chinesesimplified.AuthMtls=mTLS(客户端证书即凭据; 隐含 TLS)
+chinesesimplified.CredsPageTitle=凭据
+chinesesimplified.CredsPageSubtitle=输入所选方式的凭据
+chinesesimplified.CredsPageDesc=仅显示所选方式的字段。值会写入安装文件夹中的 NATSExcel.json; 请勿将该文件纳入版本控制。
+chinesesimplified.CredsUser=用户名:
+chinesesimplified.CredsPassword=密码:
+chinesesimplified.CredsToken=Token:
+chinesesimplified.CredsNKeySeed=NKey seed(文本, 或 .nk 文件的路径):
+chinesesimplified.CredsJwt=用户 JWT:
+chinesesimplified.CredsCredsFile=凭据文件(.creds)路径:
+chinesesimplified.CredsTlsCert=客户端证书路径(.pfx / .pem):
+chinesesimplified.CredsTlsCertPassword=客户端证书密码(可选):
+chinesesimplified.OptionsPageTitle=额外检查
+chinesesimplified.OptionsPageSubtitle=即将完成
+chinesesimplified.OptionsPageDesc=安装程序在结束时测试连接。可选地打开一个演示其工作的示例 Excel 工作簿。
+chinesesimplified.OptionsOpenExcel=结束时打开示例 NATSExcel 工作簿
+chinesesimplified.OptionsService=将 NATS 注册为 Windows 服务(需要管理员; 未提升权限时跳过)
+chinesesimplified.TaskConfigDesc=在安装文件夹中创建 NATSExcel.json(连接设置)
+chinesesimplified.TaskNlogDesc=创建 NLog.config(在 add-in 旁边写入日志文件)
+chinesesimplified.TaskAutoLoadDesc=注册 add-in, 让 Excel 自动加载(推荐)
+chinesesimplified.GroupConfig=配置:
+chinesesimplified.GroupExcel=Excel:
+chinesesimplified.IconUninstall=卸载 {#AppName}
+chinesesimplified.UrlRequired=请输入 NATS 服务器 URL(例如 nats://localhost:4222)。
+chinesesimplified.AuthRequired=请填写所选身份验证方式的字段。
+chinesesimplified.ServerFailed=无法自动设置 %1(退出 %2)。%n你可以稍后安装服务器并将 NATSExcel.json 指向它。
+chinesesimplified.ConfigWriteFailed=无法写入 %1。请参照示例(NATSExcel.json)手动创建。
+chinesesimplified.TestFailed=已安装, 但 %1 处的 NATS 服务器没有响应。%n请检查服务器是否运行, 如果它在其他 URL 上, 请调整 NATSExcel.json。
+chinesesimplified.TestOk=全部就绪! NATS 在 %1 处作出了响应。%n%n使用方法: 打开 Excel。如果 add-in 没有自动加载, 请转到 文件 > 选项 > 加载项 > 转到... > 浏览..., 选择 %2 中的 .xll。
+chinesesimplified.FinishedText=NATSExcel 已安装到:%n%2%n%n如果 add-in 没有自动加载, 请在 Excel 中启用它:%n文件 > 选项 > 加载项 > 转到... > 浏览..., 选择 NATSExcel64-packed.xll(32 位 Office 请选 NATSExcel-packed.xll)。%n%n然后在单元格中尝试 =RTD("NatsRtd",,"SUB","test.>")。
+chinesesimplified.UninstServersTitle=服务器
+chinesesimplified.UninstServersSubtitle=也删除 NATS 服务器?
+chinesesimplified.UninstServersDesc=在此机器上找到了这些 NATS 服务器。勾选要与 NATSExcel 一起删除的项。%n默认不删除任何内容。
+chinesesimplified.UninstServerFound=%1  [已找到]
+chinesesimplified.UninstKeepConfig=保留你的 NATSExcel.json 设置?
+chinesesimplified.ServerNameNative=NATS(原生 nats-server.exe)
+chinesesimplified.ServerNameDocker=NATS(Docker)
+chinesesimplified.ServerNameGeneric=服务器
+chinesesimplified.SummaryPageTitle=你的设置
+chinesesimplified.SummaryPageSubtitle=查看将写入 NATSExcel.json 的连接
+chinesesimplified.SummaryIntro=这些值将保存到安装文件夹中的 NATSExcel.json。
+chinesesimplified.SummaryLabel=连接
+chinesesimplified.SummaryAuth=身份验证
+chinesesimplified.SummaryServer=服务器设置
+
+chinesetraditional.ServerPageTitle=NATS 伺服器
+chinesetraditional.ServerPageSubtitle=現在安裝 NATS 伺服器嗎?
+chinesetraditional.ServerPageDesc=NATSExcel 需要一個 NATS 伺服器。NATS 在 Windows 上原生執行(一個小型 nats-server.exe), JetStream 是加上 -js 的同一個二進位檔, 因此不需要 Docker。Docker 僅作為便利選項提供。先安裝伺服器, 再安裝 NATSExcel, 最後測試連線。
+chinesetraditional.ServerNone=否 - 我已經有伺服器(或稍後自行設定)
+chinesetraditional.ServerNative=是 - Windows 原生(下載 nats-server.exe, 建議)
+chinesetraditional.ServerDocker=是 - Docker(nats:latest, 啟用 JetStream)
+chinesetraditional.ConnPageTitle=NATS 連線
+chinesetraditional.ConnPageSubtitle=NATSExcel 應連線到哪裡?
+chinesetraditional.ConnPageDesc=按 [下一步] 使用預設值(nats://localhost:4222)。若為叢集, 請以逗號分隔 URL - 一個即可, 用戶端會探索其餘的。你可以稍後編輯 NATSExcel.json 來變更。
+chinesetraditional.ConnUrl=伺服器 URL(叢集請以逗號分隔):
+chinesetraditional.AuthPageTitle=驗證
+chinesetraditional.AuthPageSubtitle=NATSExcel 應如何驗證?
+chinesetraditional.AuthPageDesc=選擇此伺服器所需的認證方式。簡易設定中 token 最常見; 使用者/密碼、NKey、JWT + seed、creds 檔案與 mTLS 皆受支援。你可以稍後編輯 NATSExcel.json 來變更。
+chinesetraditional.AuthNone=無驗證(伺服器接受匿名連線)
+chinesetraditional.AuthToken=Token(單一共用密鑰)
+chinesetraditional.AuthUserPass=使用者名稱與密碼
+chinesetraditional.AuthNKey=NKey(.nk seed 檔案會簽署伺服器 nonce)
+chinesetraditional.AuthJwt=JWT + NKey seed(操作員模式 / 去中心化驗證)
+chinesetraditional.AuthCreds=認證檔案(.creds: JWT + seed 在同一個檔案中)
+chinesetraditional.AuthMtls=mTLS(用戶端憑證即為認證; 隱含 TLS)
+chinesetraditional.CredsPageTitle=認證
+chinesetraditional.CredsPageSubtitle=輸入所選方式的認證
+chinesetraditional.CredsPageDesc=僅顯示所選方式的欄位。值會寫入安裝資料夾中的 NATSExcel.json; 請勿將該檔案納入版本控制。
+chinesetraditional.CredsUser=使用者名稱:
+chinesetraditional.CredsPassword=密碼:
+chinesetraditional.CredsToken=Token:
+chinesetraditional.CredsNKeySeed=NKey seed(文字, 或 .nk 檔案的路徑):
+chinesetraditional.CredsJwt=使用者 JWT:
+chinesetraditional.CredsCredsFile=認證檔案(.creds)路徑:
+chinesetraditional.CredsTlsCert=用戶端憑證路徑(.pfx / .pem):
+chinesetraditional.CredsTlsCertPassword=用戶端憑證密碼(選填):
+chinesetraditional.OptionsPageTitle=其他檢查
+chinesetraditional.OptionsPageSubtitle=即將完成
+chinesetraditional.OptionsPageDesc=安裝程式會在結束時測試連線。可選擇開啟示範其運作的範例 Excel 活頁簿。
+chinesetraditional.OptionsOpenExcel=結束時開啟範例 NATSExcel 活頁簿
+chinesetraditional.OptionsService=將 NATS 註冊為 Windows 服務(需要管理員; 未提升權限時略過)
+chinesetraditional.TaskConfigDesc=在安裝資料夾中建立 NATSExcel.json(連線設定)
+chinesetraditional.TaskNlogDesc=建立 NLog.config(在 add-in 旁寫入記錄檔)
+chinesetraditional.TaskAutoLoadDesc=註冊 add-in, 讓 Excel 自動載入(建議)
+chinesetraditional.GroupConfig=設定:
+chinesetraditional.GroupExcel=Excel:
+chinesetraditional.IconUninstall=解除安裝 {#AppName}
+chinesetraditional.UrlRequired=請輸入 NATS 伺服器 URL(例如 nats://localhost:4222)。
+chinesetraditional.AuthRequired=請填寫所選驗證方式的欄位。
+chinesetraditional.ServerFailed=無法自動設定 %1(結束碼 %2)。%n你可以稍後安裝伺服器, 並將 NATSExcel.json 指向它。
+chinesetraditional.ConfigWriteFailed=無法寫入 %1。請依範例(NATSExcel.json)手動建立。
+chinesetraditional.TestFailed=已安裝, 但 %1 的 NATS 伺服器沒有回應。%n請檢查伺服器是否正在執行, 若在其他 URL, 請調整 NATSExcel.json。
+chinesetraditional.TestOk=全部就緒! NATS 已在 %1 回應。%n%n使用方法: 開啟 Excel。若 add-in 沒有自動載入, 請前往 檔案 > 選項 > 增益集 > 前往... > 瀏覽..., 選擇 %2 中的 .xll。
+chinesetraditional.FinishedText=NATSExcel 已安裝於:%n%2%n%n若 add-in 沒有自動載入, 請在 Excel 中啟用它:%n檔案 > 選項 > 增益集 > 前往... > 瀏覽..., 選擇 NATSExcel64-packed.xll(32 位元 Office 請選 NATSExcel-packed.xll)。%n%n接著在儲存格中試試 =RTD("NatsRtd",,"SUB","test.>")。
+chinesetraditional.UninstServersTitle=伺服器
+chinesetraditional.UninstServersSubtitle=也要移除 NATS 伺服器嗎?
+chinesetraditional.UninstServersDesc=在此電腦上找到這些 NATS 伺服器。勾選要與 NATSExcel 一併移除的項目。%n預設不會移除任何項目。
+chinesetraditional.UninstServerFound=%1  [已找到]
+chinesetraditional.UninstKeepConfig=保留你的 NATSExcel.json 設定?
+chinesetraditional.ServerNameNative=NATS(原生 nats-server.exe)
+chinesetraditional.ServerNameDocker=NATS(Docker)
+chinesetraditional.ServerNameGeneric=伺服器
+chinesetraditional.SummaryPageTitle=你的設定
+chinesetraditional.SummaryPageSubtitle=檢閱將寫入 NATSExcel.json 的連線
+chinesetraditional.SummaryIntro=這些值將儲存到安裝資料夾中的 NATSExcel.json。
+chinesetraditional.SummaryLabel=連線
+chinesetraditional.SummaryAuth=驗證
+chinesetraditional.SummaryServer=伺服器設定
 
 [Tasks]
 Name: "addinconfig"; Description: "{cm:TaskConfigDesc}"; GroupDescription: "{cm:GroupConfig}"
@@ -870,7 +1401,7 @@ end;
 // ---- Finish: TEST the configuration, then optionally open a sample sheet ---
 procedure DeinitializeSetup();
 var
-  HostPort, Args, Msg, TokenArg: String;
+  HostPort, Args, Msg: String;
 begin
   if not InstallCompleted then Exit;
 

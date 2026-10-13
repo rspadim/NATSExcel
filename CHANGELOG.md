@@ -5,11 +5,36 @@ All notable changes to this project are documented in this file. The format foll
 
 ## v0.1.1
 
-Fixes the first release's installer and CI. No change to the public Excel surface
-or the `NATSExcel.json` shape.
+Fixes the first release's installer, CI and runtime bug fixes found by the expanded
+test layers. No change to the public Excel surface or the `NATSExcel.json` shape.
+
+### Added
+
+- **The installer wizard now ships 11 languages** — Chinese Simplified, English,
+  Chinese Traditional, Português, Español, Русский, Français, 한국어, Deutsch,
+  日本語 and Português (Brasil) — each with the full set of 63 wizard strings, so no
+  page falls back to a half-translated state. The two Chinese language files are
+  bundled under `installer/languages/` (Inno Setup does not ship them);
+  `installer/languages/messages.ps1` reports a missing or extra key for a tag. The
+  **Excel-facing surface stays English on purpose** (function names, markers and
+  errors), so a formula returns the same text whatever the user's locale.
 
 ### Fixed
 
+- **A cluster's `auth`/`reconnect` block erased the shared block.** Applying the
+  per-cluster override wrote every field unconditionally, including the `null`/`0`
+  the cluster had not declared, so a cluster that set only `token` silently dropped
+  the shared `user`/`password`. The override now replaces **field by field** — a
+  field the cluster did not declare keeps the shared value.
+- **A zero-byte Core payload read as a missing subject.** `NatsUDFSubjectLatest`
+  cached the `(null)` "nothing received yet" marker for a message that arrived with
+  an empty body, collapsing the two into one cell. An empty payload now caches the
+  empty string.
+- **An unreachable endpoint misreported as "JetStream is not enabled".**
+  `NatsUDFJetStream` and `NatsUDFObjectStore` (like KV) now branch on
+  `HasConnection`: a server that answered without JetStream keeps the frozen
+  config message, while an endpoint that never answered names the connectivity
+  problem.
 - **The installer wrote a config its own schema rejects.** `ConfigJson()` emitted the old nested
   shape (`"Default": { "cluster": … }` plus a `"UDF"` block), so a user's first
   `=NatsUDFConfigValidate()` reported an error on the file the wizard had just written. It now
@@ -117,9 +142,10 @@ functions (UDFs) for Core NATS and JetStream, plus an RTD server for streaming t
   by the smoke suite.
 - **`NatsUDFLogPath` on a byte-loaded XLL.** It returned `#VALUE!` because `Assembly.Location` is
   empty inside Excel; it now falls back to the Excel-DNA `XllPath` and never throws.
-- **Connection vs JetStream errors.** An unreachable endpoint reported "JetStream is not enabled",
-  sending users to the wrong problem; the manager now distinguishes "nobody answered" from "the
-  server has no JetStream".
+- **Connection vs JetStream errors (Key/Value).** A KV call against an unreachable
+  endpoint reported "JetStream is not enabled", sending users to the wrong problem;
+  the KV probe now distinguishes "nobody answered" from "the server has no
+  JetStream". (The JetStream and Object Store probes were completed in v0.1.1.)
 - **Install and service bugs.** The uninstaller removed every `OPEN` entry containing
   `NATSExcel`, stripping other installs from Excel's add-ins list; it now removes only this
   install's XLL. The native server helper now copies `nats-server.exe` into the target folder so

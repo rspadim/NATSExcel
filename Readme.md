@@ -46,7 +46,9 @@ Backed by NATS.Net, NLog and Newtonsoft.Json, and targeting .NET Framework 4.8.
    - it writes a starter `NATSExcel.json` and, at the end, **tests the
      connection** and can **open a sample workbook** (see
      [§5](#5-see-it-work)).
-   - the wizard is available in **English, Español and Português (Brasil)**.
+   - the wizard is available in **11 languages**: 简体中文, English, 繁體中文,
+     Português, Español, Русский, Français, 한국어, Deutsch, 日本語 and
+     Português (Brasil). See [Languages](#languages) below.
 3. Open Excel. The installer registers the XLL so Excel loads it automatically.
    If it does not load, enable it by hand:
    `File > Options > Add-ins > Go... > Browse...` and pick the `.xll` in
@@ -388,11 +390,36 @@ answer. The background check is controlled by the `"UpdateCheck"` key in
 | **`TIMEOUT`** | A responder exists but did not answer within `timeoutMs`. | Raise the `timeoutMs` argument, or check the responder. |
 | **A cell does not update / looks stale** | Two deliberate behaviors: real-time pushes are **coalesced** (`CoalesceRealtimeUpdates` + `ConflationMs`, default **200 ms** — the latest value wins per window), and `SkipRepeatedMessages` **drops a repeated payload** (compared by ordinal text, so `"007"` and `"7"` differ). | Lower `ConflationMs` or set `CoalesceRealtimeUpdates` to `false` for a fast feed; set `SkipRepeatedMessages` to `false` if you need every identical value. Note: **wildcard subjects are never deduplicated**. |
 | **`Error: admin writes are disabled (set "AllowAdminWrites": true)`** | You called a destructive/admin function with the gate closed (the default). | Set `"AllowAdminWrites": true` in `NATSExcel.json` only if you really want recalculation to be able to mutate server state. |
-| **`#VALUE!`** | Excel could not use what the function returned. The add-in renders its own failures as `Error: ...`, `#CONFIG` or `#ERROR: ...`, so a bare `#VALUE!` usually points at Excel's argument coercion rather than at NATS. | First prove the add-in loaded: `=NatsUDFVersion()` (a `0.1.0`-style string) and `=NatsUDFConfigPath()`. Then re-check the cell's arguments. |
+| **`#VALUE!`** | Excel could not use what the function returned. The add-in renders its own failures as `Error: ...`, `#CONFIG` or `#ERROR: ...`, so a bare `#VALUE!` usually points at Excel's argument coercion rather than at NATS. | First prove the add-in loaded: `=NatsUDFVersion()` (a version string) and `=NatsUDFConfigPath()`. Then re-check the cell's arguments. |
 
 More detail in the add-in's own log: `=NatsUDFLogPath()` prints it
 (`NATSExcel.log` next to the add-in, rolling at 100 MB, 5 archives; it uses the
 credential-masking renderer).
+
+### Languages
+
+The **installer wizard** is localized in 11 languages (the combo on the first
+page):
+
+| Language | Language | Language |
+| --- | --- | --- |
+| 简体中文 (Chinese Simplified) | English | 繁體中文 (Chinese Traditional) |
+| Português | Español | Русский |
+| Français | 한국어 (Korean) | Deutsch |
+| 日本語 (Japanese) | Português (Brasil) | |
+
+Every language carries the full set of wizard strings, so no page falls back to
+a half-translated state; `installer\languages\messages.ps1` reports a missing or
+extra key for a language tag.
+
+**The Excel-facing surface stays in English on purpose.** Function names, the RTD
+command names and the cell markers/errors (`OK`, `TIMEOUT`, `No Responders`,
+`(no value)`, `Error: ...`, `#CONFIG`) are **not** localized, and numbers are
+always written with the invariant (dot) decimal separator. A formula must return
+the **same text** regardless of the user's Windows/Office locale: localizing a
+marker would change what `IF(...="OK", ...)` matches, and a locale-dependent
+decimal point would corrupt a value sent to Redis/NATS. So the wizard speaks your
+language; the spreadsheet talks one language to the server.
 
 ---
 

@@ -916,9 +916,16 @@ namespace NATSExcel
                         {
                             if (listener.IsClosed)
                                 return;
-                            _latestMessages[key] = message != null && message.Data != null
-                                ? message.Data
-                                : NatsUdfCommon.NullValue;
+                            // A message that ARRIVED with a zero-byte payload must
+                            // cache the EMPTY string (a blank cell), not the
+                            // "(null)" marker: the marker means "nothing received
+                            // yet" and the two must not collapse into one cell.
+                            // NATS.Net reports an empty payload's bytes as null,
+                            // so `Data == null` here is an empty payload, never
+                            // an absent message (`message` itself is never null).
+                            _latestMessages[key] = message == null
+                                ? NatsUdfCommon.NullValue
+                                : (message.Data ?? string.Empty);
                         }
                     },
                     OriginTag);

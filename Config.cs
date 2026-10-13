@@ -552,23 +552,34 @@ namespace NATSExcel
         private static void ApplyAuth(Auth from, Auth to, bool over = false)
         {
             if (from == null) return;
-            if (over || to.User == null) to.User = from.User;
-            if (over || to.Password == null) to.Password = from.Password;
-            if (over || to.Token == null) to.Token = from.Token;
-            if (over || to.Jwt == null) to.Jwt = from.Jwt;
-            if (over || to.NkeySeed == null) to.NkeySeed = from.NkeySeed;
-            if (over || to.CredsFile == null) to.CredsFile = from.CredsFile;
+            // With `over`, the cluster's auth REPLACES the shared value field by
+            // field (the documented "replace per field" rule): a field the cluster
+            // did not declare keeps the shared value. Writing `to.X = from.X`
+            // unconditionally would wipe a shared user/password with the null the
+            // cluster did not set - the cluster would then authenticate with only
+            // its token and silently drop the shared credential.
+            if (from.User != null || !over) to.User = from.User;
+            if (from.Password != null || !over) to.Password = from.Password;
+            if (from.Token != null || !over) to.Token = from.Token;
+            if (from.Jwt != null || !over) to.Jwt = from.Jwt;
+            if (from.NkeySeed != null || !over) to.NkeySeed = from.NkeySeed;
+            if (from.CredsFile != null || !over) to.CredsFile = from.CredsFile;
+            // `tls` is a bool with a meaningful default (false): a cluster that
+            // declares an auth block is taken to state its TLS intent, so the
+            // cluster value wins when it overrides at all.
             if (over) to.Tls = from.Tls;
-            if (over || to.TlsCert == null) to.TlsCert = from.TlsCert;
-            if (over || to.TlsCertPassword == null) to.TlsCertPassword = from.TlsCertPassword;
+            if (from.TlsCert != null || !over) to.TlsCert = from.TlsCert;
+            if (from.TlsCertPassword != null || !over) to.TlsCertPassword = from.TlsCertPassword;
         }
 
         private static void ApplyReconnect(Reconnect from, Reconnect to, bool over = false)
         {
             if (from == null) return;
-            if (over || to.MaxAttempts == 0) to.MaxAttempts = from.MaxAttempts;
-            if (over || to.WaitMs == 0) to.WaitMs = from.WaitMs;
-            if (over || to.JitterMs == 0) to.JitterMs = from.JitterMs;
+            // Same per-field rule for reconnect: `0` means "not declared" (the
+            // initializer default), so it must not clobber a shared non-zero.
+            if (from.MaxAttempts != 0 || !over) to.MaxAttempts = from.MaxAttempts;
+            if (from.WaitMs != 0 || !over) to.WaitMs = from.WaitMs;
+            if (from.JitterMs != 0 || !over) to.JitterMs = from.JitterMs;
         }
 
         /// <summary>The effective auth/reconnect/timeout a resolved endpoint uses.</summary>

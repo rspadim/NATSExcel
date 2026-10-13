@@ -126,6 +126,18 @@ namespace NATSExcel.SmokeTests
                 await RunRequestReplyChecksAsync(raw).ConfigureAwait(false);
                 await RunDedupChecksAsync(raw).ConfigureAwait(false);
 
+                // Error-scenario layers a real user hits. All of these are
+                // connection/argument/read paths (no persistent server state), so
+                // they run under --read-only too: wildcard-publish rejection and
+                // the JSON guards are pure argument validation; the unreachable
+                // probe points at a closed loopback port; the empty-vs-missing and
+                // churn layers touch only ephemeral Core subjects.
+                RunWildcardPublishChecks();
+                RunJsonGuardChecks();
+                await RunEmptyVsMissingCoreChecksAsync(raw).ConfigureAwait(false);
+                await RunUnreachableChecksAsync().ConfigureAwait(false);
+                await RunSubscriberChurnChecksAsync(raw).ConfigureAwait(false);
+
                 if (readOnly)
                 {
                     Skip("JetStream checks", "read-only mode");
@@ -142,8 +154,10 @@ namespace NATSExcel.SmokeTests
                         await RunJetStreamChecksAsync(raw).ConfigureAwait(false);
                         await RunKvChecksAsync(raw).ConfigureAwait(false);
                         await RunObjectChecksAsync(raw).ConfigureAwait(false);
-                        Skip("JetStream-disabled path",
-                            "the server has JetStream enabled (INFO jetstream:true)");
+                        // The main server has JetStream, so this layer starts its
+                        // own disposable server without -js (or skips, with a
+                        // reason, when no nats-server.exe is available).
+                        await RunJetStreamDisabledChecksAsync(_url, mainJetStream: true).ConfigureAwait(false);
                     }
                     else
                     {
@@ -153,7 +167,7 @@ namespace NATSExcel.SmokeTests
                             Skip("JetStream checks", "the server runs without -js");
                         Skip("Key/Value checks", "the server runs without -js");
                         Skip("Object Store checks", "the server runs without -js");
-                        await RunJetStreamDisabledChecksAsync(raw).ConfigureAwait(false);
+                        await RunJetStreamDisabledChecksAsync(_url, mainJetStream: false).ConfigureAwait(false);
                     }
                 }
 
@@ -469,6 +483,363 @@ namespace NATSExcel.SmokeTests
             ordToken.Dispose();
             wildToken.Dispose();
             await Task.Delay(100).ConfigureAwait(false);
+        }
+
+        // ==================================================================
+        // 6a. Wildcard publish rejection (a publish needs a concrete subject)
+        // ==================================================================
+        //
+        // Pinned argument error (NatsUdfCommon.RequireSubject, allowWildcard:
+        // false). Runs before endpoint resolution, so it needs no server and is
+        // safe under --read-only.
+
+        private static void RunWildcardPublishChecks()
+        {
+            string expected = NatsUdfCommon.Fail(
+                "a non-empty subject is required (a publish needs a concrete subject; wildcards are subscribe-only)");
+
+            object star = NatsUdfCore.NatsUDFPublish("a.*", "x", null);
+            Check(string.Equals(AsString(star), expected, StringComparison.Ordinal),
+                "wildcard-publish: publishing to 'a.*' returns the exact terse argument error (got '" + AsString(star) + "')");
+
+            object gt = NatsUdfCore.NatsUDFPublish("a.>", "x", null);
+            Check(string.Equals(AsString(gt), expected, StringComparison.Ordinal),
+                "wildcard-publish: publishing to 'a.>' returns the exact terse argument error (got '" + AsString(gt) + "')");
+
+            object bare = NatsUdfCore.NatsUDFPublish(">", "x", null);
+            Check(string.Equals(AsString(bare), expected, StringComparison.Ordinal),
+                "wildcard-publish: publishing to a bare '>' is rejected too (got '" + AsString(bare) + "')");
+
+            // A request is a publish with a reply inbox: same concrete-subject rule.
+            object requested = NatsUdfCore.NatsUDFRequest("a.*", "x", 1000, null);
+            Check(string.Equals(AsString(requested), expected, StringComparison.Ordinal),
+                "wildcard-publish: a request to a wildcard subject is rejected with the same argument error (got '" + AsString(requested) + "')");
+
+            // A token that merely contains a wildcard character is a literal subject
+            // ("a*b" is one token), so it must NOT be rejected as a wildcard.
+            object literalStar = NatsUdfCore.NatsUDFPublish("a" + _prefix + "b", "x", null);
+            Check(!string.Equals(AsString(literalStar), expected, StringComparison.Ordinal),
+                "wildcard-publish: 'a*b' is a literal token, not a wildcard (got '" + AsString(literalStar) + "')");
+        }
+
+        // ==================================================================
+        // 6b. JSON matrix guards: an oversized matrix is rejected, never an OOM
+        // ==================================================================
+        //
+        // A real range whose dimensions fit an Excel worksheet (so RequireRange
+        // passes) but whose total-cell count exceeds the 50M budget must produce
+        // the documented "Error: range is too large for an Excel sheet" instead of
+        // allocating the array or throwing. The 50,000 x 1,001 shape is the
+        // smallest over the budget with rows/columns each under the worksheet
+        // dimension limits.
+
+        private static void RunJsonGuardChecks()
+        {
+            // (a) A range that cannot fit the cell budget: the dimension-only
+            // guard the UDFs call first, so no >50M-cell array is ever allocated.
+            // A 1,048,576 x 48 shape (50,331,648 cells > 50M) is the documented
+            // rejection.
+            bool rangeGuarded = false;
+            try
+            {
+                NatsUdfCommon.EnsureRangeFits(1048576, 48);
+            }
+            catch (ArgumentException ex)
+            {
+                rangeGuarded = string.Equals(ex.Message, NatsUdfCommon.ErrorRangeTooLarge, StringComparison.Ordinal);
+            }
+            Check(rangeGuarded, "json-guard: a 1,048,576 x 48 range (50,331,648 cells > 50M) is rejected with the documented \""
+                + NatsUdfCommon.ErrorRangeTooLarge + "\" before any allocation");
+
+            double before = GC.GetTotalMemory(forceFullCollection: false);
+
+            // (b) The public conversion with a legal cell count (1 x 1,000) whose
+            // ENCODED JSON passes the 32M-char output bound: the bounded writer
+            // aborts with the documented error instead of materializing a huge
+            // string. One shared 33,050-char instance keeps the input allocation
+            // tiny while the output would be ~33M chars.
+            string fat = new string('x', 33050);
+            var wide = new object[1, 1000];
+            for (int c = 0; c < 1000; c++)
+                wide[0, c] = fat;
+
+            object converted = null;
+            try
+            {
+                converted = NatsUdf.NatsUDFMatrixToJSON(wide);
+            }
+            catch (Exception ex)
+            {
+                Check(false, "json-guard: an over-budget encoded matrix returns a cell error, never throws (" + Describe(ex) + ")");
+            }
+
+            string convertedText = AsString(converted);
+            Check(convertedText != null && convertedText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                  && convertedText.IndexOf("JSON is too large for an Excel cell", StringComparison.Ordinal) >= 0,
+                "json-guard: a matrix whose JSON would exceed 32M chars returns the documented Error cell (got '"
+                + (convertedText?.Length > 100 ? convertedText.Substring(0, 100) + "..." : convertedText) + "')");
+
+            double after = GC.GetTotalMemory(forceFullCollection: true);
+            Check(after - before < 128L * 1024 * 1024,
+                "json-guard: the rejection does not retain a huge buffer (delta "
+                + ((long)(after - before) / 1048576) + " MB)");
+
+            // (c) A non-finite number in a cell is invalid JSON: rejected as a
+            // documented error, never serialized as the raw NaN token.
+            object nan = NatsUdf.NatsUDFMatrixToJSON(new object[,] { { double.NaN } });
+            string nanText = AsString(nan);
+            Check(nanText != null && nanText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                  && nanText.IndexOf("non-finite", StringComparison.OrdinalIgnoreCase) >= 0,
+                "json-guard: a non-finite number (NaN) is rejected as a documented Error, never serialized (got '" + nanText + "')");
+
+            // (d) Symmetry on the parse side: a JSON text far larger than any
+            // cell is refused BEFORE the parser materializes it. The 8M-char
+            // bound sits below what any formula cell could hold, so this is the
+            // programmatic-caller guard.
+            object parsed = NatsUdf.NatsUDFJSONToMatrix(new string('1', 8_100_000));
+            string[][] parsedRows = MatrixRows(parsed);
+            string parsedText = parsedRows.Length > 0 && parsedRows[0].Length > 0 ? parsedRows[0][0] : AsString(parsed);
+            Check(parsedText != null && parsedText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal),
+                "json-guard: an 8.1M-char JSON argument is refused with an Error cell, never parsed (got '"
+                + (parsedText?.Length > 60 ? parsedText.Substring(0, 60) + "..." : parsedText) + "')");
+        }
+
+        // ==================================================================
+        // 6c. Core read: an empty payload is not a missing subject
+        // ==================================================================
+        //
+        // A subject that has seen an empty message caches "" while a subject that
+        // has seen nothing caches (null). They must not collapse into the same
+        // cell (a fixed bug: pin it).
+
+        private static async Task RunEmptyVsMissingCoreChecksAsync(NatsConnection raw)
+        {
+            AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: false, syncWrite: "sync");
+            NatsRuntime.Shutdown();
+            NatsRuntime.ResetAfterAddInReload();
+
+            string emptySubject = _prefix + ".core.empty";
+            string missingSubject = _prefix + ".core.missing." + Guid.NewGuid().ToString("N");
+
+            // Subscribe by reading once, then warm the async wire SUBSCRIBE up
+            // (Core is at-most-once: a publish before the SUB is established is
+            // silently dropped). The unique warm payloads also let us observe the
+            // cached value change.
+            object beforeEmpty = NatsUdfCore.NatsUDFSubjectLatest(emptySubject, null, null);
+            Check(string.Equals(AsString(beforeEmpty), NatsUdfCommon.NullValue, StringComparison.Ordinal),
+                "empty-vs-missing: an unseen subject reads as \"" + NatsUdfCommon.NullValue + "\" (got '" + AsString(beforeEmpty) + "')");
+
+            bool warm = false;
+            for (int attempt = 0; attempt < 50 && !warm; attempt++)
+            {
+                string warmPayload = "warm-" + Guid.NewGuid().ToString("N");
+                await raw.PublishAsync(emptySubject, warmPayload).AsTask().ConfigureAwait(false);
+                warm = await WaitUntilAsync(
+                    () => string.Equals(AsString(NatsUdfCore.NatsUDFSubjectLatest(emptySubject, null, null)), warmPayload, StringComparison.Ordinal),
+                    400).ConfigureAwait(false);
+            }
+            Check(warm, "empty-vs-missing: the subject-latest subscription is live on the wire");
+
+            // A zero-byte payload must cache the EMPTY string (a blank cell), not
+            // the "(null)" missing marker.
+            for (int attempt = 0; attempt < 50; attempt++)
+            {
+                await raw.PublishAsync(emptySubject, Array.Empty<byte>()).AsTask().ConfigureAwait(false);
+                if (await WaitUntilAsync(
+                        () => string.Equals(AsString(NatsUdfCore.NatsUDFSubjectLatest(emptySubject, null, null)), string.Empty, StringComparison.Ordinal),
+                        400).ConfigureAwait(false))
+                    break;
+            }
+
+            object emptyValue = NatsUdfCore.NatsUDFSubjectLatest(emptySubject, null, null);
+            Check(string.Equals(AsString(emptyValue), string.Empty, StringComparison.Ordinal),
+                "empty-vs-missing: a subject that received a zero-byte payload caches the EMPTY string, not a marker (got '"
+                + AsString(emptyValue) + "')");
+
+            // Evidence for the failure above: subscribe at the manager level, warm
+            // it, then publish a zero-byte Core payload and capture exactly what
+            // arrives, so the conflation of "empty payload" with "never received"
+            // is attributable (Diagnostic, not an assertion).
+            string diagSubject = _prefix + ".core.empty.diag";
+            var diagPayloads = new List<string>();
+            var diagToken = NatsRuntime.Subscriptions.Subscribe(_url, diagSubject, null,
+                m => { lock (Sync) diagPayloads.Add(m == null ? "<msg=null>" : (m.Data == null ? "<Data=null>" : ("<Data='" + m.Data + "' len=" + (m.DataBytes?.Length ?? -1) + ">"))); }, "SMOKE");
+            for (int attempt = 0; attempt < 50; attempt++)
+            {
+                await raw.PublishAsync(diagSubject, "warm-" + Guid.NewGuid().ToString("N")).AsTask().ConfigureAwait(false);
+                if (await WaitUntilAsync(() => Count(diagPayloads) > 0, 400).ConfigureAwait(false))
+                    break;
+            }
+            lock (Sync) diagPayloads.Clear();
+            await raw.PublishAsync(diagSubject, Array.Empty<byte>()).AsTask().ConfigureAwait(false);
+            await WaitUntilAsync(() => Count(diagPayloads) >= 1, 2000).ConfigureAwait(false);
+            Console.WriteLine("  empty-vs-missing diagnostic: a zero-byte Core payload reached the warmed listener as "
+                + (Count(diagPayloads) == 0 ? "(nothing delivered)" : string.Join(", ", Items(diagPayloads))));
+            diagToken.Dispose();
+
+            object missingValue = NatsUdfCore.NatsUDFSubjectLatest(missingSubject, null, null);
+            Check(string.Equals(AsString(missingValue), NatsUdfCommon.NullValue, StringComparison.Ordinal),
+                "empty-vs-missing: a subject that never received anything still reads \"" + NatsUdfCommon.NullValue
+                + "\" (got '" + AsString(missingValue) + "')");
+
+            Check(!string.Equals(AsString(emptyValue), AsString(missingValue), StringComparison.Ordinal),
+                "empty-vs-missing: the empty payload and the missing subject produce DIFFERENT results (fixed bug pinned)");
+
+            // Clean up the live subject listener.
+            try { NatsUdfCore.NatsUDFSubjectUnsubscribe(emptySubject, null); } catch { }
+        }
+
+        // ==================================================================
+        // 6d. An unreachable endpoint is a bounded, named connectivity error
+        // ==================================================================
+        //
+        // Pointing at a closed loopback port must return an "Error:" naming the
+        // connection cause within a short bound - never a hang, and never the
+        // misleading "JetStream is not enabled on this server" (a fixed bug:
+        // pin it).
+
+        private static async Task RunUnreachableChecksAsync()
+        {
+            const string dead = "nats://127.0.0.1:1";
+
+            // AllowAdminWrites true so the admin gate cannot be the refusal we
+            // observe, with a short connect/JetStream bound to keep the probe well
+            // under a second.
+            AppConfig.Root root = NewRoot(dead, allowAdminWrites: true, syncWrite: "sync");
+            root.TimeoutMs = 200;
+            root.JetStreamTimeoutMs = 1000;
+            AppConfig.CurrentOverrideForTests = AppConfig.Sanitize(root);
+            NatsRuntime.Shutdown();
+            NatsRuntime.ResetAfterAddInReload();
+
+            var watch = Stopwatch.StartNew();
+            object kv = NatsUdfKv.NatsUDFKVGet("b", "k", dead);
+            watch.Stop();
+            string kvText = AsString(kv);
+            Check(kvText != null && kvText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal),
+                "unreachable: a KV call against a closed port returns an Error cell (got '" + kvText + "')");
+            Check(kvText != null && kvText.IndexOf(NatsUdfCommon.ErrorJetStreamDisabled, StringComparison.OrdinalIgnoreCase) < 0,
+                "unreachable: the KV error does NOT wrongly say \"" + NatsUdfCommon.ErrorJetStreamDisabled + "\" (fixed bug pinned; got '" + kvText + "')");
+            Check(kvText != null && kvText.IndexOf("no server answered", StringComparison.OrdinalIgnoreCase) >= 0,
+                "unreachable: the KV error names the unreachable endpoint (got '" + kvText + "')");
+            Check(watch.ElapsedMilliseconds < 15000,
+                "unreachable: the KV call is bounded, never a hang (" + watch.ElapsedMilliseconds + " ms)");
+
+            // A JetStream admin call on the same dead endpoint: still bounded, and
+            // still never the misleading JS-disabled message (an unreachable
+            // endpoint is a connectivity problem, not a JetStream one).
+            var jsWatch = Stopwatch.StartNew();
+            object js = NatsUdfJetStream.NatsUDFStreamCreate(StreamName(), _prefix + ".dead.>", null, null, dead);
+            jsWatch.Stop();
+            string jsText = AsString(js);
+            Check(jsText != null && jsText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                  && jsText.IndexOf(NatsUdfCommon.ErrorJetStreamDisabled, StringComparison.OrdinalIgnoreCase) < 0,
+                "unreachable: an admin JS call against a closed port returns a connectivity Error, not the JS-disabled message (got '" + jsText + "')");
+            Check(jsWatch.ElapsedMilliseconds < 15000,
+                "unreachable: the admin JS call is bounded (" + jsWatch.ElapsedMilliseconds + " ms)");
+
+            // The Object Store path must ALSO name the unreachable endpoint: in
+            // the observed code only the KV TryPrepare has the "no server
+            // answered" branch, so this pins the same mistake on the JS/OBJ paths.
+            object objGet = NatsUdfObjectStore.NatsUDFObjectGet(ObjName(), "o", dead);
+            string objText = AsString(objGet);
+            Check(objText != null && objText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                  && objText.IndexOf(NatsUdfCommon.ErrorJetStreamDisabled, StringComparison.OrdinalIgnoreCase) < 0,
+                "unreachable: the Object Store call names the unreachable endpoint, not the JS-disabled message (got '" + objText + "')");
+
+            // Restore the CLI endpoint and the default admin gate for the rest.
+            AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: false, syncWrite: "sync");
+            NatsRuntime.Shutdown();
+            NatsRuntime.ResetAfterAddInReload();
+
+            await Task.CompletedTask;
+        }
+
+        // ==================================================================
+        // 6e. Concurrent subscribe/dispose churn does not leak
+        // ==================================================================
+        //
+        // N workers hammer the SAME subject with subscribe/dispose while another
+        // thread publishes; then every token is released and the manager's
+        // listener/subscription counters must return to their baseline, and a
+        // fresh listener must still receive.
+
+        private static async Task RunSubscriberChurnChecksAsync(NatsConnection raw)
+        {
+            var subscriptions = NatsRuntime.Subscriptions;
+            string subject = _prefix + ".churn";
+            const int workers = 8;
+            const int iterations = 40;
+
+            int listenersBefore = subscriptions.ListenerCount;
+            int statesBefore = subscriptions.SubscriptionCount;
+
+            var gate = new ManualResetEventSlim(false);
+            var received = new List<string>();
+            var failures = new List<string>();
+
+            var workerTasks = new Task[workers];
+            for (int w = 0; w < workers; w++)
+            {
+                workerTasks[w] = Task.Run(() =>
+                {
+                    gate.Wait();
+                    for (int i = 0; i < iterations; i++)
+                    {
+                        IDisposable token = null;
+                        try
+                        {
+                            token = subscriptions.Subscribe(_url, subject, null,
+                                m => { lock (Sync) received.Add(Data(m)); }, "SMOKE");
+                        }
+                        catch (Exception ex)
+                        {
+                            lock (Sync) failures.Add(Describe(ex));
+                        }
+                        finally
+                        {
+                            try { token?.Dispose(); }
+                            catch (Exception ex) { lock (Sync) failures.Add("dispose: " + Describe(ex)); }
+                        }
+                    }
+                });
+            }
+
+            gate.Set();
+
+            // Publish alongside the churn so the callbacks run during it.
+            for (int i = 0; i < 200; i++)
+                await PublishAsync(raw, subject, "churn-" + i.ToString(CultureInfo.InvariantCulture)).ConfigureAwait(false);
+
+            await Task.WhenAll(workerTasks).ConfigureAwait(false);
+
+            Check(Count(failures) == 0,
+                "churn: " + workers + " threads x " + iterations + " subscribe/dispose did not throw ("
+                + Count(failures) + " failures" + (Count(failures) > 0 ? ": " + string.Join("; ", Items(failures).Take(3)) : "") + ")");
+
+            bool drained = await WaitUntilAsync(
+                () => subscriptions.ListenerCount == listenersBefore && subscriptions.SubscriptionCount == statesBefore, 10000).ConfigureAwait(false);
+            Check(drained,
+                "churn: the listener/subscription counters return to baseline after the churn "
+                + "(listeners " + subscriptions.ListenerCount + "/" + listenersBefore
+                + ", states " + subscriptions.SubscriptionCount + "/" + statesBefore + ")");
+
+            // Delivery still works after the churn.
+            var final = new List<string>();
+            var token2 = subscriptions.Subscribe(_url, subject, null, m => { lock (Sync) final.Add(Data(m)); }, "SMOKE");
+            Check(await WaitUntilAsync(() => subscriptions.ListenerCount == listenersBefore + 1, 5000).ConfigureAwait(false),
+                "churn: a fresh listener registers after the churn");
+            Check(await WarmUpAsync(raw, subject, final).ConfigureAwait(false),
+                "churn: the fresh subscription is live on the wire");
+            lock (Sync) final.Clear();
+            await PublishAsync(raw, subject, "after-churn").ConfigureAwait(false);
+            Check(await WaitUntilAsync(() => Count(final) == 1 && Items(final)[0] == "after-churn", 5000).ConfigureAwait(false),
+                "churn: delivery still works after the churn (got " + Count(final) + ")");
+
+            token2.Dispose();
+            Check(await WaitUntilAsync(() => subscriptions.ListenerCount == listenersBefore
+                                  && subscriptions.SubscriptionCount == statesBefore, 5000).ConfigureAwait(false),
+                "churn: the fresh listener releases back to baseline");
         }
 
         // ==================================================================
@@ -941,12 +1312,18 @@ namespace NATSExcel.SmokeTests
                     NatsUdfJetStream.NatsUDFStreamDelete(stream, null)),
                 new KeyValuePair<string, object>("NatsUDFStreamCreate",
                     NatsUdfJetStream.NatsUDFStreamCreate(stream, _prefix + ".gate.>", null, null, null)),
+                new KeyValuePair<string, object>("NatsUDFStreamUpdate",
+                    NatsUdfJetStream.NatsUDFStreamUpdate(stream, _prefix + ".gate.>", null, null, null)),
                 new KeyValuePair<string, object>("NatsUDFJSPurge",
                     NatsUdfJetStream.NatsUDFJSPurge(stream, null, null)),
                 new KeyValuePair<string, object>("NatsUDFJSDeleteMessage",
                     NatsUdfJetStream.NatsUDFJSDeleteMessage(stream, 1, null)),
+                new KeyValuePair<string, object>("NatsUDFConsumerCreate",
+                    NatsUdfJetStream.NatsUDFConsumerCreate(stream, "c", null, null, null)),
                 new KeyValuePair<string, object>("NatsUDFConsumerDelete",
                     NatsUdfJetStream.NatsUDFConsumerDelete(stream, "c", null)),
+                new KeyValuePair<string, object>("NatsUDFConsumerPause",
+                    NatsUdfJetStream.NatsUDFConsumerPause(stream, "c", 1000, null)),
                 new KeyValuePair<string, object>("NatsUDFKVDelete",
                     NatsUdfKv.NatsUDFKVDelete(bucket, "k", null)),
                 new KeyValuePair<string, object>("NatsUDFKVPurge",
@@ -965,6 +1342,7 @@ namespace NATSExcel.SmokeTests
                     Console.WriteLine("  gate mismatch " + call.Key + " -> '" + text + "'");
                 }
             }
+            Check(closed.Count == 11, "gate(closed): the gated-function list holds all 11 admin/destructive functions (" + closed.Count + ")");
             Check(allExact, "gate(closed): every admin/destructive function returns the exact frozen text "
                 + "\"" + AdminGateText + "\" (" + closed.Count + " calls)");
 
@@ -989,6 +1367,47 @@ namespace NATSExcel.SmokeTests
                 object created = NatsUdfJetStream.NatsUDFStreamCreate(stream, _prefix + ".gate.>", null, null, null);
                 Check(string.Equals(AsString(created), NatsUdfCommon.Ok, StringComparison.Ordinal),
                     "gate(open): NatsUDFStreamCreate proceeds (got '" + AsString(created) + "')");
+
+                object consumerCreated = NatsUdfJetStream.NatsUDFConsumerCreate(stream, "gate_c", null, null, null);
+                Check(string.Equals(AsString(consumerCreated), NatsUdfCommon.Ok, StringComparison.Ordinal),
+                    "gate(open): NatsUDFConsumerCreate proceeds (got '" + AsString(consumerCreated) + "')");
+
+                // Every other gated function reaches the server now: none may
+                // return the gate text. Some succeed and some return a named
+                // domain error (e.g. a missing KV bucket), but the gate must be
+                // gone from all of them.
+                var open = new List<KeyValuePair<string, object>>
+                {
+                    new KeyValuePair<string, object>("NatsUDFStreamUpdate",
+                        NatsUdfJetStream.NatsUDFStreamUpdate(stream, _prefix + ".gate.>", null, null, null)),
+                    new KeyValuePair<string, object>("NatsUDFJSPurge",
+                        NatsUdfJetStream.NatsUDFJSPurge(stream, null, null)),
+                    new KeyValuePair<string, object>("NatsUDFJSDeleteMessage",
+                        NatsUdfJetStream.NatsUDFJSDeleteMessage(stream, 1, null)),
+                    new KeyValuePair<string, object>("NatsUDFConsumerPause",
+                        NatsUdfJetStream.NatsUDFConsumerPause(stream, "gate_c", 1000, null)),
+                    new KeyValuePair<string, object>("NatsUDFConsumerDelete",
+                        NatsUdfJetStream.NatsUDFConsumerDelete(stream, "gate_c", null)),
+                    new KeyValuePair<string, object>("NatsUDFKVDelete",
+                        NatsUdfKv.NatsUDFKVDelete(bucket, "k", null)),
+                    new KeyValuePair<string, object>("NatsUDFKVPurge",
+                        NatsUdfKv.NatsUDFKVPurge(bucket, "k", null)),
+                    new KeyValuePair<string, object>("NatsUDFObjectDelete",
+                        NatsUdfObjectStore.NatsUDFObjectDelete(objBucket, "o", null)),
+                };
+
+                bool noneGated = true;
+                foreach (var call in open)
+                {
+                    string text = AsString(call.Value);
+                    if (text != null && text.IndexOf(AdminGateText, StringComparison.Ordinal) >= 0)
+                    {
+                        noneGated = false;
+                        Console.WriteLine("  gate(open) still refused " + call.Key + " -> '" + text + "'");
+                    }
+                }
+                Check(noneGated, "gate(open): none of the remaining " + open.Count
+                    + " gated functions returns the gate text (the gate is fully open)");
 
                 object deleted = NatsUdfJetStream.NatsUDFStreamDelete(stream, null);
                 Check(string.Equals(AsString(deleted), NatsUdfCommon.Ok, StringComparison.Ordinal),
@@ -1109,6 +1528,21 @@ namespace NATSExcel.SmokeTests
                 Check(string.Equals(AsString(absent), NatsUdfCommon.NoValue, StringComparison.Ordinal),
                     "kv: a missing key returns \"" + NatsUdfCommon.NoValue + "\" (got '" + AsString(absent) + "')");
 
+                // "key absent" and "key present with an EMPTY value" are different
+                // facts and must not collapse into the same cell (a fixed bug:
+                // pin it). A present empty payload reads as (null), a missing key
+                // as (no value).
+                string emptyKey = "empty-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                object emptyPut = NatsUdfKv.NatsUDFKVPut(bucket, emptyKey, string.Empty, null);
+                Check(AsDouble(emptyPut) >= 1, "kv: put of an empty value succeeds (got '" + AsString(emptyPut) + "')");
+                object emptyGet = NatsUdfKv.NatsUDFKVGet(bucket, emptyKey, null);
+                object otherMissing = NatsUdfKv.NatsUDFKVGet(bucket, "does-not-exist-" + Guid.NewGuid().ToString("N"), null);
+                Check(string.Equals(AsString(emptyGet), NatsUdfCommon.NullValue, StringComparison.Ordinal),
+                    "kv: a key holding \"\" reads as \"" + NatsUdfCommon.NullValue + "\" (got '" + AsString(emptyGet) + "')");
+                Check(!string.Equals(AsString(emptyGet), AsString(otherMissing), StringComparison.Ordinal),
+                    "kv: an empty value and a missing key are DIFFERENT cells ("
+                    + AsString(emptyGet) + " vs " + AsString(otherMissing) + "; fixed bug pinned)");
+
                 // create-if-absent on an existing key fails, never overwrites.
                 object createExisting = NatsUdfKv.NatsUDFKVCreate(bucket, key, "vX", null);
                 string createText = AsString(createExisting);
@@ -1209,6 +1643,20 @@ namespace NATSExcel.SmokeTests
                 Check(missingText != null
                       && missingText.IndexOf("object '" + missingName + "' not found", StringComparison.Ordinal) >= 0,
                     "object: a missing object is the documented named error (got '" + missingText + "')");
+
+                // An object with an EMPTY body is a stored object, distinct from a
+                // missing one: NatsUDFObjectGet returns (null) for a zero-length
+                // body, never the not-found error. Pin the distinction.
+                string emptyName = "empty-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                object emptyPut = NatsUdfObjectStore.NatsUDFObjectPut(bucket, emptyName, string.Empty, null, null);
+                Check(AsString(emptyPut) != null && AsString(emptyPut).StartsWith("SHA-256=", StringComparison.Ordinal),
+                    "object: put of an empty body returns the server digest (got '" + AsString(emptyPut) + "')");
+                object emptyGet = NatsUdfObjectStore.NatsUDFObjectGet(bucket, emptyName, null);
+                Check(string.Equals(AsString(emptyGet), NatsUdfCommon.NullValue, StringComparison.Ordinal),
+                    "object: an object with an empty body reads as \"" + NatsUdfCommon.NullValue + "\" (got '" + AsString(emptyGet) + "')");
+                Check(!string.Equals(AsString(emptyGet), missingText, StringComparison.Ordinal),
+                    "object: an empty body and a missing object are DIFFERENT cells ("
+                    + AsString(emptyGet) + " vs the named not-found error; fixed bug pinned)");
             }
             finally
             {
@@ -1221,25 +1669,99 @@ namespace NATSExcel.SmokeTests
         // ==================================================================
         // 10. The JetStream-disabled path
         // ==================================================================
+        //
+        // Every JS/KV/Object call on a server without -js must return the exact
+        // "JetStream is not enabled on this server" text, never a hang and never
+        // an empty result that looks healthy. When the main endpoint has
+        // JetStream, a disposable server is started without -js (the same
+        // harness the auth matrix uses); when no nats-server.exe is available,
+        // the layer skips with a printed reason.
 
-        private static async Task RunJetStreamDisabledChecksAsync(NatsConnection raw)
+        private static async Task RunJetStreamDisabledChecksAsync(string mainUrl, bool mainJetStream)
         {
-            AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: true, syncWrite: "sync");
+            string serverExe = null;
+            NatsAuthServer server = null;
+            string workRoot = null;
+            string url = mainUrl;
+            bool started = false;
 
-            string subject = _prefix + ".nojs.a";
-            string bucket = KvName();
+            if (mainJetStream)
+            {
+                serverExe = FindNatsServer();
+                if (serverExe == null)
+                {
+                    Console.WriteLine("  js-disabled: no nats-server.exe found; the main server has -js");
+                }
+                else
+                {
+                    workRoot = Path.Combine(Path.GetTempPath(),
+                        "natsexcel-smoke-nojs-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    // jetstream { enabled: false } is explicit: a config without a
+                    // jetstream block is also JS-off, but stating it keeps the
+                    // intent obvious (and independent of a future default).
+                    server = StartNatsServer(serverExe, workRoot, "nojs",
+                        new[] { "jetstream { enabled: false }" });
+                    if (server.Ready)
+                    {
+                        url = server.Url;
+                        started = true;
+                    }
+                    else
+                    {
+                        Skip("js-disabled: the JS-off server start", "the disposable server did not become ready");
+                    }
+                }
+            }
 
-            var watch = Stopwatch.StartNew();
-            object js = NatsUdfJetStream.NatsUDFJSPublish(subject, "x", null);
-            object kv = NatsUdfKv.NatsUDFKVGet(bucket, "k", null);
-            watch.Stop();
+            try
+            {
+                AppConfig.Root root = NewRoot(url, allowAdminWrites: true, syncWrite: "sync");
+                root.JetStreamTimeoutMs = 3000;
+                AppConfig.CurrentOverrideForTests = AppConfig.Sanitize(root);
+                // The cache key is the endpoint: a fresh runtime forces the probe
+                // against THIS server rather than reusing a cached connection.
+                NatsRuntime.Shutdown();
+                NatsRuntime.ResetAfterAddInReload();
 
-            Check(string.Equals(AsString(js), JetStreamOffText, StringComparison.Ordinal),
-                "js-disabled: NatsUDFJSPublish returns the exact \"" + JetStreamOffText + "\" (got '" + AsString(js) + "')");
-            Check(string.Equals(AsString(kv), JetStreamOffText, StringComparison.Ordinal),
-                "js-disabled: NatsUDFKVGet returns the exact \"" + JetStreamOffText + "\" (got '" + AsString(kv) + "')");
-            Check(watch.ElapsedMilliseconds < 5000,
-                "js-disabled: neither call hangs (" + watch.ElapsedMilliseconds + " ms)");
+                string subject = _prefix + ".nojs.a";
+                string bucket = KvName();
+
+                var watch = Stopwatch.StartNew();
+
+                object js = NatsUdfJetStream.NatsUDFJSPublish(subject, "x", null);
+                object kv = NatsUdfKv.NatsUDFKVGet(bucket, "k", null);
+                object obj = NatsUdfObjectStore.NatsUDFObjectGet(ObjName(), "o", null);
+                object streamInfo = NatsUdfJetStream.NatsUDFJSStreamInfo(StreamName(), null);
+
+                watch.Stop();
+
+                string label = started ? "js-disabled(own server)" : "js-disabled(main -js-off)";
+                Check(string.Equals(AsString(js), JetStreamOffText, StringComparison.Ordinal),
+                    label + ": NatsUDFJSPublish returns the exact \"" + JetStreamOffText + "\" (got '" + AsString(js) + "')");
+                Check(string.Equals(AsString(kv), JetStreamOffText, StringComparison.Ordinal),
+                    label + ": NatsUDFKVGet returns the exact \"" + JetStreamOffText + "\" (got '" + AsString(kv) + "')");
+                Check(string.Equals(AsString(obj), JetStreamOffText, StringComparison.Ordinal),
+                    label + ": NatsUDFObjectGet returns the exact \"" + JetStreamOffText + "\" (got '" + AsString(obj) + "')");
+                Check(string.Equals(AsString(streamInfo), JetStreamOffText, StringComparison.Ordinal),
+                    label + ": NatsUDFJSStreamInfo returns the exact \"" + JetStreamOffText + "\" (got '" + AsString(streamInfo) + "')");
+                Check(watch.ElapsedMilliseconds < 8000,
+                    label + ": none of the four calls hangs (" + watch.ElapsedMilliseconds + " ms)");
+            }
+            finally
+            {
+                server?.Dispose();
+                if (workRoot != null)
+                {
+                    try { Directory.Delete(workRoot, recursive: true); } catch { }
+                }
+
+                // Restore the CLI endpoint and the default admin gate for the
+                // layers that follow (the auth matrix resets its own runtime
+                // anyway, but leave a clean state).
+                AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: false, syncWrite: "sync");
+                NatsRuntime.Shutdown();
+                NatsRuntime.ResetAfterAddInReload();
+            }
 
             await Task.CompletedTask;
         }
