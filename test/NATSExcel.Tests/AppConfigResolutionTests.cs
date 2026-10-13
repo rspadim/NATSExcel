@@ -283,5 +283,110 @@ namespace NATSExcel.Tests
                 Assert.Equal(5, AppConfig.ResolveSettings("slow").Reconnect.MaxAttempts);
             });
         }
+
+        [Fact]
+        public void ResolveSettings_ClusterWithoutReconnect_KeepsTheSharedReconnectPolicy()
+        {
+            // A cluster block carries reconnect initializer defaults (60/2000/100),
+            // so a cluster that declares NONE must not overwrite the shared
+            // policy with those defaults: only declared fields override.
+            var root = Parse(@"{
+                ""Default"": ""local"",
+                ""Reconnect"": { ""maxAttempts"": 7, ""waitMs"": 1234, ""jitterMs"": 321 },
+                ""Clusters"": {
+                    ""plain"": { ""urls"": [""nats://p:4222""] }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                var r = AppConfig.ResolveSettings("plain").Reconnect;
+                Assert.Equal(7, r.MaxAttempts);
+                Assert.Equal(1234, r.WaitMs);
+                Assert.Equal(321, r.JitterMs);
+            });
+        }
+
+        [Fact]
+        public void ResolveSettings_ClusterReconnectZero_DisablesTheSharedRetry()
+        {
+            // `0` is a meaningful value (no retry). A declared 0 must override a
+            // shared non-zero, not be read as "not declared".
+            var root = Parse(@"{
+                ""Default"": ""local"",
+                ""Reconnect"": { ""maxAttempts"": 60, ""waitMs"": 2000 },
+                ""Clusters"": {
+                    ""noretry"": { ""urls"": [""nats://n:4222""], ""reconnect"": { ""maxAttempts"": 0 } }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                var r = AppConfig.ResolveSettings("noretry").Reconnect;
+                Assert.Equal(0, r.MaxAttempts);   // declared: wins even though 0
+                Assert.Equal(2000, r.WaitMs);     // not declared: shared value kept
+            });
+        }
+
+        [Fact]
+        public void ResolveSettings_ClusterAuthWithoutTls_KeepsTheSharedTls()
+        {
+            // A cluster auth block that declares only `user` must not quietly turn
+            // the shared TLS off: only an explicitly declared `tls` overrides it.
+            var root = Parse(@"{
+                ""Default"": ""local"",
+                ""Auth"": { ""tls"": true, ""tlsCert"": ""C:\\cert.pfx"" },
+                ""Clusters"": {
+                    ""mtls"": { ""urls"": [""nats://m:4222""], ""auth"": { ""user"": ""u"" } }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                var a = AppConfig.ResolveSettings("mtls").Auth;
+                Assert.True(a.Tls);                        // shared TLS kept
+                Assert.Equal("u", a.User);                 // cluster user wins
+                Assert.Equal("C:\\cert.pfx", a.TlsCert);   // shared cert kept
+            });
+        }
+
+        [Fact]
+        public void ResolveSettings_ClusterAuthDeclaringTlsFalse_TurnsTlsOff()
+        {
+            var root = Parse(@"{
+                ""Default"": ""local"",
+                ""Auth"": { ""tls"": true },
+                ""Clusters"": {
+                    ""plain"": { ""urls"": [""nats://p:4222""], ""auth"": { ""tls"": false, ""token"": ""t"" } }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                var a = AppConfig.ResolveSettings("plain").Auth;
+                Assert.False(a.Tls);            // explicitly declared false: wins
+                Assert.Equal("t", a.Token);
+            });
+        }
+
+        [Fact]
+        public void ResolveSettings_ClusterAuthEmptyObject_KeepsEverySharedField()
+        {
+            // An empty auth object declares nothing, so the shared auth survives.
+            var root = Parse(@"{
+                ""Default"": ""local"",
+                ""Auth"": { ""user"": ""shared-user"", ""tls"": true },
+                ""Clusters"": {
+                    ""empty"": { ""urls"": [""nats://e:4222""], ""auth"": {} }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                var a = AppConfig.ResolveSettings("empty").Auth;
+                Assert.Equal("shared-user", a.User);
+                Assert.True(a.Tls);
+            });
+        }
     }
 }

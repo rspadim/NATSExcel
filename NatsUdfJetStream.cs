@@ -49,6 +49,11 @@ namespace NATSExcel
         private const int DefaultFetchMs = 1000;
         private const int MaxFetchMs = 60000;
 
+        /// <summary>A consumer pause is not a fetch window; it deserves its own
+        /// named ceiling so the error text does not say "between 1 and 60000" for
+        /// an unrelated constant.</summary>
+        private const int MaxPauseMs = 60000;
+
         // NatsUDFJSFetch batch bounds ([count]).
         private const int MaxFetchCount = 10000;
 
@@ -570,7 +575,7 @@ namespace NATSExcel
             error = NatsUdfCommon.RequireConsumer(name);
             if (error != null)
                 return error;
-            if (!TryToInt(pauseMs, "pauseMs", 1, MaxFetchMs, 0, out int pauseMillis, out error))
+            if (!TryToInt(pauseMs, "pauseMs", 1, MaxPauseMs, 0, out int pauseMillis, out error))
                 return error;
             if (!TryPrepare(host, admin: true, out string endpoint, out error))
                 return error;
@@ -1110,7 +1115,7 @@ namespace NATSExcel
                 // connecting to localhost (DESIGN.md §8.1).
                 error = IsBlank(host) || host is string
                     ? NatsUdfCommon.ConfigError
-                    : NatsUdfCommon.Fail("the host must be text");
+                    : NatsUdfCommon.Fail(NatsUdfCommon.ErrorHostNotText);
                 return false;
             }
 

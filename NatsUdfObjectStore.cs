@@ -1,4 +1,4 @@
-﻿using ExcelDna.Integration;
+using ExcelDna.Integration;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
@@ -597,7 +597,7 @@ namespace NATSExcel
                 // connecting to localhost (DESIGN.md section 8.1).
                 error = IsBlank(host) || host is string
                     ? NatsUdfCommon.ConfigError
-                    : NatsUdfCommon.Fail("the host must be text");
+                    : NatsUdfCommon.Fail(NatsUdfCommon.ErrorHostNotText);
                 return false;
             }
 

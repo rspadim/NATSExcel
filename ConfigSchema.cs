@@ -73,6 +73,8 @@ namespace NATSExcel
         /// Throws on malformed JSON (the caller's catch handles it).</summary>
         internal static JObject ParseWithComments(string json)
         {
+            if (!string.IsNullOrEmpty(json))
+                json = json.TrimStart(' ', '\t', '\r', '\n', '\uFEFF');
             using (var reader = new JsonTextReader(new StringReader(json)))
             {
                 reader.DateParseHandling = DateParseHandling.None;
@@ -257,7 +259,20 @@ namespace NATSExcel
                 var declared = properties?[prop.Name] as JObject;
                 if (declared != null)
                 {
-                    Append(cleaned, prop.Name, Prune(prop.Value, declared, childPath, issues));
+                    // The `Default` back-compat shape: an older config nested the
+                    // settings under `Default` as an object. The schema models
+                    // `Default` as a plain name, so the nested object would be
+                    // "wrong typed" and dropped - losing a legacy file's cluster
+                    // AND (because any drop drags the file through the tolerant
+                    // re-parse) exposing the old bug where every nested section
+                    // was discarded. Keep it verbatim and record no issue: the
+                    // documented back-compat path in `AppConfig.Parse` reads it
+                    // (cluster/timeout/auth) and an accepted legacy shape is not
+                    // a schema violation.
+                    if (path.Length == 0 && prop.Name == "Default" && prop.Value.Type == JTokenType.Object)
+                        cleaned[prop.Name] = prop.Value;
+                    else
+                        Append(cleaned, prop.Name, Prune(prop.Value, declared, childPath, issues));
                 }
                 else if (additional is JObject additionalSchema)
                 {

@@ -267,12 +267,15 @@ namespace NATSExcel
                 }
                 return context;
             }
-            catch (InvalidOperationException)
-            {
-                throw;
-            }
             catch
             {
+                // Any failure - including an InvalidOperationException raised by
+                // GetConnection's shutdown fence - must drop the entry: the Lazy
+                // (ExecutionAndPublication) caches its exception, so leaving it
+                // behind would make every later GetJetStream for this endpoint
+                // rethrow that stale exception for the manager's lifetime, even
+                // after the triggering condition cleared. `throw;` rethrows the
+                // original exception type with its stack intact.
                 _jetStream.TryRemove(key, out _);
                 throw;
             }

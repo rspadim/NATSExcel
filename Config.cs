@@ -69,49 +69,58 @@ namespace NATSExcel
                 Root current = _current.Value;
                 return current;
             }
-            Root reloaded = Sanitize(Install(Parse(File.ReadAllText(path)), path));
+            Root reloaded = Sanitize(ReadConfig(File.ReadAllText(path), path));
             _installed = reloaded;
             logger.Info("AppConfig: reloaded configuration from " + path);
             return reloaded;
         }
 
         /// <summary>
-        /// Applies the schema walk so one wrong-typed value is DROPPED on its own
-        /// and the rest of the file is kept (the headline config contract, PLAN
-        /// F1.3). Without it a value the strict cast cannot convert throws and the
-        /// whole file silently reverts to defaults - repointing the host at
-        /// localhost and turning the write mode off.
+        /// Turns raw config text into a Root, applying the schema walk BEFORE the
+        /// strict parse. This order is the whole point: <see cref="Parse"/> uses
+        /// unchecked casts (e.g. <c>(bool?)root["AllowAdminWrites"]</c>), so a
+        /// wrong-typed value throws <see cref="FormatException"/> there and would
+        /// discard the ENTIRE file - the opposite of the headline contract (PLAN
+        /// F1.3: one bad value is dropped on its own, the rest of the file is
+        /// kept). Cleaning first means the strict casts never see a value the
+        /// schema rejected, so a value a user typed wrongly is the only thing
+        /// lost. A structural (not-JSON) failure still propagates, which is the
+        /// documented fallback that reverts to defaults.
         /// </summary>
-        private static Root Install(Root parsed, string path)
+        internal static Root ReadConfig(string raw, string path)
         {
-            if (parsed == null)
-                return new Root();
+            raw = StripLeadingBom(raw);
+            var issues = new List<ConfigIssue>();
+            JObject root = null;
             try
             {
-                // The schema walk removes each value that does not match, so one
-                // bad value is dropped on its own and the rest of the file is
-                // kept (the headline config contract, PLAN F1.3). A structural
-                // failure (not JSON) is left to the caller's catch.
-                string raw = File.ReadAllText(path);
-                var issues = new List<ConfigIssue>();
-                JObject root = ConfigSchema.ParseWithComments(raw);
-                if (root != null)
-                {
-                    JToken cleaned = ConfigSchema.Clean(root, issues);
-                    if (issues.Count > 0)
-                    {
-                        foreach (var issue in issues)
-                            logger.Warn("AppConfig: value dropped in " + path + " -> " + issue);
-                        if (cleaned != null)
-                            return Sanitize(cleaned.ToObject<Root>() ?? parsed);
-                    }
-                }
+                root = ConfigSchema.ParseWithComments(raw);
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, "AppConfig: schema walk skipped for " + path);
+                // Not JSON at all: let Parse raise the structural failure the
+                // caller's catch turns into "using defaults".
+                logger.Debug(ex, "AppConfig: schema parse failed for " + path);
             }
-            return Sanitize(parsed);
+
+            if (root != null)
+            {
+                try
+                {
+                    JToken cleaned = ConfigSchema.Clean(root, issues);
+                    foreach (var issue in issues)
+                        logger.Warn("AppConfig: value dropped in " + path + " -> "
+                            + MaskNatsEndpoint(issue?.ToString()));
+                    if (issues.Count > 0)
+                        return Sanitize(Parse(cleaned.ToString()));
+                }
+                catch (Exception ex)
+                {
+                    logger.Debug(ex, "AppConfig: schema walk skipped for " + path);
+                }
+            }
+
+            return Sanitize(Parse(raw));
         }
 
         internal static string ConfigPath { get; private set; }
@@ -122,9 +131,41 @@ namespace NATSExcel
         /// defaults while a previously loaded root is still in use.</summary>
         public static bool HasLoadedFile => !string.IsNullOrWhiteSpace(ConfigPath);
 
-        public static string Version =>
-            typeof(AppConfig).Assembly.GetName().Version?.ToString() ?? "dev";
+        /// <summary>
+        /// The running build's version as the CI stamps it: the
+        /// <c>AssemblyInformationalVersion</c> (the pushed tag), falling back to
+        /// the assembly version and then <c>"dev"</c>. Reading the assembly
+        /// version alone would show <c>1.0.0.0</c> for every build, tagged or not
+        /// (the tag lives in the informational attribute, which is what the
+        /// connection <c>Name</c> and <see cref="UpdateCheck"/> both report).
+        /// </summary>
+        public static string Version
+        {
+            get
+            {
+                try
+                {
+                    var attribute = Attribute.GetCustomAttribute(
+                        typeof(AppConfig).Assembly,
+                        typeof(System.Reflection.AssemblyInformationalVersionAttribute))
+                        as System.Reflection.AssemblyInformationalVersionAttribute;
+                    string value = attribute?.InformationalVersion;
+                    if (!string.IsNullOrWhiteSpace(value))
+                        return value;
+                }
+                catch
+                {
+                    // No informational version (unusual): fall through to the
+                    // assembly version, then "dev".
+                }
+                return typeof(AppConfig).Assembly.GetName().Version?.ToString() ?? "dev";
+            }
+        }
 
+        /// <summary>
+        /// Loads the configuration file, applying the schema walk before the strict
+        /// parse (see <see cref="ReadConfig"/>).
+        /// </summary>
         private static Root Load()
         {
             foreach (var path in CandidatePaths())
@@ -134,7 +175,7 @@ namespace NATSExcel
                 try
                 {
                     ConfigPath = path;
-                    var root = Install(Parse(File.ReadAllText(path)), path);
+                    var root = ReadConfig(File.ReadAllText(path), path);
                     logger.Info("AppConfig: loaded configuration from " + path);
                     return root;
                 }
@@ -180,7 +221,7 @@ namespace NATSExcel
         /// <summary>Parse a config document (accepts // and /* */ comments).</summary>
         internal static Root Parse(string text)
         {
-            var root = JObject.Parse(StripComments(text));
+            var root = JObject.Parse(StripComments(StripLeadingBom(text)));
             var cfg = new Root();
 
             // Default is a plain NAME (a Clusters name, a Servers name, or a raw
@@ -261,7 +302,8 @@ namespace NATSExcel
                     // A cluster's auth/reconnect merge OVER the shared ones.
                     c.AuthOverrides = HasAnyAuth(cj["auth"]);
                     if (c.AuthOverrides) ReadAuth(cj["auth"], c.Auth);
-                    if (cj["reconnect"] != null) ReadReconnect(cj["reconnect"], c.Reconnect);
+                    c.AuthDeclaredTls = (cj["auth"] as JObject)?["tls"] != null;
+                    ReadClusterReconnect(cj["reconnect"], c);
                     var urls = cj["urls"] as JArray;
                     if (urls != null)
                         foreach (var u in urls)
@@ -305,6 +347,28 @@ namespace NATSExcel
             target.MaxAttempts = (int?)r["maxAttempts"] ?? target.MaxAttempts;
             target.WaitMs = (int?)r["waitMs"] ?? target.WaitMs;
             target.JitterMs = (int?)r["jitterMs"] ?? target.JitterMs;
+        }
+
+        /// <summary>Fills the cluster's reconnect policy AND records which fields
+        /// it declared, so the merge can tell "declared 0" from "not declared".</summary>
+        private static void ReadClusterReconnect(JToken token, Cluster cluster)
+        {
+            var r = token as JObject;
+            if (r == null || cluster == null) return;
+            if (r["maxAttempts"] != null) { cluster.Reconnect.MaxAttempts = (int?)r["maxAttempts"] ?? cluster.Reconnect.MaxAttempts; cluster.ReconnectDeclaredMaxAttempts = true; }
+            if (r["waitMs"] != null) { cluster.Reconnect.WaitMs = (int?)r["waitMs"] ?? cluster.Reconnect.WaitMs; cluster.ReconnectDeclaredWaitMs = true; }
+            if (r["jitterMs"] != null) { cluster.Reconnect.JitterMs = (int?)r["jitterMs"] ?? cluster.Reconnect.JitterMs; cluster.ReconnectDeclaredJitterMs = true; }
+        }
+
+        /// <summary>Removes a leading UTF-8 BOM (U+FEFF) and any leading
+        /// whitespace/newlines. A BOM copied into the file (or a non-UTF-8-labelled
+        /// file) would otherwise make <c>JObject.Parse</c> throw and abandon the
+        /// whole file; the JSON cell path trims it too (<c>NatsJson</c>).</summary>
+        internal static string StripLeadingBom(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+            return text.TrimStart(' ', '\t', '\r', '\n', '\uFEFF');
         }
 
         private static string ResolveUrl(Root cfg, string urlOrAlias)
@@ -357,27 +421,47 @@ namespace NATSExcel
             if (string.IsNullOrEmpty(text))
                 return text;
             string masked = UriUserInfo.Replace(text, "****@");
-            masked = CredentialPair.Replace(masked, "$1$2=****");
+            masked = CredentialPairQuoted.Replace(masked, "$1$2=****");
+            masked = CredentialPairPath.Replace(masked, "$1$2=****");
+            masked = CredentialPairToken.Replace(masked, "$1$2=****");
             masked = JwtToken.Replace(masked, "****");
             masked = NkeySeedToken.Replace(masked, "****");
-            return masked;
-        }
+            return masked;        }
 
         // nats://user:SECRET@host / nats://:SECRET@host / nats://user@host:
         // whatever sits between '//' and '@' is URL userinfo and must be redacted.
         private static readonly Regex UriUserInfo = new Regex(
             @"(?<=//)[^/@\s]+@", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-        // A credential keyword (password/pass/user/username/token) followed by '='.
-        // Preceded by the string start, whitespace, '&' (query string), ',' or ';'
-        // (connection-string delimiter), so a user key like "key=user=abc" is NOT
-        // rewritten; optional whitespace is allowed around '=', and a quoted value
-        // ('...' or "...") is handled. The value runs to the next delimiter so
-        // "password=ab,cd" is fully masked. Group 1 is the leading delimiter and
-        // group 2 the keyword, so "$1$2=****" keeps them; example: "token=abc" ->
-        // "token=****".
-        private static readonly Regex CredentialPair = new Regex(
-            @"(^|[\s&,;])(password|pass|user|username|token)\s*=\s*(?:""[^""]*""|'[^']*'|[^\s&,;]*)",
+        // Credentials in `key=value` form, in three precise passes so each value
+        // shape is masked correctly. `MaskNatsEndpoint` applies them in this
+        // order:
+        //
+        //  (1) a QUOTED value is taken whole (any key), so `password="a b"` is
+        //      fully redacted and the closing quote consumed;
+        //  (2) an UNQUOTED value of a PATH key (tlsCert/credsFile/…) runs to the
+        //      end of line or the next delimiter, ALLOWING spaces, so a Windows
+        //      path like `credsFile=C:\Program Files\certs\client.pfx` is masked
+        //      whole (it would otherwise be cut at the first space);
+        //  (3) an UNQUOTED value of a TOKEN key (password/user/token) stops at
+        //      the first whitespace or delimiter.
+        //
+        // Each is preceded by start/whitespace/`&`/`,`/`;` and carries the
+        // following `key=` boundary, so `key=token=abc` is not rewritten. The
+        // longer keys are listed before the shorter ones they contain
+        // (tlsCertPassword before tlsCert, username before user). tlsCert,
+        // credsFile and tlsCertPassword hold secret paths/passwords and are named
+        // masked forms (DESIGN §7.1, AGENTS golden rule 9).
+        private static readonly Regex CredentialPairQuoted = new Regex(
+            @"(^|[\s&,;])(password|pass|username|tlsCertPassword|tlsCert|credsFile|user|token)\s*=\s*(""[^""]*""|'[^']*')",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex CredentialPairPath = new Regex(
+            @"(^|[\s&,;])(tlsCertPassword|tlsCert|credsFile)\s*=\s*([^\r\n]*?)(?=$|[&;,]|\s*[A-Za-z][A-Za-z0-9_]*\s*=)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex CredentialPairToken = new Regex(
+            @"(^|[\s&,;])(password|pass|username|user|token)\s*=\s*([^\s&,;]*)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         // A JWT: "eyJ" (base64url of '{"') followed by one or more base64url
@@ -508,9 +592,13 @@ namespace NATSExcel
             Cluster cluster = FindCluster(cfg, name);
             if (cluster != null)
             {
-                if (cluster.AuthOverrides) ApplyAuth(cluster.Auth, settings.Auth, over: true);
+                if (cluster.AuthOverrides) ApplyAuth(cluster.Auth, settings.Auth, over: true, declaredTls: cluster.AuthDeclaredTls);
                 if (cluster.TimeoutMs.HasValue) settings.TimeoutMs = cluster.TimeoutMs.Value;
-                ApplyReconnect(cluster.Reconnect, settings.Reconnect, over: true);
+                ApplyReconnect(
+                    cluster.Reconnect, settings.Reconnect, over: true,
+                    declaredMaxAttempts: cluster.ReconnectDeclaredMaxAttempts,
+                    declaredWaitMs: cluster.ReconnectDeclaredWaitMs,
+                    declaredJitterMs: cluster.ReconnectDeclaredJitterMs);
             }
             return settings;
         }
@@ -549,7 +637,7 @@ namespace NATSExcel
             return match;
         }
 
-        private static void ApplyAuth(Auth from, Auth to, bool over = false)
+        private static void ApplyAuth(Auth from, Auth to, bool over = false, bool declaredTls = false)
         {
             if (from == null) return;
             // With `over`, the cluster's auth REPLACES the shared value field by
@@ -564,22 +652,27 @@ namespace NATSExcel
             if (from.Jwt != null || !over) to.Jwt = from.Jwt;
             if (from.NkeySeed != null || !over) to.NkeySeed = from.NkeySeed;
             if (from.CredsFile != null || !over) to.CredsFile = from.CredsFile;
-            // `tls` is a bool with a meaningful default (false): a cluster that
-            // declares an auth block is taken to state its TLS intent, so the
-            // cluster value wins when it overrides at all.
-            if (over) to.Tls = from.Tls;
+            // `tls` is a bool, so "declared false" and "not declared" are both
+            // false: only an explicitly declared cluster `tls` overrides the
+            // shared one. Copying it unconditionally would let a cluster that
+            // declared only `user` silently turn the shared TLS off.
+            if (declaredTls || !over) to.Tls = from.Tls;
             if (from.TlsCert != null || !over) to.TlsCert = from.TlsCert;
             if (from.TlsCertPassword != null || !over) to.TlsCertPassword = from.TlsCertPassword;
         }
 
-        private static void ApplyReconnect(Reconnect from, Reconnect to, bool over = false)
+        private static void ApplyReconnect(
+            Reconnect from, Reconnect to, bool over = false,
+            bool declaredMaxAttempts = false, bool declaredWaitMs = false, bool declaredJitterMs = false)
         {
             if (from == null) return;
-            // Same per-field rule for reconnect: `0` means "not declared" (the
-            // initializer default), so it must not clobber a shared non-zero.
-            if (from.MaxAttempts != 0 || !over) to.MaxAttempts = from.MaxAttempts;
-            if (from.WaitMs != 0 || !over) to.WaitMs = from.WaitMs;
-            if (from.JitterMs != 0 || !over) to.JitterMs = from.JitterMs;
+            // A cluster reconnect block carries initializer defaults (60/2000/100),
+            // so `0` cannot mean "not declared": only the fields the cluster
+            // actually declared override the shared policy, and a declared 0 does
+            // override it (a cluster can now disable a shared retry).
+            if (declaredMaxAttempts || !over) to.MaxAttempts = from.MaxAttempts;
+            if (declaredWaitMs || !over) to.WaitMs = from.WaitMs;
+            if (declaredJitterMs || !over) to.JitterMs = from.JitterMs;
         }
 
         /// <summary>The effective auth/reconnect/timeout a resolved endpoint uses.</summary>
@@ -749,8 +842,26 @@ namespace NATSExcel
             /// caller knows whether to merge or use the shared auth directly.</summary>
             public bool AuthOverrides { get; set; }
 
+            /// <summary>True when the cluster's auth block declared <c>tls</c>
+            /// explicitly. A bool cannot distinguish "declared false" from "not
+            /// declared" (both default to false), so this presence flag decides
+            /// whether the cluster's <c>tls</c> overrides the shared one; without
+            /// it a cluster that declared only e.g. <c>user</c> would silently
+            /// turn the shared TLS off.</summary>
+            public bool AuthDeclaredTls { get; set; }
+
             /// <summary>Optional per-cluster reconnect overrides.</summary>
             public Reconnect Reconnect { get; set; } = new Reconnect();
+
+            /// <summary>The reconnect fields the cluster actually declared. The
+            /// initializer gives them meaningful defaults (60/2000/100), so value
+            /// equality cannot tell "declared 0" from "not declared"; without this
+            /// a cluster with no <c>reconnect</c> block would overwrite the shared
+            /// policy with those defaults, and a cluster could never set a field
+            /// to 0.</summary>
+            public bool ReconnectDeclaredMaxAttempts { get; set; }
+            public bool ReconnectDeclaredWaitMs { get; set; }
+            public bool ReconnectDeclaredJitterMs { get; set; }
         }
 
         public sealed class Reconnect

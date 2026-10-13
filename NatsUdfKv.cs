@@ -861,7 +861,7 @@ namespace NATSExcel
                 // connecting to localhost (DESIGN.md §8.1).
                 error = IsBlank(host) || host is string
                     ? NatsUdfCommon.ConfigError
-                    : NatsUdfCommon.Fail("the host must be text");
+                    : NatsUdfCommon.Fail(NatsUdfCommon.ErrorHostNotText);
                 return false;
             }
 

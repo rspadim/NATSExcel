@@ -51,7 +51,7 @@ namespace NATSExcel
             try
             {
                 if (range == null)
-                    throw new ArgumentException("a range is required");
+                    throw new ArgumentException(NatsUdfCommon.ErrorRangeRequired);
                 int rows = range.GetLength(0);
                 int cols = range.GetLength(1);
                 // Symmetric with JsonToMatrix: reject an oversized range before
@@ -107,7 +107,7 @@ namespace NATSExcel
             catch (Exception ex)
             {
                 logger.Error(ex, "NatsJson.MatrixToJson");
-                return $"Error: {ex.Message}";
+                return NatsUdfCommon.Fail(ex.Message);
             }
         }
 
@@ -123,9 +123,9 @@ namespace NATSExcel
                 if (nullValue == null || nullValue is ExcelMissing || nullValue is ExcelEmpty)
                     fill = "";
                 else if (nullValue is ExcelError)
-                    throw new ArgumentException("Excel error cells are not valid arguments");
+                    throw new ArgumentException(NatsUdfCommon.ErrorExcelErrorCell);
                 else if (nullValue is Array)
-                    throw new ArgumentException("A multi-cell range is not a valid scalar argument");
+                    throw new ArgumentException(NatsUdfCommon.ErrorMultiCellScalar);
                 else
                     fill = nullValue;
 
@@ -179,7 +179,7 @@ namespace NATSExcel
             catch (Exception ex)
             {
                 logger.Error(ex, "NatsJson.JsonToMatrix");
-                return new object[,] { { $"Error: {ex.Message}" } };
+                return new object[,] { { NatsUdfCommon.Fail(ex.Message) } };
             }
         }
 
@@ -233,7 +233,8 @@ namespace NATSExcel
                 // JSON integers beyond Int64 arrive as BigInteger and cannot be
                 // marshalled into a cell; send the invariant decimal text.
                 if (value.Value is System.Numerics.BigInteger big)
-                    return big.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    return NatsResultFormatter.BoundCellText(
+                        big.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 // JSON does not allow NaN/Infinity, but Newtonsoft accepts the
                 // non-standard literals; Excel would render them as #NUM!, so
                 // reject them as an error instead of returning the raw double.
@@ -241,9 +242,15 @@ namespace NATSExcel
                 // value) funnels through here.
                 if (value.Value is double d && (double.IsNaN(d) || double.IsInfinity(d)))
                     throw new ArgumentException("JSON contains a non-finite number");
+                // A string cell is bounded like every NATS read path: a JSON string
+                // longer than 32767 would otherwise be silently truncated by Excel
+                // with no marker.
+                if (value.Value is string text)
+                    return NatsResultFormatter.BoundCellText(text);
                 return value.Value ?? fill;
             }
-            return token.ToString(Formatting.None);
+            // A container is returned as compact JSON text; bound it too.
+            return NatsResultFormatter.BoundCellText(token.ToString(Formatting.None));
         }
 
         private static object[,] JArrayToMatrix(JArray array, object fill)

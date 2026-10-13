@@ -254,6 +254,24 @@ namespace NATSExcel
             }
         }
 
+        /// <summary>
+        /// Forgets BOTH polled dedup markers. Called when an error cell is pushed:
+        /// the error is not the value a later successful read is compared against,
+        /// and the two markers are independent (bytes for KVGET/MSG, text for
+        /// KVKEYS/REQ/RTDCLUSTER). Without this, a blip followed by a recovery to
+        /// the payload the cell already held before the blip compares equal and is
+        /// never pushed, so the stale <c>#ERROR:</c> stays on screen until the
+        /// value itself changes.
+        /// </summary>
+        public void InvalidatePolledMarkers()
+        {
+            lock (_sync)
+            {
+                _hasLastPolledBytes = false;
+                _hasLastPolledText = false;
+            }
+        }
+
         // REQ is issued at most once per everyMs (the parser clamps it to >=100),
         // regardless of the poll tick rate: the interval is a MINIMUM spacing.
         private long _nextRequestDueTicks;
@@ -1509,6 +1527,12 @@ namespace NATSExcel
                         string error = ErrorCell(ErrorContext(td), ex.Message);
                         if (_skipRepeatedMessages && !td.HasChangedPolledText(error))
                             continue;
+                        // The error is not the value the next successful read is
+                        // deduped against: invalidate both markers so a recovery to
+                        // the payload the cell held before the blip is pushed (the
+                        // bytes and text markers are independent, and KVGET/MSG
+                        // consult only the bytes one).
+                        td.InvalidatePolledMarkers();
                         PushPolled(td, error, () => td.CommitPolledText(error));
                     }
                 }

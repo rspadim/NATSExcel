@@ -317,11 +317,25 @@ Invoke-Com { $ws.Range('A3').Formula = '=NatsUDFSubjectLatest("' + $pub + '","",
 Invoke-Com { $excel.CalculateFullRebuild() } | Out-Null
 
 $version = Wait-Cell $ws 'A1' { param($t) $t -match '^\d+\.\d+' }
-$marker = Wait-Cell $ws 'A2' { param($t) $t -match 'OK|Error|#' }
-$latest = Wait-Cell $ws 'A3' { param($t) $t -eq 'hello' -or $t -eq '(null)' }
-Log "  version=$version publish=$marker latest=$latest"
+$marker = Wait-Cell $ws 'A2' { param($t) $t -match '^(OK|Error|#)' }
+Log "  version=$version publish=$marker"
 Assert "UDF: the XLL answers (packing OK)" ($version -match '^\d+\.\d+')
-Assert "UDF: publish returns a marker" ($marker -match 'OK|Error|#')
+# The publish must return the OK marker, never an error or a pending #N/A: the
+# earlier predicate accepted "Error" and "#", so a broken write could pass.
+Assert "UDF: publish returns the OK marker" ($marker -match '^OK')
+
+# The read is the actual write -> read proof (a bare "returns something" check
+# let the round trip fail silently). The SUB registers asynchronously and Core
+# NATS is at-most-once, so re-publish until the latest-read cell observes the
+# value; a one-shot read could legitimately race the subscription to (null).
+$latest = '(null)'
+for ($attempt = 1; $attempt -le 10; $attempt++) {
+    Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublish("' + $pub + '","hello","' + $NatsUrl + '")' } | Out-Null
+    $latest = Wait-Cell $ws 'A3' { param($t) $t -eq 'hello' } 2500
+    if ($latest -eq 'hello') { break }
+}
+Log "  latest=$latest"
+Assert "UDF: the published value is read back (write -> read round trip)" ($latest -eq 'hello')
 
 # RTD SUB: use a DEDICATED subject and a NON-VOLATILE publisher. A volatile
 # publish cell (A2 above) is recalculated on every calculation and republishes,
@@ -357,10 +371,12 @@ Assert "RTD: a later push updated the cell" ($rtdAfter -eq $rtdTarget)
 Invoke-Com { $ws.Range('A8').Formula = '=NatsUDFKVGet("NoSuchBucket","k","' + $NatsUrl + '")' } | Out-Null
 Invoke-Com { $ws.Range('A9').Formula = '=NatsUDFJSStreams("' + $NatsUrl + '")' } | Out-Null
 $kv = Wait-Cell $ws 'A8' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^#' }
-$streams = Wait-Cell $ws 'A9' { param($t) -not [string]::IsNullOrWhiteSpace($t) }
+$streams = Wait-Cell $ws 'A9' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^#' }
 Log "  kv(missing bucket)=$($kv.Substring(0,[Math]::Min(90,$kv.Length)))  jsStreams=$streams"
 Assert "KV: a missing bucket is a named error" ($kv -match 'Error|not found')
-Assert "JetStream: the streams call answers" (-not [string]::IsNullOrWhiteSpace($streams))
+# The streams call must ANSWER, not fail: requiring only "non-empty" let an
+# "Error: JetStream is not enabled ..." string satisfy the check.
+Assert "JetStream: the streams call answers with a value, not an error" ($streams -notmatch '^(Error|#)')
 
 # ---------------------------------------------------------------------------
 # 2. Multi-workbook: a copy closing must not disturb the original

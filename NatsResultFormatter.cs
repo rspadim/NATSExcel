@@ -92,6 +92,12 @@ namespace NATSExcel
 
             if (keep < 0)
                 keep = 0;
+            // Never split a surrogate pair: a lone high surrogate is invalid UTF-16
+            // and Excel renders it as garbage. If the cut lands between a high and
+            // a low surrogate, drop the high one too (the pair is atomic).
+            if (keep > 0 && keep < text.Length
+                && char.IsHighSurrogate(text[keep - 1]) && char.IsLowSurrogate(text[keep]))
+                keep--;
             return text.Substring(0, keep) + TruncationSuffix(text.Length - keep);
         }
 

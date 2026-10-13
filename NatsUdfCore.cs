@@ -837,7 +837,7 @@ namespace NATSExcel
             }
 
             if (logger.IsDebugEnabled)
-                logger.Debug("NatsUDFSubjectUnsubscribe: subject='" + subjectText
+                logger.Debug("NatsUDFSubjectUnsubscribe: subject='" + NatsUdfCommon.ShortForLog(subjectText)
                     + "' endpoint=" + NatsConnectionManager.MaskedEndpoint(endpoint) + " unsubscribed");
             return "Subject '" + subjectText + "' unsubscribed successfully.";
         }
@@ -891,13 +891,16 @@ namespace NATSExcel
             {
                 if (!_subjectListeners.ContainsKey(key))
                 {
-                    epochBefore = SubjectEpoch(key);
-                    // Register the in-flight window INSIDE the same lock as the
-                    // epoch read: the bounded prune does not hold this lock, so
-                    // taking the watch afterwards could let a removal + prune
-                    // erase the entry and make the install re-check (epoch == 0)
-                    // wrongly pass.
+                    // Register the in-flight watch BEFORE reading the epoch. The
+                    // bounded prune runs from any other key's BumpSubjectEpoch
+                    // and removes an entry that is in neither the watch set nor
+                    // the listener map; reading the epoch first left a window
+                    // where the prune could drop the entry, the unsubscribe
+                    // re-create it as epoch 1, and the install re-check (epoch
+                    // == epochBefore) wrongly pass - a ghost listener. The watch
+                    // makes the entry visible to the prune immediately.
                     BeginSubscribeWatch(key);
+                    epochBefore = SubjectEpoch(key);
                     needsSubscribe = true;
                 }
             }
@@ -944,16 +947,24 @@ namespace NATSExcel
                 {
                     // Lost a race (another thread registered first) or an
                     // unsubscribe/reset won: close before disposing so this
-                    // losing listener never writes.
+                    // losing listener never writes. The callback and the close
+                    // share listener.Sync, and the cached value is dropped in
+                    // the same critical section, so a message this losing
+                    // listener already cached cannot outlive it (a stale value
+                    // with no live listener would be served until a new one
+                    // arrived).
                     lock (listener.Sync)
+                    {
                         listener.Close();
+                        _latestMessages.TryRemove(key, out _);
+                    }
                     listener.Token?.Dispose();
                     return;
                 }
 
                 if (logger.IsDebugEnabled)
-                    logger.Debug("NatsUDFSubjectLatest: subscribed subject='" + subject
-                        + "' queue=" + (queueGroup ?? "<none>")
+                    logger.Debug("NatsUDFSubjectLatest: subscribed subject='" + NatsUdfCommon.ShortForLog(subject)
+                        + "' queue=" + NatsUdfCommon.ShortForLog(queueGroup ?? "<none>")
                         + " endpoint=" + NatsConnectionManager.MaskedEndpoint(endpoint));
             }
             finally
@@ -1187,7 +1198,7 @@ namespace NATSExcel
             {
                 if (!(optionalHost is string host))
                 {
-                    error = NatsUdfCommon.Fail("host must be a text value");
+                    error = NatsUdfCommon.Fail(NatsUdfCommon.ErrorHostNotText);
                     return null;
                 }
                 if (!string.IsNullOrWhiteSpace(host))

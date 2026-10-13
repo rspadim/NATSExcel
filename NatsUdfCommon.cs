@@ -65,6 +65,15 @@ namespace NATSExcel
         /// <summary>Object Store text bound; a larger object is not a text cell.</summary>
         public const int MaxObjectCellBytes = 1_048_576;
 
+        /// <summary>
+        /// Upper bound for a subject or identifier placed on the wire. NATS's
+        /// default <c>max_control_line</c> is 4096 bytes and an over-long control
+        /// line is a FATAL server error, so a 32767-char subject from one cell
+        /// could cost the shared connection. 1024 leaves ample room for a real
+        /// subject while refusing the pathological one before any I/O.
+        /// </summary>
+        public const int MaxSubjectLength = 1024;
+
         // ------------------------------------------------------------------
         // Error vocabulary. Every helper returns null when the argument is fine,
         // or the text to hand to a cell (the caller wraps it with Fail).
@@ -81,6 +90,10 @@ namespace NATSExcel
 
         /// <summary>A whole range was used where a single value belongs.</summary>
         public const string ErrorMultiCellScalar = "A multi-cell range is not a valid scalar argument";
+
+        /// <summary>One spelling for a non-text optional host argument, shared by
+        /// every endpoint-resolving UDF (they used to say two different things).</summary>
+        public const string ErrorHostNotText = "the host must be text";
 
         /// <summary>A pair range is neither a 2-column nor a 2-row layout.</summary>
         public const string ErrorRangeShape = "expected a range with 2 columns or 2 rows";
@@ -303,6 +316,8 @@ namespace NATSExcel
             }
             if (string.IsNullOrWhiteSpace(text))
                 return Fail("a " + label + " is required");
+            if (text.Length > MaxSubjectLength)
+                return Fail("the " + label + " is too long (max " + MaxSubjectLength.ToString(System.Globalization.CultureInfo.InvariantCulture) + " characters)");
             return null;
         }
 
@@ -324,6 +339,8 @@ namespace NATSExcel
             }
             if (string.IsNullOrWhiteSpace(subject))
                 return Fail("a non-empty subject is required");
+            if (subject.Length > MaxSubjectLength)
+                return Fail("the subject is too long (max " + MaxSubjectLength.ToString(System.Globalization.CultureInfo.InvariantCulture) + " characters)");
             if (!allowWildcard && ContainsWildcardToken(subject))
                 return Fail("a non-empty subject is required (a publish needs a concrete subject; wildcards are subscribe-only)");
             return null;
@@ -467,7 +484,7 @@ namespace NATSExcel
             if (Contains(cause, "stream") && Contains(cause, "not found"))
                 return "create the stream (NatsUDFStreamCreate) or check the stream name";
             if (Contains(cause, "timeout") || Contains(cause, "timed out"))
-                return "the server did not answer in time; raise UDF.timeout (NATSExcel.json) or check the connection";
+                return "the server did not answer in time; raise the per-cluster timeout (NATSExcel.json: a cluster's \"timeout\", or Default) or check the connection";
             return null;
         }
 
@@ -508,7 +525,22 @@ namespace NATSExcel
                 return value;
             if (max < 1)
                 max = 1;
+            value = CollapseNewlines(value);
             return value.Length <= max ? value : value.Substring(0, max) + "...(truncated)";
+        }
+
+        /// <summary>
+        /// Replaces CR/LF (and other control line-breaks) in untrusted text with a
+        /// visible marker, so a payload or subject carrying <c>\r\n</c> cannot forge
+        /// an extra log line. Applied by every log-context helper.
+        /// </summary>
+        public static string CollapseNewlines(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return value;
+            return value.Replace("\r\n", "\\r\\n")
+                        .Replace('\r', ' ')
+                        .Replace('\n', ' ');
         }
 
         /// <summary>
@@ -522,6 +554,7 @@ namespace NATSExcel
                 return value;
             if (max < 1)
                 max = 1;
+            value = CollapseNewlines(value);
             return value.Length <= max ? value : value.Substring(0, max) + "...";
         }
 
