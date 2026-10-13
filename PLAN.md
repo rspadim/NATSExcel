@@ -63,9 +63,8 @@ These counts are counted mechanically against the code (the `[ExcelFunction]`
 attributes in the root `*.cs` and the twin set). `DESIGN.md` §7.9 is the
 catalogue's narrative; this table is the pinned contract and the baseline test is
 the authority once S7.1 lands. Earlier drafts said 88 / 60 / 35 / 8 RTD and a
-61-volatile split — superseded. Note the two `MatrixToJSON`/`JSONToMatrix`
-functions were dropped from the counts: no such `[ExcelFunction]` exists (the
-matrix ⇄ JSON conversions are internal `NatsJson` helpers).
+61-volatile split — superseded. `NatsUDFMatrixToJSON`/`NatsUDFJSONToMatrix` are
+the two standalone non-volatile conversions (no twin).
 
 The full per-function signature catalog is the
 S workstream's `docs/PUBLIC-SURFACE.md`, produced in S0.

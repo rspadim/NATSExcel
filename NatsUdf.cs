@@ -1,3 +1,4 @@
+using System;
 using ExcelDna.Integration;
 using NLog;
 
@@ -69,6 +70,65 @@ namespace NATSExcel
             catch
             {
                 return "NATSExcel.log";
+            }
+        }
+
+        /// <summary>
+        /// Serializes a range to JSON, as the standalone twin of the `...JSON`
+        /// write functions. Non-volatile: a conversion of its inputs has no
+        /// reason to re-run on every recalculation. Pure - it touches no server
+        /// and no config.
+        /// </summary>
+        [ExcelFunction(Description = "Converts a range to a JSON string (non-volatile)")]
+        public static object NatsUDFMatrixToJSON(
+            [ExcelArgument(Description = "The range to convert")] object[,] range)
+        {
+            try
+            {
+                string validation = NatsUdfCommon.RequireRange(range, "range");
+                if (validation != null)
+                    return validation;
+                return NatsResultFormatter.BoundCellText(NatsJson.MatrixToJson(range));
+            }
+            catch (ArgumentException ex)
+            {
+                return NatsUdfCommon.Fail(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return NatsUdfCommon.Fail(NatsUdfAsync.SafeMessage(ex));
+            }
+        }
+
+        /// <summary>
+        /// Parses a JSON string into a range, as the standalone twin of the
+        /// `...JSON` read functions. Non-volatile and pure, like
+        /// <see cref="NatsUDFMatrixToJSON"/>. A JSON `null` element becomes the
+        /// optional <paramref name="nullValue"/> (blank by default).
+        /// </summary>
+        [ExcelFunction(Description = "Converts a JSON string to a range (non-volatile)")]
+        public static object NatsUDFJSONToMatrix(
+            [ExcelArgument(Description = "The JSON text to convert")] object json,
+            [ExcelArgument(Description = "The value to use for a JSON null (optional)")] object nullValue = null)
+        {
+            try
+            {
+                string text = NatsUdfCommon.ToNatsString(json);
+                if (text == null)
+                    return NatsUdfCommon.Fail("a JSON string is required");
+                object replacement = nullValue is ExcelDna.Integration.ExcelMissing
+                    || nullValue is ExcelDna.Integration.ExcelEmpty
+                    ? null
+                    : nullValue;
+                return NatsJson.JsonToMatrix(text, replacement);
+            }
+            catch (ArgumentException ex)
+            {
+                return NatsUdfCommon.Fail(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return NatsUdfCommon.Fail(NatsUdfAsync.SafeMessage(ex));
             }
         }
     }

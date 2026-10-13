@@ -334,11 +334,13 @@ from the sibling project; that name is **removed**. The prefix is `NatsUDF` for
 every `[ExcelFunction]` without exception.) `NatsUDFConfigReload` is the only
 standalone non-volatile consumer function here (§7.9).
 
-**Not implemented (open item).** §7.6 formerly named `NatsUDFMatrixToJSON` /
-`NatsUDFJSONToMatrix` as pure non-volatile conversions. No such
-`[ExcelFunction]` exists: matrix ⇄ JSON lives in `NatsJson` as internal helpers,
-reached only through the `...JSON` functions (see §7.9). Exposing them as
-standalone functions needs a code change (PLAN §9).
+**Matrix ⇄ JSON, `NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix`** — the standalone
+pure conversions, both non-volatile (a conversion of its inputs has no reason to
+re-run on every recalculation) and server-free. They wrap the same `NatsJson`
+helpers the `...JSON` read/write functions use, so the shape is identical: a 1x1
+range is a scalar, one row is a flat array, anything else an array of row arrays,
+and a JSON `null` becomes the optional `nullValue` (blank by default). A failed
+conversion returns `Error: ...` (an invalid JSON gives the parser's message).
 
 ### 7.7 `...NonVolatile` write twins (the source of truth)
 
@@ -442,16 +444,12 @@ Volatile/non-volatile: **63 volatile** (25 write bases + 38 reads/status) +
 gated by `AllowAdminWrites`: **11** (§7.3 plus `JSDeleteMessage`/`JSPurge`,
 `KVDelete`/`KVPurge`, `ObjectDelete`).
 
-**Not implemented (open item).** Earlier drafts counted the two standalone
-non-volatile helpers `NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix`; no such
-`[ExcelFunction]` exists (the conversions are internal `NatsJson` helpers — see
-§7.6). The count above reflects the code; exposing them is a code decision
-(PLAN §9).
-
 The count is verified mechanically against the code: **89** `[ExcelFunction]`
-`NatsUDF*` (64 base + 25 twins) + **6** `NatsRTD*` = **95** functions. Earlier
-drafts of this document said "95 / 88 / 66 / roughly 70" and a 61/28 volatile
-split; those numbers were wrong and are superseded by the figures above.
+`NatsUDF*` (64 base + 25 twins) + **6** `NatsRTD*` = **95** functions, **plus**
+the two standalone non-volatile conversions `NatsUDFMatrixToJSON` /
+`NatsUDFJSONToMatrix` (§7.6). Earlier drafts of this document said
+"95 / 88 / 66 / roughly 70" and a 61/28 volatile split; those numbers were wrong
+and are superseded by the figures above.
 
 ## 8. Configuration
 

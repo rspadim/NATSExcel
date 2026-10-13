@@ -567,6 +567,21 @@ namespace NATSExcel
                 ConnectTimeout = TimeSpan.FromMilliseconds(connectTimeoutMs),
             };
 
+            // Apply the effective reconnect policy. The values were parsed and
+            // merged but never reached the client, so the knobs were dead. -1
+            // means unlimited (the client's own convention); a non-positive wait
+            // is clamped away from zero by the client, so only set positives.
+            var reconnect = settings.Reconnect;
+            if (reconnect != null)
+            {
+                if (reconnect.MaxAttempts != 0)
+                    options = options with { MaxReconnectRetry = reconnect.MaxAttempts };
+                if (reconnect.WaitMs > 0)
+                    options = options with { ReconnectWaitMin = TimeSpan.FromMilliseconds(reconnect.WaitMs) };
+                if (reconnect.JitterMs > 0)
+                    options = options with { ReconnectJitter = TimeSpan.FromMilliseconds(reconnect.JitterMs) };
+            }
+
             // TLS is required when the effective auth asks for it. The mTLS client
             // certificate fields are modeled (auth.tlsCert / tlsCertPassword).
             if (auth != null && auth.Tls)
