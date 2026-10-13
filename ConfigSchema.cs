@@ -153,17 +153,66 @@ namespace NATSExcel
 
                 var issues = new List<ConfigIssue>();
                 Clean(root, issues);
-                if (issues.Count == 0)
+
+                // Cross-section checks the schema cannot express. A name present
+                // in BOTH `Clusters` and `Servers` resolves to the cluster (the
+                // documented order), but silently - surface it as a warning so a
+                // typo or a stale alias is visible (PLAN F1.5d).
+                var warnings = new List<string>();
+                CollectCrossSectionWarnings(root, warnings);
+
+                if (issues.Count == 0 && warnings.Count == 0)
                     return "OK (" + path + ")";
 
-                var lines = new List<string> { "Error: " + issues.Count + " problem(s) in " + path };
+                var lines = new List<string>();
+                if (issues.Count > 0)
+                    lines.Add("Error: " + issues.Count + " problem(s) in " + path);
+                else
+                    lines.Add("OK (" + path + ") with " + warnings.Count + " warning(s)");
                 foreach (var issue in issues)
                     lines.Add(issue.ToString());
+                foreach (var warning in warnings)
+                    lines.Add("WARNING: " + warning);
                 return string.Join("\n", lines);
             }
             catch (Exception ex)
             {
                 return "Error: " + ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Cross-section checks the JSON Schema cannot express: a name that is both
+        /// a <c>Servers</c> alias and a <c>Clusters</c> name resolves to the
+        /// cluster silently (DESIGN §8.1 order), which is worth a warning.
+        /// </summary>
+        private static void CollectCrossSectionWarnings(JObject root, IList<string> warnings)
+        {
+            var servers = root["Servers"] as JObject;
+            var clusters = root["Clusters"] as JObject;
+            if (servers != null && clusters != null)
+            {
+                foreach (var cluster in clusters.Properties())
+                {
+                    foreach (var server in servers.Properties())
+                    {
+                        if (string.Equals(cluster.Name, server.Name, StringComparison.OrdinalIgnoreCase))
+                            warnings.Add("'" + cluster.Name + "' is defined in both Clusters and Servers; a formula using it resolves to the cluster (rename one to avoid the ambiguity)");
+                    }
+                }
+            }
+
+            // A declared expectCluster is an assertion made at connect time: the
+            // validator tool reports the match/mismatch against the live server,
+            // and this cell reports that the assertion is configured (PLAN F1.5e).
+            if (clusters != null)
+            {
+                foreach (var cluster in clusters.Properties())
+                {
+                    var expect = (cluster.Value as JObject)?["expectCluster"];
+                    if (expect != null && expect.Type == JTokenType.String && !string.IsNullOrWhiteSpace((string)expect))
+                        warnings.Add("cluster '" + cluster.Name + "' asserts expectCluster='" + (string)expect + "' (checked against the live server when a formula connects)");
+                }
             }
         }
 

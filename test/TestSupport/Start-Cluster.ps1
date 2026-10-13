@@ -131,22 +131,31 @@ for ($i = 0; $i -lt $Nodes; $i++) {
 }
 
 # ---- wait for readiness (a real handshake, not just a socket) --------------
-function Test-Nats([int]$port) {
+# Reads the INFO line the server sends on connect, then PING/PONG. Returns the
+# raw INFO text so the caller can assert `jetstream:true` - the readiness check
+# a JS-disabled run must fail (PLAN D4/V10.2), not a false green.
+function Get-NatsInfo([int]$port) {
     try {
         $client = New-Object System.Net.Sockets.TcpClient
         $client.Connect('127.0.0.1', $port)
         $stream = $client.GetStream()
         $stream.ReadTimeout = 3000
-        $buffer = New-Object byte[] 4096
-        $null = $stream.Read($buffer, 0, $buffer.Length)   # INFO
+        $buffer = New-Object byte[] 8192
+        $n1 = $stream.Read($buffer, 0, $buffer.Length)   # INFO
+        $info = [System.Text.Encoding]::ASCII.GetString($buffer, 0, $n1)
         $ping = [System.Text.Encoding]::ASCII.GetBytes("PING`r`n")
         $stream.Write($ping, 0, $ping.Length)
         Start-Sleep -Milliseconds 150
         $n2 = $stream.Read($buffer, 0, $buffer.Length)
         $reply = [System.Text.Encoding]::ASCII.GetString($buffer, 0, $n2)
         $client.Close()
-        return ($reply -match 'PONG')
-    } catch { return $false }
+        if ($reply -notmatch 'PONG') { return $null }
+        return $info
+    } catch { return $null }
+}
+
+function Test-Nats([int]$port) {
+    return ($null -ne (Get-NatsInfo $port))
 }
 
 for ($i = 0; $i -lt $Nodes; $i++) {
@@ -158,7 +167,18 @@ for ($i = 0; $i -lt $Nodes; $i++) {
         Start-Sleep -Milliseconds 500
     }
     if (-not $ok) { throw "node on port $port did not answer within 30s" }
-    Write-Step "node on $port is ready"
+
+    # A JS-disabled server must not pass as ready: the smoke/liveness suites would
+    # silently skip every JetStream section, a false green. Assert the INFO flag.
+    $info = Get-NatsInfo $port
+    if ($JetStream) {
+        if ($info -notmatch '"jetstream"\s*:\s*true') {
+            throw "node on port $port answered but JetStream is NOT enabled (INFO='$info')"
+        }
+        Write-Step "node on $port is ready (jetstream:true)"
+    } else {
+        Write-Step "node on $port is ready"
+    }
 }
 
 $urls = (0..($Nodes - 1) | ForEach-Object { "nats://127.0.0.1:$($BasePort + $_)" }) -join ','

@@ -163,6 +163,13 @@ namespace NATSExcel
         }
 
         /// <summary>
+        /// Registered by the RTD layer (which the unit test project excludes,
+        /// because it needs Excel/COM) so a config reload can re-apply the RTD
+        /// delivery tuning without the UDF layer referencing <c>NatsRtd</c>.
+        /// </summary>
+        internal static Action ConfigReloadHook { get; set; }
+
+        /// <summary>
         /// Clears the shutdown tombstone so a surviving AppDomain (add-in
         /// unloaded and reloaded without an Excel restart) can lazily recreate
         /// the managers on the next access. No-op when the runtime was not

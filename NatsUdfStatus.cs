@@ -337,6 +337,13 @@ namespace NATSExcel
                 try
                 {
                     AppConfig.Reload();
+                    // The RTD server froze its tuning at ServerStart; re-apply it
+                    // so an edited rate/conflation/endpoint takes effect without an
+                    // Excel restart (the "reload without restart" contract). The
+                    // RTD layer registers the hook (it is excluded from the unit
+                    // project, so this layer cannot reference it directly).
+                    try { NatsRuntime.ConfigReloadHook?.Invoke(); }
+                    catch (Exception hookEx) { logger.Warn(hookEx, "NatsUDFConfigReload: the RTD refresh hook failed"); }
                     logger.Info("NatsUDFConfigReload: reloaded " + path);
                     return "OK (reloaded " + path + ")";
                 }

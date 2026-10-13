@@ -549,6 +549,82 @@ namespace NATSExcel
 
         public static double ExcelUpdateRate() { return Instance?._excelUpdateRateMs ?? 0; }
 
+        /// <summary>
+        /// Re-applies the RTD delivery tuning (rates, conflation, style, default
+        /// endpoint) to every live RTD server after a
+        /// <c>=NatsUDFConfigReload()</c>. Before this, the tuning was frozen at
+        /// <see cref="ServerStart"/>: editing <c>RTD.*</c>, <c>ConflationMs</c>,
+        /// <c>CoalesceRealtimeUpdates</c> or the default endpoint in
+        /// <c>NATSExcel.json</c> had no effect until Excel restarted, the one
+        /// place where the "reload without restart" contract did not hold.
+        /// Registered as <see cref="NatsRuntime.ConfigReloadHook"/> from
+        /// <see cref="ServerStart"/> so the UDF layer (which cannot reference this
+        /// Excel-dependent file) can trigger it.
+        /// </summary>
+        internal static void RefreshFromConfig()
+        {
+            NatsRtd[] servers;
+            lock (InstancesSync)
+                servers = Instances.Keys.ToArray();
+            foreach (var server in servers)
+            {
+                try
+                {
+                    server.ApplyConfig();
+                }
+                catch (Exception ex)
+                {
+                    // A timer callback must never let an exception escape.
+                    logger.Error(ex, "RefreshFromConfig: failed for one RTD server");
+                }
+            }
+        }
+
+        /// <summary>Re-reads the RTD tuning from the current config and restarts
+        /// the timers only when an interval actually changed.</summary>
+        private void ApplyConfig()
+        {
+            var config = AppConfig.Current;
+            bool intervalsChanged = false;
+
+            _skipRepeatedMessages = config.SkipRepeatedMessages;
+            _conflationMs = Conflation.Resolve(
+                config.ConflationMs, config.CoalesceRealtimeUpdates, (int)_excelUpdateRateMs);
+            _realTimeUpdates = !string.Equals(
+                config.NatsUpdateStyle, StyleTimer, StringComparison.OrdinalIgnoreCase);
+            _defaultEndpoint = AppConfig.ResolveRtdEndpoint(null);
+
+            double natsRate = config.NatsUpdateRateMs > 0 ? config.NatsUpdateRateMs : DefaultNatsUpdateRateMs;
+            double excelRate = config.ExcelUpdateRateMs > 0 ? config.ExcelUpdateRateMs : DefaultExcelUpdateRateMs;
+            if (Math.Abs(natsRate - _natsUpdateRateMs) > 0.5 || Math.Abs(excelRate - _excelUpdateRateMs) > 0.5)
+            {
+                _natsUpdateRateMs = natsRate;
+                _excelUpdateRateMs = excelRate;
+                intervalsChanged = true;
+            }
+
+            if (intervalsChanged)
+            {
+                // Recreate both timers so the new cadence takes effect. Stop and
+                // dispose the old pair before starting the new one so no tick
+                // overlaps (the TickGate already drops a re-entrant tick).
+                DisposeTimer(ref _natsTimer);
+                DisposeTimer(ref _excelTimer);
+                _natsTimer = CreateTimer(_natsUpdateRateMs, "nats", OnNatsTick);
+                _excelTimer = CreateTimer(_excelUpdateRateMs, "excel", OnExcelTick);
+                _natsTimer.Start();
+                _excelTimer.Start();
+            }
+
+            logger.Info("RefreshFromConfig: endpoint=" + AppConfig.MaskNatsEndpoint(_defaultEndpoint)
+                + ", excelRate=" + _excelUpdateRateMs + "ms"
+                + ", natsRate=" + _natsUpdateRateMs + "ms"
+                + ", conflationMs=" + _conflationMs
+                + ", realtime=" + _realTimeUpdates
+                + ", skipRepeated=" + _skipRepeatedMessages
+                + ", intervalsChanged=" + intervalsChanged);
+        }
+
         /// <summary>The configured RTD cluster reference (the <c>RTD.cluster</c>
         /// override, else the <c>Default</c> name): the endpoint a blank RTD formula
         /// argument uses (DESIGN §8.1).</summary>
@@ -605,6 +681,8 @@ namespace NATSExcel
             _excelTimer = CreateTimer(_excelUpdateRateMs, "excel", OnExcelTick);
             _natsTimer.Start();
             _excelTimer.Start();
+            // Let =NatsUDFConfigReload() re-apply this tuning on a live server.
+            NatsRuntime.ConfigReloadHook = RefreshFromConfig;
             return true;
         }
 
