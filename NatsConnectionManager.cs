@@ -149,6 +149,11 @@ namespace NATSExcel
         // Bounded teardown: Shutdown must not wait on the Excel thread forever.
         private const int ConnectionDisposeTimeoutMs = 2000;
 
+        /// <summary>Total budget for a whole shutdown loop. Beyond it the remaining
+        /// connections are left to the process exit, so closing Excel cannot block
+        /// for minutes when a workbook referenced many endpoints.</summary>
+        private const int ShutdownBudgetMs = 5000;
+
         // Bounds for the response timeout (PLAN 1.4: configured timeout + 500ms,
         // clamped to a sane floor/ceiling).
         private const int ResponseTimeoutMarginMs = 500;
@@ -251,7 +256,20 @@ namespace NATSExcel
                 LazyThreadSafetyMode.ExecutionAndPublication));
             try
             {
-                return lazy.Value;
+                var context = lazy.Value;
+                // Post-materialization re-check, mirroring GetConnection: a
+                // Shutdown that ran while the factory was building would hand back
+                // a context bound to a disposed connection.
+                if (_shutdown)
+                {
+                    _jetStream.TryRemove(key, out _);
+                    throw ShuttingDown();
+                }
+                return context;
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
             }
             catch
             {
@@ -459,6 +477,12 @@ namespace NATSExcel
             _shutdown = true;
             _downSinceTicks.Clear();
 
+            // A TOTAL budget, not a per-connection one. Disposing N connections
+            // with a 2 s per-connection bound could otherwise hold the Excel
+            // thread (this runs from AutoClose) for minutes with many endpoints.
+            // The remaining time is passed to each dispose; the loop bails out
+            // when the budget is spent and leaves the rest to the process exit.
+            var budget = System.Diagnostics.Stopwatch.StartNew();
             foreach (var kv in _connections)
             {
                 var lazy = kv.Value;
@@ -471,9 +495,17 @@ namespace NATSExcel
                     continue;
                 }
 
+                int remaining = ShutdownBudgetMs - (int)budget.ElapsedMilliseconds;
+                if (remaining <= 0)
+                {
+                    logger.Warn("Shutdown: the total budget elapsed; " + _connections.Count
+                        + " connection(s) left to the process exit");
+                    break;
+                }
+
                 try
                 {
-                    DisposeConnection(lazy.Value, kv.Key, "Shutdown");
+                    DisposeConnection(lazy.Value, kv.Key, "Shutdown", remaining);
                 }
                 catch (Exception ex)
                 {
@@ -783,10 +815,19 @@ namespace NATSExcel
             if (_connections.Count <= MaxCachedConnections)
                 return;
 
+            // A total budget: this runs on the Excel thread (GetConnection), and a
+            // per-connection dispose bound multiplied by many over-cap endpoints
+            // would freeze a formula evaluation for minutes.
+            var budget = System.Diagnostics.Stopwatch.StartNew();
             foreach (var kv in _connections)
             {
                 if (_connections.Count <= MaxCachedConnections)
                     break;
+                if (budget.ElapsedMilliseconds > ShutdownBudgetMs)
+                {
+                    logger.Warn("GetConnection: eviction budget elapsed; cache stays over the cap until the next call");
+                    break;
+                }
                 if (string.Equals(kv.Key, keepEndpoint, StringComparison.Ordinal))
                     continue;
 
@@ -820,8 +861,7 @@ namespace NATSExcel
                     _downSinceTicks.TryRemove(kv.Key, out _);
                     logger.Info("GetConnection: evicted idle connection endpoint=" + MaskedEndpoint(kv.Key)
                                 + " (over " + MaxCachedConnections + " entries)");
-                }
-            }
+                }            }
         }
 
         /// <summary>
@@ -841,10 +881,18 @@ namespace NATSExcel
                 return;
 
             long ttlTicks = DownEndpointTtlMs * TimeSpan.TicksPerMillisecond;
+            var budget = System.Diagnostics.Stopwatch.StartNew();
             foreach (var kv in _connections)
             {
                 if (_shutdown)
                     return;
+                if (budget.ElapsedMilliseconds > ShutdownBudgetMs)
+                {
+                    // Same total-budget reasoning as the eviction path: a sweep is
+                    // opportunistic work on the Excel thread, never a minute-long stall.
+                    logger.Warn("GetConnection: down-sweep budget elapsed; deferring the rest");
+                    return;
+                }
                 if (!kv.Value.IsValueCreated)
                     continue; // the eviction path reclaims those
 
@@ -889,15 +937,26 @@ namespace NATSExcel
                 new KeyValuePair<string, Lazy<NatsConnection>>(endpoint, lazy));
         }
 
-        private static void DisposeConnection(NatsConnection connection, string endpoint, string context)
+        private static void DisposeConnection(NatsConnection connection, string endpoint, string context) =>
+            DisposeConnection(connection, endpoint, context, ConnectionDisposeTimeoutMs);
+
+        /// <summary>
+        /// Dispose one connection with a bound no larger than
+        /// <paramref name="timeoutMs"/>. The caller uses this to keep a whole
+        /// loop (shutdown, eviction, down-sweep) inside a total budget instead of
+        /// multiplying a per-connection bound by the number of endpoints.
+        /// </summary>
+        private static void DisposeConnection(NatsConnection connection, string endpoint, string context, int timeoutMs)
         {
             if (connection == null)
                 return;
+            if (timeoutMs <= 0)
+                return; // no budget left: skip rather than block
             string masked = MaskedEndpoint(endpoint);
             try
             {
                 var task = connection.DisposeAsync().AsTask();
-                if (!WaitBounded(task, ConnectionDisposeTimeoutMs))
+                if (!WaitBounded(task, timeoutMs))
                 {
                     logger.Debug("NatsConnectionManager: " + context + " dispose timed out endpoint=" + masked);
                 }
@@ -929,4 +988,6 @@ namespace NATSExcel
         }
     }
 }
+
+
 
