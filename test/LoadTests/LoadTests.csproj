@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <!-- C# 9: the NATS.Net option objects use init-only setters. -->
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>NATSExcel.LoadTests</AssemblyName>
+    <RootNamespace>NATSExcel.LoadTests</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.KeyValueStore" Version="3.3.0" />
+    <PackageReference Include="NATS.Client.ObjectStore" Version="3.3.0" />
+    <PackageReference Include="ExcelDna.Integration" Version="1.9.0-beta2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NLog" Version="6.0.0-rc3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- The production subscription manager is the code under test: link it (and
+       its dependencies) so the load path is the real one, not a copy. -->
+  <Import Project="..\TestSupport\ProductionSources.props" />
+
+</Project>
