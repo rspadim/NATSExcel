@@ -116,6 +116,12 @@ namespace NATSExcel
 
         internal static string ConfigPath { get; private set; }
 
+        /// <summary>True when a configuration file was actually loaded at
+        /// startup (as opposed to the process running on the built-in defaults).
+        /// Lets a caller word "no file found" correctly instead of claiming
+        /// defaults while a previously loaded root is still in use.</summary>
+        public static bool HasLoadedFile => !string.IsNullOrWhiteSpace(ConfigPath);
+
         public static string Version =>
             typeof(AppConfig).Assembly.GetName().Version?.ToString() ?? "dev";
 

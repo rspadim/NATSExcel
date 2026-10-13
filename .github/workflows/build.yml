@@ -53,10 +53,17 @@ jobs:
         shell: pwsh
         run: |
           $ver = '2.15.1'
+          # Pinned SHA256 of the release zip: a compromised mirror or a MITM
+          # cannot make CI run arbitrary code. Keep it in step with
+          # installer\install-server.ps1.
+          $sha = '4F7EDFA376750B2720463BD22766ED469A5F13F378A643097866FCD953CBF7E3'
           $url = "https://github.com/nats-io/nats-server/releases/download/v$ver/nats-server-v$ver-windows-amd64.zip"
           $zip = Join-Path $env:RUNNER_TEMP "nats-server-$ver.zip"
           $dir = Join-Path $env:RUNNER_TEMP "nats-server"
           Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+          if ($actual -ne $sha) { throw "nats-server zip checksum mismatch: expected $sha but got $actual" }
+          Write-Host "nats-server zip checksum OK ($actual)"
           Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
           $exe = (Get-ChildItem $dir -Recurse -Filter 'nats-server.exe' | Select-Object -First 1).FullName
           if (-not $exe) { throw "nats-server.exe not found in $dir" }

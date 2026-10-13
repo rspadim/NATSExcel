@@ -29,6 +29,17 @@ param(
     [switch]$SkipNodeKill,
     [switch]$SkipMultiWorkbook,
     [switch]$KeepExcelOpen,
+    # Run only the original check set (skip the extra scenarios below).
+    [switch]$SkipExtraChecks,
+    # Write-mode selection, applied to the starter config the copy helper
+    # writes (see New-AddInFolder.ps1). Empty leaves the config as written.
+    [ValidateSet('', 'sync', 'fireforget', 'fireforget-all')]
+    [string]$SyncWrite = '',
+    [switch]$AsyncWrites,
+    # Names a run: the log becomes %TEMP%\natsexcel-e2e-<Tag>.log. The matrix
+    # (Run-ExcelE2E-Matrix.ps1) passes -LogPath instead for <tag>-<mode>.log.
+    [string]$Tag,
+    [string]$LogPath,
     # Shortens the per-assertion bound (a smoke run on a known-good machine).
     [switch]$Fast
 )
@@ -46,6 +57,23 @@ if (-not $Xll) {
     $Xll = powershell -NoProfile -ExecutionPolicy Bypass -File `
         (Join-Path $RepoRoot 'test\TestSupport\New-AddInFolder.ps1') `
         -Path $copyDir -Url $NatsUrl
+
+    # Write-mode selection: the helper wrote the starter config, so override just
+    # the keys this run needs (SyncWrite / AsyncWrites) in THAT file. The shipped
+    # sample is never touched - only the throwaway copy. Real JSON with the keys
+    # left as written when neither switch is given (no config change at all).
+    if ($SyncWrite -or $AsyncWrites) {
+        $cfgPath = Join-Path $copyDir 'NATSExcel.json'
+        $cfg = Get-Content -LiteralPath $cfgPath -Raw
+        if ($SyncWrite) {
+            $cfg = [regex]::Replace($cfg, '"SyncWrite"\s*:\s*"[^"]*"', '"SyncWrite": "' + $SyncWrite + '"')
+        }
+        if ($AsyncWrites) {
+            $cfg = [regex]::Replace($cfg, '"AsyncWrites"\s*:\s*(true|false)', '"AsyncWrites": true')
+        }
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($cfgPath, $cfg, $utf8)
+    }
 }
 $Xll = "$Xll".Trim()
 
@@ -54,7 +82,16 @@ $Xll = "$Xll".Trim()
 $BoundMs = if ($Fast) { 4000 } else { 12000 }
 $PollMs = 250
 
-$log = Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e.log'
+# Log destination: -LogPath wins (the matrix names it <tag>-<mode>.log);
+# otherwise a -Tag run is <tag>.log and a plain run keeps the historical name.
+if (-not $LogPath) {
+    $LogPath = if ($Tag) {
+        Join-Path ([System.IO.Path]::GetTempPath()) ("natsexcel-e2e-{0}.log" -f $Tag)
+    } else {
+        Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e.log'
+    }
+}
+$log = $LogPath
 Remove-Item $log -ErrorAction SilentlyContinue
 function Log([string]$m) { Write-Host $m; Add-Content -Path $log -Value $m }
 

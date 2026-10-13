@@ -34,7 +34,13 @@ param(
   [string]$ContainerName = 'natsexcel',
   [string]$Image = '',
   [switch]$NoJetStream,
-  [string]$Version = '2.15.1'
+  [string]$Version = '2.15.1',
+  # SHA256 of the release zip for $Version. Pinned so a compromised mirror or a
+  # MITM cannot make the installer run arbitrary code: the archive is verified
+  # BEFORE it is copied or executed. Set -SkipChecksum only to test a new
+  # version locally (it prints a loud warning).
+  [string]$Sha256 = '4F7EDFA376750B2720463BD22766ED469A5F13F378A643097866FCD953CBF7E3',
+  [switch]$SkipChecksum
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,6 +137,18 @@ function Native-Up() {
       Write-Step "downloading $url"
       try { Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing }
       catch { Write-Step ("download failed: " + $_.Exception.Message); exit 1 }
+      # Verify the archive BEFORE extracting or running anything from it.
+      if ($SkipChecksum) {
+        Write-Step "WARNING: -SkipChecksum set; the download was NOT verified"
+      } else {
+        $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+        if ($actual -ne $Sha256.ToUpperInvariant()) {
+          Remove-Item -Force $zip -ErrorAction SilentlyContinue
+          Write-Step ("checksum mismatch: expected $Sha256 but got $actual; the archive was discarded")
+          exit 1
+        }
+        Write-Step "checksum OK ($actual)"
+      }
       $tmp = Join-Path $Dir 'extract'
       if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
       Expand-Archive -Path $zip -DestinationPath $tmp -Force

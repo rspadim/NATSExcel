@@ -684,8 +684,12 @@ end;
 
 function ServiceChecked(): Boolean;
 begin
+  // Silent mode: honour /SERVICE=1 so an automated install can register the
+  // service. It still needs elevation - the helper exits 2 and nothing is
+  // registered when the process is not elevated, which is the documented
+  // behavior (the add-in install never depends on it).
   if WizardSilent() then
-    Result := False
+    Result := (ParamOr('SERVICE', '0') = '1')
   else
     Result := (OptionsPage <> nil) and OptionsPage.Values[1];
 end;
@@ -741,28 +745,24 @@ begin
   Result :=
     '{' + #13#10 +
     '  // NATSExcel.json - comments (// and /* */) are allowed.' + #13#10 +
-    '  "Default": {' + #13#10 +
-    '    "cluster": "local",' + #13#10 +
-    '    "timeout": 1000,' + #13#10;
-  if Auth = '' then
-    Result := Result + '    "auth": {},' + #13#10
-  else
-    Result := Result + '    "auth": {' + #13#10 + Auth + #13#10 + '    },' + #13#10;
-  Result := Result +
-    '    "reconnect": { "maxAttempts": 60, "waitMs": 2000, "jitterMs": 100 }' + #13#10 +
-    '  },' + #13#10 +
-    '  "RTD": {' + #13#10 +
-    '    "NatsUpdateRateMs": 1000,' + #13#10 +
-    '    "ExcelUpdateRateMs": 100,' + #13#10 +
-    '    "MessageCounterThreshold": 10000,' + #13#10 +
-    '    "NatsUpdateStyle": "Automatic"' + #13#10 +
-    '  },' + #13#10 +
-    '  "UDF": { "timeout": 1000 },' + #13#10 +
+    '  "Default": "local",' + #13#10 +
     '  "Servers": {' + #13#10 +
     '    "srv1": "' + JsEscape(Url()) + '"' + #13#10 +
     '  },' + #13#10 +
     '  "Clusters": {' + #13#10 +
     '    "local": { "urls": ["srv1"] }' + #13#10 +
+    '  },' + #13#10;
+  if Auth = '' then
+    Result := Result + '  "Auth": {},' + #13#10
+  else
+    Result := Result + '  "Auth": {' + #13#10 + Auth + #13#10 + '  },' + #13#10;
+  Result := Result +
+    '  "Reconnect": { "maxAttempts": 60, "waitMs": 2000, "jitterMs": 100 },' + #13#10 +
+    '  "RTD": {' + #13#10 +
+    '    "NatsUpdateRateMs": 1000,' + #13#10 +
+    '    "ExcelUpdateRateMs": 100,' + #13#10 +
+    '    "MessageCounterThreshold": 10000,' + #13#10 +
+    '    "NatsUpdateStyle": "Automatic"' + #13#10 +
     '  },' + #13#10 +
     '  "JetStream": { "enabled": true, "defaultTimeoutMs": 5000 },' + #13#10 +
     '  "AllowAdminWrites": false,' + #13#10 +
@@ -1014,13 +1014,43 @@ begin
       RunScript('uninstall-server.ps1', '-Kind ' + ServerKinds[I] + ' -Dir "' + ExpandConstant('{app}\server') + '"');
 end;
 
+// The COM ProgId `NatsRtd` is per-USER, not per-install: if another NATSExcel
+// copy (a parallel folder, a lab install) still has its XLL registered in
+// Excel, deleting the key would break its =RTD cells. Only remove it when no
+// other OPEN* entry points at a NATSExcel XLL.
+function AnotherNatsExcelInstallRemains(): Boolean;
+var
+  Keys: TArrayOfString;
+  I, N: Integer;
+  BaseKey, ValName, Cur: String;
+begin
+  Result := False;
+  Keys := OfficeExcelKeys();
+  for I := 0 to GetArrayLength(Keys) - 1 do
+  begin
+    BaseKey := 'SOFTWARE\Microsoft\Office\' + Keys[I] + '\Excel\Options';
+    if RegQueryStringValue(HKCU, BaseKey, 'OPEN', Cur) then
+      if Pos('NATSExcel', Cur) > 0 then begin Result := True; Exit; end;
+    N := 1;
+    while N < 100 do
+    begin
+      ValName := 'OPEN' + IntToStr(N);
+      if RegQueryStringValue(HKCU, BaseKey, ValName, Cur) then
+        if Pos('NATSExcel', Cur) > 0 then begin Result := True; Exit; end;
+      N := N + 1;
+    end;
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
     UnregisterExcelAutoLoad();
-    // The add-in registers this ProgId under HKCU on load; remove it.
-    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\NatsRtd');
+    // Remove the ProgId only when this was the last NATSExcel install (the
+    // auto-load unregister above already dropped THIS install's entries).
+    if not AnotherNatsExcelInstallRemains() then
+      RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\NatsRtd');
   end
   else if CurUninstallStep = usPostUninstall then
   begin

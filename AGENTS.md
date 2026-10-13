@@ -95,11 +95,9 @@ contract; this file is the working guidance.
 
 ## Layout
 
-**The add-in is largely implemented: it compiles, packs, loads in real Excel and
-answers the whole UDF catalog.** The RTD server, the runtime and the config
-layer are code. What remains planned is the smoke/liveness test layers, the
-solution file and a few audit items (`PLAN.md` §8/§9). Do not describe a planned
-file as if it exists.
+**The add-in is implemented and released (`v0.1.0`): it compiles, packs, loads in
+real Excel, answers the whole UDF catalog, and all five test layers pass.** A few
+items from the audit/plan are still open (`PLAN.md` §8/§9).
 
 ### Exists today (ground truth)
 
@@ -136,18 +134,14 @@ file as if it exists.
 | `tools/NatsValidate/` | C# console validator that runs today (see `## Tests`). |
 | `test/` | The unit, load and E2E layers + the cluster harness + the copy-based add-in folder helper (see `## Tests`). |
 
-### Planned (from `PLAN.md`; none of these exist yet)
+### Still open (from `PLAN.md`; none of these exist yet)
 
-| Planned item | Responsibility (per the plan) |
+| Open item | Responsibility (per the plan) |
 | --- | --- |
-| `NATSExcel.sln` | Solution file indexing the add-in and test projects (PLAN F0.1); the project file is the build input until it lands. |
-| `test\SmokeTests\` | Real-`nats-server -js` smoke layer (PLAN V8.3). |
-| `test\LivenessTests\` | Adversarial liveness/fault layer with a heartbeat watchdog (PLAN V8.5). |
-| `docs\PUBLIC-SURFACE.md` | The per-function signature catalog (PLAN S3.1). |
-| `test\...\PublicSurfaceParityTests.cs` + baseline | The public-surface baseline test (PLAN S7.1/S7.2) and the unbounded-blocking scan (V7.3). |
 | `test\Run-ExcelE2E-Matrix.ps1` / `Compare-ExcelE2E.ps1` / `Set-Antivirus.ps1` | The AV matrix/compare helpers (PLAN V8.7); only read-only `TestSupport\Get-AntivirusState.ps1` exists today. |
+| `jetstream.domain` / `expectCluster` surfacing | `Cluster.JetStreamDomain` is parsed but unused; `expectCluster` is enforced by `tools\NatsValidate` only, not by `=NatsUDFConfigValidate()` (PLAN §9.1). |
 
-When a planned item lands, move its row up into "Exists today"; `DESIGN.md` §5.1
+When an item lands, move its row up into "Exists today"; `DESIGN.md` §5.1
 and this layout must stay in sync (PLAN S7.4).
 
 ## Runtime model (why it is the way it is)
@@ -219,12 +213,12 @@ and this layout must stay in sync (PLAN S7.4).
 ## Build
 
 ```powershell
-dotnet build NATSExcel.csproj -c Release
+dotnet build NATSExcel.sln -c Release
 ```
 
-There is **no `NATSExcel.sln` yet** (PLAN F0.1 will add it); until then build
-the project directly. When the solution lands, `dotnet build NATSExcel.sln -c
-Release` becomes the command.
+The solution indexes the add-in, the four test projects and the validator. The
+single-project form (`dotnet build NATSExcel.csproj -c Release`) still works if
+you only want the add-in.
 
 Outputs in `bin\Release\net48\publish\`:
 
@@ -239,14 +233,15 @@ Excel-DNA falls back to `<ProjectName>-AddIn-packed.xll`
 and the E2E script all expect `NATSExcel-packed.xll` and would break.
 Verify both names in `publish\` after any `.dna` change.
 
-> **CI (PLAN P10) — present, not yet run on GitHub.** `.github/workflows/build.yml`
-> runs on PRs, main pushes and `v*` tags. It builds the add-in with `dotnet build`
-> (the project file, since there is no `NATSExcel.sln` yet), runs the unit tests,
-> provisions `nats-server -js` and probes port 4222 for `jetstream:true`, builds
-> the Inno Setup installer on every run, and on a `v*` tag checks the top
-> CHANGELOG heading against the tag, asserts the release assets, uses the
-> CHANGELOG section as the release body and publishes the release. The smoke and
-> liveness steps are present but skip while those test projects do not exist.
+> **CI (PLAN P10).** `.github/workflows/build.yml` runs on PRs, main pushes and
+> `v*` tags. It builds the solution, runs the unit tests, downloads the pinned
+> `nats-server` zip **and verifies its SHA256**, then runs the smoke and liveness
+> suites each in a step that starts its **own** server (the Windows runner kills
+> a step's child processes when the step ends, so a server started in an earlier
+> step would be gone). It builds the Inno Setup installer on every run, and on a
+> `v*` tag it checks the top CHANGELOG heading against the tag, asserts the
+> release assets, uses the CHANGELOG section as the release body and publishes
+> the release.
 
 The CI provisions NATS as a single self-contained `nats-server.exe` (no
 Memurai/Chocolatey, unlike RedisExcel): download the
@@ -259,10 +254,10 @@ or on a user machine.
 
 ## Tests
 
-The real layers are `test\NATSExcel.Tests` (unit), `test\LoadTests` (load) and
-`test\Run-ExcelE2E.ps1` (Excel E2E), plus the cluster harness and helpers under
-`test\TestSupport\`. The smoke and liveness projects are still `PLAN.md` work and
-do **not** exist — the `## Tests` section below marks each layer.
+All five layers are real: `test\NATSExcel.Tests` (unit), `test\SmokeTests`
+(against a real `nats-server`), `test\LoadTests`, `test\LivenessTests`, and
+`test\Run-ExcelE2E.ps1` (Excel), plus the cluster harness and helpers under
+`test\TestSupport\`.
 
 The single reference is `test\README.md`; keep it and this section in sync. Test
 projects compile the production sources directly (linked `Compile` items from
@@ -318,17 +313,24 @@ parity, `UpdateCheck`.
 
 `dotnet test` does not build or pack the add-in; CI builds it separately.
 
-### 2. Smoke tests (planned — PLAN V8.3; requires a NATS server with JetStream, no Excel)
+### 2. Smoke tests (real — PLAN V8.3; requires a NATS server, no Excel)
 
-`test\SmokeTests` does **not** exist yet. When it lands it will cover the
-ref-counted Core subscription behavior (two listeners on one subject,
+```powershell
+powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
+dotnet run --project test\SmokeTests -c Release -- "nats://127.0.0.1:4222"
+```
+
+Covers the ref-counted Core subscription behavior (two listeners on one subject,
 last-listener teardown, re-subscription, wildcards, queue groups, duplicate
-suppression, origin counters, argument validation), request/reply (timeout and
-`no responders`), JetStream publish/consume (ack, sequence, durable consumer,
-replay, purge), Key/Value (put/get/create CAS by revision/update/delete/
-history/watch) and Object Store (put/get/info/digest), plus the real `SyncWrite`
-modes and the dedup markers. `tools\NatsValidate --test` already proves the
-credential styles the PowerShell wire check cannot (NKey/JWT/creds/mTLS).
+suppression, argument validation), request/reply (timeout and `no responders`,
+both markers), JetStream publish/consume (ack, sequence, durable consumer,
+replay, purge), Key/Value (put/get/create/tombstone and a CAS by revision) and
+Object Store (put/get/digest), the admin gate on all eight gated functions, and
+the JetStream-disabled path. It also runs an **auth matrix** that starts a
+disposable local server per style (no-auth, token, user/password, NKey) and
+proves both the success and the bounded failure, including the `nkeySeed`
+text-or-`.nk`-file contract. A check that cannot run prints a reason and skips.
+`NATSEXCEL_NATS_SERVER` (a path, as the CI sets) tells it where the binary is.
 
 ### 3. Excel end-to-end — real (PLAN V8.6)
 
@@ -369,24 +371,30 @@ bytes per received message. ~204k msg/s measured on a local manager run.
 Read-only stress runs against real servers are allowed, but pass the url only as
 a command-line argument (never commit it) and keep the runs short.
 
-### 5. Liveness tests (planned — PLAN V8.5; requires NATS; Docker optional)
+### 5. Liveness tests (real — PLAN V8.5; requires NATS; Docker optional)
 
-`test\LivenessTests` does **not** exist yet. When it lands it will drive the real
+```powershell
+powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
+dotnet run --project test\LivenessTests -c Release -- "nats://127.0.0.1:4222" --quick --skip-restart
+```
+
+`test\LivenessTests` drives the real
 managers under adversarial conditions — ThreadPool starvation, subscribe/dispose
-churn, server restart/stop-start storms, JetStream consumer reconnects, async
-queue/observable bursts, dedup re-join — and enforce liveness bounds with a
+churn, server restart/stop-start storms, async queue/observable bursts and a
+resource-stability check — and enforces liveness bounds with a
 dedicated process heartbeat and watchdog thread: a stall past **5 s** fails the
-run, delivery/queue must resume within **30 s**, and the async backlog must drain
-within **20 s**. `--quick` shortens the attack windows. Only run it against a
-disposable/local server: the restart storm is destructive. (The cluster harness
-and the E2E node-kill are the real failover coverage today.)
+run, delivery must resume within **30 s**, and the async backlog must drain
+within **20 s**. `--quick` shortens the attack windows; `--skip-restart` skips
+only the destructive restart sub-phase (a non-local host skips it automatically).
+Only run it against a disposable/local server: the restart storm is destructive.
 
 ## Excel automation lessons (hard-won, inherited from RedisExcel)
 
-These cost real debugging time — read before writing automation. The E2E script
-and cluster harness exist (`test\Run-ExcelE2E.ps1`, `test\TestSupport\`); the
-smoke/liveness suites do not. Several lessons describe add-in behavior that now
-runs (the `NatsRtd` registration) rather than intent.
+These cost real debugging time — read before writing automation. The E2E script,
+the cluster harness and the smoke/liveness suites all exist
+(`test\Run-ExcelE2E.ps1`, `test\TestSupport\`, `test\SmokeTests`,
+`test\LivenessTests`). Several lessons describe add-in behavior that now runs
+(the `NatsRtd` registration) rather than intent.
 
 1. **Excel COM automation is inherently flaky; antivirus/EDR only adds to it.**
    Even with no antivirus, expect a retry count (`RPC_E_CALL_REJECTED`); a retry

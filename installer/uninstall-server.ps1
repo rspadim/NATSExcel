@@ -31,8 +31,12 @@ switch ($Kind) {
     exit 0
   }
   'native-file' {
-    Write-Step "stopping any running nats-server.exe and removing $Dir"
-    Get-Process nats-server -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Write-Step "stopping any nats-server.exe under $Dir and removing it"
+    # Scope by path: a bare Get-Process nats-server would stop the user's OWN
+    # server running elsewhere.
+    Get-Process nats-server -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -like "$Dir*" } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     if (Test-Path $Dir) { Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue }
     exit 0
   }

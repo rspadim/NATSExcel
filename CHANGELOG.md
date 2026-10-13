@@ -3,6 +3,38 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
+## v0.1.1
+
+Fixes the first release's installer and CI. No change to the public Excel surface
+or the `NATSExcel.json` shape.
+
+### Fixed
+
+- **The installer wrote a config its own schema rejects.** `ConfigJson()` emitted the old nested
+  shape (`"Default": { "cluster": … }` plus a `"UDF"` block), so a user's first
+  `=NatsUDFConfigValidate()` reported an error on the file the wizard had just written. It now
+  emits the shipped shape (`"Default"` as a name, top-level `Auth`/`Reconnect`). Verified: a real
+  silent install produces a file that `validate-config.ps1` accepts (`OK`).
+- **The native server download was unverified.** `install-server.ps1` (and the CI) now pin the
+  SHA256 of the release zip and refuse to extract or run a mismatched archive. Verified: the
+  correct digest passes; a wrong one discards the file and exits 1.
+- **The uninstaller could stop the user's own server.** The `native-file` removal matched any
+  `nats-server` process by name; it is now scoped to the install directory.
+- **The uninstaller deleted a shared ProgId.** `NatsRtd` is per-user, not per-install: removing it
+  broke a second NATSExcel copy's `=RTD` cells. It is removed only when no other NATSExcel XLL is
+  registered.
+- **`NatsUDFConfigReload` claimed "using defaults" while a config was still in use.** It now says
+  the previously loaded configuration is still active (`AppConfig.HasLoadedFile`).
+- **Silent mode ignored `/SERVICE`.** `/SERVICE=1` now registers the Windows service (still needing
+  elevation, still never failing the add-in install).
+- **The CI started the NATS server in a separate step, so it was killed before the tests ran.**
+  The Windows runner runs each step in a job object with kill-on-close. The download is now its own
+  step (exporting `NATSEXCEL_NATS_SERVER`), and the smoke and liveness steps each start their own
+  server through `test\TestSupport\Start-Cluster.ps1`.
+- **Documentation:** the README was rewritten for v0.1.0 users; `AGENTS.md` and `PLAN.md` no longer
+  claim the solution, smoke and liveness layers are missing; a `LICENSE` (MIT) was added; and a
+  double-encoded UTF-8 sequence in a few source comments was corrected.
+
 ## v0.1.0
 
 First release. NATSExcel is an Excel add-in (XLL) that integrates NATS with Excel: worksheet

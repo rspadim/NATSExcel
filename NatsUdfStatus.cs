@@ -320,7 +320,14 @@ namespace NATSExcel
             {
                 string path = AppConfig.ConfigPath;
                 if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                    return "OK (no " + AppConfig.ConfigFileName + " found; using defaults)";
+                {
+                    // No file to read. If one was loaded before, the process is
+                    // STILL using it (the root is cached); say so instead of
+                    // claiming "using defaults", which would be a lie.
+                    return AppConfig.HasLoadedFile
+                        ? "OK (no " + AppConfig.ConfigFileName + " found; still using the configuration loaded at startup)"
+                        : "OK (no " + AppConfig.ConfigFileName + " found; using defaults)";
+                }
 
                 string validation = ConfigSchema.Validate(path);
                 if (validation != null && validation.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal))
