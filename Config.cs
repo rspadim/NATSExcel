@@ -189,7 +189,7 @@ namespace NATSExcel
             return new Root();
         }
 
-        private static IEnumerable<string> CandidatePaths()
+        internal static IEnumerable<string> CandidatePaths()
         {
             string addInDir = null;
             try
@@ -338,6 +338,13 @@ namespace NATSExcel
             target.Tls = (bool?)a["tls"] ?? target.Tls;
             target.TlsCert = (string)a["tlsCert"] ?? target.TlsCert;
             target.TlsCertPassword = (string)a["tlsCertPassword"] ?? target.TlsCertPassword;
+            // A client certificate is an mTLS intent: presenting it implies the
+            // connection wants TLS. Without this, setting tlsCert but forgetting
+            // `"tls": true` connects with TLS merely auto-negotiated (plaintext
+            // against a non-TLS server) and presents no cert - silently, with no
+            // named error. An explicit `tls: false` still wins.
+            if (a["tls"] == null && !string.IsNullOrWhiteSpace(target.TlsCert))
+                target.Tls = true;
         }
 
         private static void ReadReconnect(JToken token, Reconnect target)

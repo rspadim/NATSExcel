@@ -504,28 +504,15 @@ namespace NATSExcel
         }
 
         /// <summary>The first existing config candidate (the file the loader read,
-        /// then the add-in folder, the user profile and C:\Windows), or null when
-        /// none exists.</summary>
+        /// then the add-in folder, the user profile, the Excel folder and
+        /// C:\Windows), or null when none exists. The add-in folder comes from the
+        /// XLL path (<c>ExcelDnaUtil.XllPath</c>), not
+        /// <c>AppContext.BaseDirectory</c>: inside a packed byte-loaded XLL the
+        /// latter is Excel's directory, which the loader never searches, so the
+        /// diagnostic would name a file the runtime did not consider.</summary>
         private static string FirstExistingPath()
         {
-            var candidates = new List<string>();
-            if (!string.IsNullOrWhiteSpace(AppConfig.ConfigPath))
-                candidates.Add(AppConfig.ConfigPath);
-            candidates.Add(Path.Combine(AppContext.BaseDirectory, ConfigFileName));
-            try
-            {
-                candidates.Add(Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ConfigFileName));
-            }
-            catch { /* no user profile (unlikely) */ }
-            try
-            {
-                candidates.Add(Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), ConfigFileName));
-            }
-            catch { /* no Windows folder (unlikely) */ }
-
-            foreach (var path in candidates)
+            foreach (var path in AppConfig.CandidatePaths())
             {
                 if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
                     return path;

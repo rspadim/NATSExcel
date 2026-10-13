@@ -74,6 +74,19 @@ namespace NATSExcel
                 // until the ProgId is registered.
                 logger.Error(ex, "AutoOpen: ComServer.DllRegisterServer failed");
             }
+            try
+            {
+                // The background release check the config flag controls. It is
+                // non-blocking and swallows its own failures, so it cannot delay or
+                // break the load; without this call the UpdateCheck flag and the
+                // NatsUDFUpdateAvailable cell would never see a fresh result.
+                if (AppConfig.Current.UpdateCheck)
+                    UpdateCheck.Start();
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "AutoOpen: update check start failed");
+            }
             logger.Info("NATSExcel loaded");
         }
 

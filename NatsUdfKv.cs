@@ -1106,8 +1106,15 @@ namespace NATSExcel
         /// <summary>Finds the server's structured error in an (aggregated) exception chain.</summary>
         private static bool TryApiError(Exception ex, out ApiError api)
         {
+            return TryApiError(ex, out api, 0);
+        }
+
+        private static bool TryApiError(Exception ex, out ApiError api, int depth)
+        {
             api = null;
-            if (ex == null)
+            // Cap the walk like NatsUdfAsync.SafeMessage: a pathological or cyclic
+            // InnerException graph must not spin. 32 is far past any real chain.
+            if (ex == null || depth > 32)
                 return false;
             if (ex is NatsJSApiException apiException && apiException.Error != null)
             {
@@ -1118,11 +1125,11 @@ namespace NATSExcel
             {
                 foreach (Exception inner in aggregate.Flatten().InnerExceptions)
                 {
-                    if (TryApiError(inner, out api))
+                    if (TryApiError(inner, out api, depth + 1))
                         return true;
                 }
             }
-            return TryApiError(ex.InnerException, out api);
+            return TryApiError(ex.InnerException, out api, depth + 1);
         }
 
         private static string ApiCause(ApiError error)

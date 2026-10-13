@@ -968,6 +968,18 @@ namespace NATSExcel
                 if (extraError != null)
                     return ErrorCell("ConnectData", extraError);
 
+                // A bounded registry: a runaway sheet (or a hostile workbook)
+                // could otherwise register an unbounded number of topics, each with
+                // a live subscription or a poll entry, and degrade Excel silently.
+                // 10,000 is far above any real workbook and gives a named error
+                // instead of unbounded growth.
+                const int MaxTopics = 10000;
+                if (_polledTopics.Count + _subscribedTopics.Count >= MaxTopics
+                    && !_polledTopics.ContainsKey(topic.TopicId)
+                    && !_subscribedTopics.ContainsKey(topic.TopicId))
+                    return ErrorCell("ConnectData",
+                        "too many RTD topics (max " + MaxTopics + "); remove some =RTD cells");
+
                 // Resolve the cluster reference through the RTD section (blank
                 // falls back to RTD.cluster -> Default.cluster -> the built-in
                 // default). A NON-BLANK reference that resolves to nothing is a
