@@ -531,10 +531,13 @@ namespace NATSExcel
 
         public static double ExcelUpdateRate() { return Instance?._excelUpdateRateMs ?? 0; }
 
-        /// <summary>The configured RTD cluster reference (the <c>Default</c> name, i.e. the endpoint a blank formula argument uses).</summary>
+        /// <summary>The configured RTD cluster reference (the <c>RTD.cluster</c>
+        /// override, else the <c>Default</c> name): the endpoint a blank RTD formula
+        /// argument uses (DESIGN §8.1).</summary>
         public static string ClusterName()
         {
-            string name = AppConfig.Current.Default;
+            var cfg = AppConfig.Current;
+            string name = !string.IsNullOrWhiteSpace(cfg.RtdCluster) ? cfg.RtdCluster : cfg.Default;
             return AppConfig.MaskNatsEndpoint(name);
         }
 
@@ -593,7 +596,8 @@ namespace NATSExcel
             Teardown();
             // Remove only THIS server; a surviving instance (last-started
             // pointer) is promoted by HighestOrdinalInstance.
-            // ResetAfterAddInReload clears the whole map instead.
+            // ResetAfterAddInReload also removes only the instances it tore
+            // down, so a server started during its teardown survives.
             lock (InstancesSync)
             {
                 Instances.TryRemove(this, out _);
@@ -660,10 +664,23 @@ namespace NATSExcel
             }
             foreach (var server in servers)
                 server.Teardown();
+            // Remove only the instances that were in the snapshot, never a blanket
+            // Clear(): Excel's COM can start a NEW RTD server (ServerStart) during
+            // the Teardown window above. Such a server registers itself after this
+            // method took its snapshot; clearing the whole map would drop it while
+            // its timers keep running, and the next reload - which would find it no
+            // longer in the map - could never tear those timers down (a running
+            // System.Timers.Timer roots its target), resurrecting exactly the
+            // stranded-timer failure this method exists to prevent. The snapshot's
+            // instances are already stopped, so removing them by key is safe; the
+            // concurrently started server survives and stays reachable for the next
+            // reload.
             lock (InstancesSync)
             {
-                Instances.Clear();
-                Instance = null;
+                foreach (var server in servers)
+                    Instances.TryRemove(server, out _);
+                if (Instance == null || servers.Contains(Instance))
+                    Instance = HighestOrdinalInstance();
             }
         }
 

@@ -624,11 +624,22 @@ namespace NATSExcel
 
                 object result = Send(endpoint, subjectText, payload, null, context, replyDependent: false);
 
-                // Remember the payload only when the write actually went out, so
-                // a failed or refused publish is retried by the next recalculation.
-                if (IsWriteSuccess(result))
+                // Remember the payload only after a CONFIRMED delivery. Under
+                // SyncWrite=fireforget (the shipped default) the result is a
+                // fire-and-forget marker: the bytes were handed to the client's
+                // writer task, not acknowledged by the server, and a late failure
+                // is only logged (Send -> Observe). Storing it as dedup state
+                // would make every later recalculation of an unchanged value
+                // answer "No change" forever, so a publish that was actually
+                // dropped (server down) could never be retried and the feed would
+                // starve. DESIGN.md 8.1: the marker is remembered only after a
+                // confirmed delivery (the awaited sync "OK"). A fire-and-forget
+                // write therefore leaves the cached marker untouched (a prior
+                // confirmed value must keep deduplicating) and only a real
+                // failure clears it.
+                if (IsWriteSuccess(result) && !IsFireAndForgetResult(result))
                     _lastPublished.Set(key, payload);
-                else
+                else if (!IsWriteSuccess(result))
                     _lastPublished.Remove(key);
 
                 return result;
@@ -1200,6 +1211,20 @@ namespace NATSExcel
             var text = result as string;
             return text == NatsUdfCommon.Ok
                 || text == NatsUdfCommon.FireAndForget
+                || text == NatsUdfCommon.FireAndForgetAll;
+        }
+
+        /// <summary>
+        /// True when the result is one of the fire-and-forget markers, i.e. the
+        /// write was accepted by the client but not confirmed by the server.
+        /// <see cref="IsWriteSuccess"/> treats those as success so the cell can
+        /// report them; PublishIfChanged must NOT turn that into confirmed dedup
+        /// state (DESIGN.md 8.1), so it asks this before remembering a payload.
+        /// </summary>
+        private static bool IsFireAndForgetResult(object result)
+        {
+            var text = result as string;
+            return text == NatsUdfCommon.FireAndForget
                 || text == NatsUdfCommon.FireAndForgetAll;
         }
 

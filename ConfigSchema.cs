@@ -306,6 +306,15 @@ namespace NATSExcel
                     return null;
                 cleaned.Add(pruned);
             }
+            // minItems (e.g. Cluster.urls >= 1): an empty array passes every item
+            // check but still leaves the cluster with no URL, so it is rejected
+            // here (the array itself is dropped, like every other invalid value).
+            var minItems = schema["minItems"];
+            if (minItems != null && cleaned.Count < minItems.Value<int>())
+            {
+                issues?.Add(new ConfigIssue(path, "needs at least " + minItems + " item(s)"));
+                return null;
+            }
             return cleaned;
         }
 

@@ -9,7 +9,8 @@ This is the day-one design contract. The public Excel surface defined here is
 frozen before the first release: renames and argument changes break users'
 spreadsheets forever (see the golden rules in `AGENTS.md`).
 
-- Status: design draft for discussion.
+- Status: implemented design contract; the packed XLL loads in real Excel and
+  the catalog is exposed (see "As built so far" below for the exact state).
 - Target framework: **.NET Framework 4.8** (Excel-DNA), same host as RedisExcel.
 - Scope of this document: **Core NATS + JetStream from the start** (streams,
   consumers, Key/Value, Object Store).
@@ -39,23 +40,41 @@ spreadsheets forever (see the golden rules in `AGENTS.md`).
 
 ### As built so far
 
-The design above is the contract; this is what physically exists today. It is a
-small, factual subset — everything else is still planned.
+The design above is the contract; this is what physically exists today. The
+add-in is now largely implemented: the packed XLL loads in real Excel and
+answers UDFs (the P0 gate passed), the full catalog is exposed, and the Excel
+E2E / unit / load layers run.
 
 - **Add-in skeleton**: `NATSExcel.csproj` (net48, `LangVersion 9.0`) with the
   `IsExternalInit` shim, the `NATSExcel.dna` packing manifest, `AddIn.cs`
-  (`IExcelAddIn` load/unload), `NatsUdf.cs` with **3** diagnostic UDFs
-  (`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`), and the
-  `Config.cs` loader that reads `NATSExcel.json` once per process.
+  (`IExcelAddIn` load/unload plus the `NatsRtd` COM registration and the
+  reload resets) and the `Config.cs` / `ConfigSchema.cs` loader that reads
+  `NATSExcel.json` once per process with per-value schema drop.
+- **Runtime**: `NatsConnectionManager.cs`, `NatsSubscriptionManager.cs`,
+  `NatsRuntime.cs`, `NatsUdfAsync.cs`, `Conflation.cs`, `TickGate.cs`,
+  `UpdateCheck.cs`, `NatsJson.cs`, `NatsResultFormatter.cs`,
+  `MaskedExceptionRenderer.cs`.
+- **Excel surface**: `NatsRtd.cs` (the `NatsRtd` RTD server + the six
+  `NatsRTD*` status helpers), `NatsRtdTopic.cs` (the Excel-free frozen
+  grammar), and the `NatsUdf*` catalog — **89** `NatsUDF*` `[ExcelFunction]`s
+  across `NatsUdf.cs` / `NatsUdfCore.cs` / `NatsUdfJetStream.cs` /
+  `NatsUdfKv.cs` / `NatsUdfObjectStore.cs` / `NatsUdfStatus.cs`, plus
+  `NatsUdfCommon.cs`.
 - **Windows installer** (`installer/`): an Inno Setup script that builds and
   runs, per-user, localized **en/es/pt-BR**, with **7** auth styles (none, token,
   user/pass, NKey, JWT, creds file, mTLS) and a native-first "install a NATS
-  server" step. Not yet built by CI (no workflow exists).
+  server" step. A workflow builds it on every CI run; it has not run on GitHub
+  yet.
 - **Validator tool** (`tools/NatsValidate/`): a standalone C# console app that
   loads and checks `NATSExcel.json` and, with `--test`, connects with the same
-  NATS.Net client the add-in will use.
+  NATS.Net client the add-in uses.
+- **Tests**: `test\NATSExcel.Tests` (unit, no NATS/Excel), the cluster harness
+  (`test\TestSupport\Start-Cluster.ps1`), the Excel E2E
+  (`test\Run-ExcelE2E.ps1`) and the load layer (`test\LoadTests`). The smoke and
+  liveness projects are still planned.
 
-There is no RTD server, no NATS runtime, no UDF catalog and no CI yet.
+The remaining work (the medium/low audit findings, the smoke/liveness layers,
+the solution file and the release cut) is tracked in `PLAN.md`.
 
 ## 2. Non-goals (v1)
 
@@ -110,8 +129,9 @@ Consequences that shape the code:
 | Bucket (KV) | A JetStream stream (`KV_<name>`) with key/value semantics and revisions. |
 | Bucket (Object) | A JetStream stream (`OBJ_<name>`) storing chunked files. |
 
-Endpoint resolution for any host argument: a `Servers` alias, then the raw
-`nats://` URL / URL list. No implicit fallback to a hidden default.
+Endpoint resolution for any host argument: a `Clusters` name, then a `Servers`
+alias, then the raw `nats://` URL / URL list. No implicit fallback to a hidden
+default for a name that does not resolve (see §8.1).
 
 ## 5. Architecture
 
@@ -122,20 +142,23 @@ Endpoint resolution for any host argument: a `Servers` alias, then the raw
 | `NatsRuntime.cs` | Process-wide singleton: one `NatsConnection` per endpoint, plus the subscription manager. Shutdown fence and same-process reload, mirroring `RedisRuntime`. |
 | `NatsConnectionManager.cs` | Creates/caches connections by resolved endpoint; connection state, reconnect observation, jetstream context cache, bounded wait helper. |
 | `NatsSubscriptionManager.cs` | Ref-counted Core subscriptions: one client subscription per `(endpoint, subject, queueGroup)`, N listeners; `IDisposable` tokens; wildcard-aware; origin tags (`RTD`/`UDF`). |
-| `NatsRtd.cs` | `IExcelAddIn` (`AutoOpen`/`AutoClose`) + `ExcelRtdServer`: topic registry, poll timer, Excel flush timer, backoff, wildcard topics, JetStream/KV topic kinds. |
+| `AddIn.cs` | `IExcelAddIn` entry point (`AutoOpen`/`AutoClose`): registers the `MaskedExceptionRenderer` and the `NatsRtd` COM server, runs the reload resets, and shuts the runtime down. |
+| `NatsRtd.cs` | The `NatsRtd` `ExcelRtdServer`: topic registry, poll timer, Excel flush timer, backoff, wildcard topics, JetStream/KV topic kinds; plus the six `NatsRTD*` status helpers. |
 | `NatsRtdTopic.cs` | RTD topic/command parser (`NatsRtdTopicSpec.Parse`); deliberately free of Excel/COM so it is unit-testable (`RtdTopicGrammarTests`). |
 | `NatsUdfCore.cs` | Core NATS UDFs: publish, request/reply, subject-latest, unsubscribe. |
 | `NatsUdfJetStream.cs` | JetStream UDFs: publish-with-ack, get/fetch, stream/consumer info, admin. |
 | `NatsUdfKv.cs` | Key/Value UDFs: get/put/create/update/delete/keys/history/watch. |
 | `NatsUdfObjectStore.cs` | Object Store UDFs: put/get/list/watch/links. |
-| `NatsUdfStatus.cs` | Status and diagnostics (`NatsUDFConnectionCount`, `NatsUDFServerInfo`, `NatsUDFRtt`, ...). |
+| `NatsUdf.cs` | The seed diagnostics (`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`, `NatsUDFLogPath`). |
+| `NatsUdfStatus.cs` | Status, diagnostics and cluster/server topology (`NatsUDFServerInfo`, `NatsUDFStats`, `NatsUDFRtt`, `NatsUDFCluster*`, config functions, ...). |
 | `NatsUdfCommon.cs` | Shared UDF primitives: argument validation (incl. wildcard rejection on publish), endpoint resolution, `Fail`/`VerboseError`/`ErrorHint` and the marker constants. |
 | `NatsUdfAsync.cs` | Shared async bridge: `ExcelAsyncUtil.Observe` wrapper + per-endpoint FIFO write queue + bounded sync wait. |
-| `NatsJson.cs` | Matrix ⇄ JSON conversions (RedisExcel's `ExcelJson`, unchanged in spirit). |
+| `NatsJson.cs` | Matrix ⇄ JSON conversions (`MatrixToJson` / `JsonToMatrix`, internal helpers). |
 | `NatsResultFormatter.cs` | Value shaping for cells (JSON objects, KV entries, object metadata). |
 | `Conflation.cs` | Real-time conflation window (`ConflationMs`): latest value wins per window. |
 | `TickGate.cs` | Non-blocking reentrancy gate for timers + `StripedLocks`. |
 | `Config.cs` / `ConfigSchema.cs` | Config load (once per process) + embedded JSON Schema, tolerant validation, endpoint/auth masking. |
+| `MaskedExceptionRenderer.cs` | NLog `${maskedException}` layout renderer: masks credentials in every logged exception. |
 | `UpdateCheck.cs` | Background GitHub release check. |
 | `NatsExcel.dna` | Excel-DNA packing manifest. |
 | `installer/` | Inno Setup script + helper PowerShell + README. |
@@ -143,19 +166,20 @@ Endpoint resolution for any host argument: a `Servers` alias, then the raw
 ### 5.2 Packages
 
 Explicit packages (not the `NATS.Net` meta package) so the packed XLL stays
-lean; the exact set is confirmed at P0:
+lean; the set is pinned in `NATSExcel.csproj` (all at `3.3.0`):
 
 - `NATS.Client.Core` — connection, pub/sub, request/reply.
 - `NATS.Client.JetStream` — streams, consumers, message get/fetch.
 - `NATS.Client.KeyValueStore` — KV buckets.
 - `NATS.Client.ObjectStore` — object buckets.
-- (transitive: `NATS.Client.Abstractions`, `Microsoft.Extensions.Logging.Abstractions`, `Microsoft.Bcl.AsyncInterfaces`.)
+- (transitive, packed into the XLL: `NATS.Client.Abstractions`, `NATS.NKeys`,
+  `Microsoft.Extensions.Logging.Abstractions`, `Microsoft.Bcl.AsyncInterfaces`,
+  and the rest of the 29-DLL set enumerated in `NATSExcel.dna`.)
 
-Serialization: the add-in already depends on **Newtonsoft.Json**. Rather than
-pull `System.Text.Json` (extra DLLs in the XLL), implement a small
-`INatsSerializerRegistry` backed by Newtonsoft and use it for typed publishes.
-Verify the packed dependency set against the `.dna` at P0 and keep it minimal,
-like RedisExcel's deliberate list.
+Serialization: the add-in uses **Newtonsoft.Json** for its own matrix ⇄ JSON and
+KV/object metadata; the NATS.Net packages pull `System.Text.Json` transitively
+(both are packed — see §13 decision 6). Keep the closure minimal and pinned, like
+RedisExcel's deliberate list.
 
 ### 5.3 Async bridge (the central design decision)
 
@@ -195,17 +219,20 @@ ProgID: **`NatsRtd`**. Usage: `=RTD("NatsRtd", , <command>, ...)`.
 | `JS` | `<stream> <consumer> [filter] [host]` | Consume a JetStream consumer (push); push each message. |
 | `MSG` | `<stream> <filter> [host]` | Polled "last message matching filter". |
 | `OBJ` | `<bucket> <object> [host]` | Watch object metadata; push on change. |
-| `NatsRTDCluster` | `[what] [host]` | Live cluster-health cell (`what` = `leader`, `lag`, `nodes`); push on change. Tier 2 (§7.8): needs the system account. |
+| `RTDCLUSTER` | `[what] [host]` | Live cluster-health cell (`what` = `cluster`, `nodes`, `leader`, `lag`, or blank/`all`); push on change. Tier 2 (§7.8): needs the system account. |
 
 Notes:
 
-- **Nine commands**: the eight above plus `NatsRTDCluster`. The parser rejects
-  anything else by name (see §7.8 for the cluster tier this command reads).
+- **Nine commands**: the eight above plus `RTDCLUSTER`. The parser rejects
+  anything else by name (see §7.8 for the cluster tier this command reads) and
+  reports the frozen command list `[SUB, KV, KVGET, KVKEYS, REQ, JS, MSG, OBJ,
+  RTDCLUSTER]`; the `RTDCLUSTER what` vocabulary is a separate kind-specific
+  check (`RTDCLUSTER expects what to be one of [cluster, nodes, leader, lag]`).
 - **No `PSUB`.** NATS wildcards are part of the subject (`orders.*`,
   `orders.>`); a pattern subscription is just `SUB orders.>`.
 - A `SUB`/`KV`/`JS` topic that fails to subscribe shows `#ERROR` and is retried
   with 1s..30s backoff, capped per tick (RedisExcel behavior).
-- Polled kinds (`KVGET`, `KVKEYS`, `MSG`) retry on every tick.
+- Polled kinds (`KVGET`, `KVKEYS`, `MSG`, `REQ`, `RTDCLUSTER`) retry on every tick.
 - If JetStream is not enabled on the server, `JS`/`KV`/`OBJ` topics show a
   clear `#ERROR: JetStream is not enabled on this server`.
 
@@ -294,20 +321,24 @@ reversible, so an accidental F9 never purges a production stream.
 
 ### 7.6 Status, diagnostics, config, JSON
 
+`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFLogPath`,
 `NatsUDFConnectionCount`, `NatsUDFServerInfo` (server id/version/connect_urls),
 `NatsUDFStats` (in/out msgs/bytes), `NatsUDFRtt`, `NatsRTDConnectionCount`,
 `NatsRTDTopicCount`, `NatsRTDSubscriptionCount`, `NatsRTDSubjectCount`,
 `NatsRTDDefaultHost`, `NatsUDFUpdateAvailable`,
-`NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix` (pure, non-volatile),
-`NatsUDFConfigSchema`, `NatsUDFConfigPath`, `NatsUDFConfigValidate`,
-`NatsUDFConfigReload`.
+`NatsUDFConfigSchema`, `NatsUDFConfigValidate`, `NatsUDFConfigReload`.
 
 **One config-validation function, `NatsUDFConfigValidate`** — it is the only
 config check. (An earlier draft carried a `NatsCheckConfigFile` name inherited
 from the sibling project; that name is **removed**. The prefix is `NatsUDF` for
-every `[ExcelFunction]` without exception.) `NatsUDFConfigReload` is also the
-only standalone non-volatile consumer function here; `MatrixToJSON` and
-`JSONToMatrix` are the other two non-volatile, twin-less functions (§7.9).
+every `[ExcelFunction]` without exception.) `NatsUDFConfigReload` is the only
+standalone non-volatile consumer function here (§7.9).
+
+**Not implemented (open item).** §7.6 formerly named `NatsUDFMatrixToJSON` /
+`NatsUDFJSONToMatrix` as pure non-volatile conversions. No such
+`[ExcelFunction]` exists: matrix ⇄ JSON lives in `NatsJson` as internal helpers,
+reached only through the `...JSON` functions (see §7.9). Exposing them as
+standalone functions needs a code change (PLAN §9).
 
 ### 7.7 `...NonVolatile` write twins (the source of truth)
 
@@ -368,7 +399,7 @@ is good at. Two tiers, because the server decides what it will tell a client:
 | `NatsUDFClusterHealth([host])` | JSON | Per-node: `server_name`, `mem`, `cpu`, `connections`, `slow_consumers`, `jetstream` state. |
 | `NatsUDFJSRaftInfo(stream, [host])` | matrix N×4 (`peer`, `current`, `active`, `lag`) | The stream's Raft group: leader + replicas + lag, i.e. the table from §8.1's verification. |
 | `NatsUDFJSStreamPlacement(stream, [host])` | text | Where the Raft group lives; the source of the `no suitable peers for placement` case. |
-| `NatsRTDCluster([what], [host])` | RTD | A live cluster-heath cell (`what` = `leader`, `lag`, `nodes`); pushes on change. |
+| `RTDCLUSTER([what], [host])` | RTD command | A live cluster-health cell (`what` = `cluster`, `nodes`, `leader`, `lag`); pushes on change. |
 
 Notes:
 
@@ -391,8 +422,8 @@ families:
   **25** `...NonVolatile` write twins (§7.7) = **89** `[ExcelFunction]`.
 - **RTD status helpers** (`NatsRTD*`, in `NatsRtd.cs`): **6**
   (`ConnectionCount`, `TopicCount`, `SubscriptionCount`, `SubjectCount`,
-  `DefaultHost`, `Cluster`). Not `[ExcelFunction]`s in the UDF assemblies'
-  sense — they live with the RTD server.
+  `DefaultHost`, `Cluster`). They carry `[ExcelFunction]` too, but live with the
+  RTD server rather than in a `NatsUdf*.cs` source.
 
 So the add-in exposes **89 UDF functions + 6 RTD status helpers** and **9 RTD
 commands** (§6).
@@ -402,50 +433,44 @@ Base-function split (the 64 `NatsUDF*` base):
 | Group | Count |
 | --- | --- |
 | Write bases (each with a `...NonVolatile` twin) | **25** |
-| Reads/status (volatile, twin-less) | **36** |
-| Standalone non-volatile, twin-less (`MatrixToJSON`, `JSONToMatrix`, `ConfigReload`) | **3** |
+| Reads/status (volatile, twin-less) | **38** |
+| Standalone non-volatile, twin-less (`ConfigReload`) | **1** |
 | **Base total** | **64** |
 
-Volatile/non-volatile: **61 volatile** (25 write bases + 36 reads/status) +
-**28 non-volatile** (25 twins + 3 standalone) = 89. Functions gated by
-`AllowAdminWrites`: **11** (§7.3 plus `JSDeleteMessage`/`JSPurge`,
+Volatile/non-volatile: **63 volatile** (25 write bases + 38 reads/status) +
+**26 non-volatile** (25 twins + the standalone `ConfigReload`) = 89. Functions
+gated by `AllowAdminWrites`: **11** (§7.3 plus `JSDeleteMessage`/`JSPurge`,
 `KVDelete`/`KVPurge`, `ObjectDelete`).
 
-The exact count is pinned by the public-surface baseline test (PLAN S7.1/V8.2),
-which is the authority. Earlier drafts of this document said "95 / 88 / 66 /
-roughly 70"; those numbers were wrong and are superseded by the figures above
-(64 UDF base + 25 twins = 89, plus 6 RTD status helpers).
+**Not implemented (open item).** Earlier drafts counted the two standalone
+non-volatile helpers `NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix`; no such
+`[ExcelFunction]` exists (the conversions are internal `NatsJson` helpers — see
+§7.6). The count above reflects the code; exposing them is a code decision
+(PLAN §9).
+
+The count is verified mechanically against the code: **89** `[ExcelFunction]`
+`NatsUDF*` (64 base + 25 twins) + **6** `NatsRTD*` = **95** functions. Earlier
+drafts of this document said "95 / 88 / 66 / roughly 70" and a 61/28 volatile
+split; those numbers were wrong and are superseded by the figures above.
 
 ## 8. Configuration
 
-File name: **`NATSExcel.json`**. Search order identical to RedisExcel (add-in
-folder → `%USERPROFILE%` → Excel folder → `C:\Windows`; first existing wins).
+File name: **`NATSExcel.json`**. Search order (first existing wins): add-in
+folder → `%USERPROFILE%` → `C:\Windows`; the designed **Excel folder** step
+between the profile and `C:\Windows` is not implemented yet (`AppConfig.CandidatePaths`).
 Comments (`//`, `/* */`) accepted; validated against an embedded JSON Schema;
-a wrong-typed value is dropped individually.
+a wrong-typed value is dropped individually, the rest of the file is kept.
 
 Layout principle: **the user picks a cluster, not a host.** `Clusters` is the
-unit a formula names; `Servers` is the primitive it reuses. `Default` holds
-process-wide connection settings; `RTD`/`UDF` keep only their own tuning and an
-optional cluster override.
+unit a formula names; `Servers` is the primitive it reuses. `Default` is a
+plain *name* string (a `Clusters` name, a `Servers` name or a raw `nats://`
+URL) — it holds no connection settings. Shared connection settings live in the
+top-level `Auth` / `Reconnect` blocks and are overridden per cluster; `RTD`
+holds only the delivery tuning (there is no separate RTD/UDF server split).
 
 ```json
 {
-  "Default": {
-    "cluster": "local",
-    "timeout": 1000,
-    "auth": { "token": null, "user": null, "password": null },
-    "reconnect": { "maxAttempts": 60, "waitMs": 2000, "jitterMs": 100 }
-  },
-
-  "RTD": {
-    "NatsUpdateRateMs": 1000,
-    "ExcelUpdateRateMs": 100,
-    "MessageCounterThreshold": 10000,
-    "NatsUpdateStyle": "Automatic",
-    "cluster": "feed"
-  },
-
-  "UDF": { "timeout": 1000 },
+  "Default": "local",
 
   "Servers": {
     "n1": "nats://n1.example:4222",
@@ -463,8 +488,25 @@ optional cluster override.
     "local": { "urls": ["dev"] },
     "vault": {
       "urls": ["nats://vault-a.example:4222", "nats://vault-b.example:4222"],
-      "auth": { "user": "excel", "password": null, "credsFile": null }
+      "timeout": 2000,
+      "auth": { "user": "excel", "password": null, "credsFile": null },
+      "reconnect": { "maxAttempts": 120 }
     }
+  },
+
+  "Auth": {
+    "user": null, "password": null, "token": null,
+    "jwt": null, "nkeySeed": null, "credsFile": null,
+    "tls": false, "tlsCert": null, "tlsCertPassword": null
+  },
+
+  "Reconnect": { "maxAttempts": 60, "waitMs": 2000, "jitterMs": 100 },
+
+  "RTD": {
+    "NatsUpdateRateMs": 1000,
+    "ExcelUpdateRateMs": 100,
+    "MessageCounterThreshold": 10000,
+    "NatsUpdateStyle": "Automatic"
   },
 
   "JetStream": { "enabled": true, "defaultTimeoutMs": 5000 },
@@ -480,18 +522,24 @@ optional cluster override.
 }
 ```
 
+This is the shape the shipped `NATSExcel.json` and `NATSExcel.schema.json`
+define. (An earlier draft nested the settings under `Default` and had a per-
+section `UDF`/`RTD.cluster`; `Config.cs` accepts a nested `Default` only as a
+back-compat fallback and never reads a `UDF` block.)
+
 ### 8.1 Cluster resolution (naming a server or a connection string)
 
 The optional host argument of every UDF/RTD call is a **cluster reference**,
 resolved in the same spirit as RedisExcel's `ResolveHostCore`
-(`Servers` alias → raw string), extended with `Clusters` at the top:
+(`Servers` alias → raw string), extended with `Clusters` at the top
+(`AppConfig.ResolveEndpointCore`):
 
 | Order | Input | Resolves to |
 | --- | --- | --- |
 | 1 | a `Clusters` name (`"feed"`) | the cluster's URL list (+ its auth/JetStream override) |
 | 2 | a `Servers` alias (`"n1"`) | that server's URL (one connection) |
 | 3 | a raw URL or URL list (`"nats://h:4222"`, `"nats://a,b"`) | used as-is |
-| 4 | blank / omitted | `RTD.cluster` / `UDF.cluster` → `Default.cluster` → the built-in `nats://localhost:4222` |
+| 4 | blank / omitted | the configured `Default` name (resolved through the same three steps), then the built-in `nats://localhost:4222` |
 
 Rules:
 
@@ -500,12 +548,18 @@ Rules:
   priority.
 - **No implicit fallback** to a hidden default when a non-empty name does not
   resolve: a dangling reference is a `#CONFIG` error, never a silent connection
-  to `localhost` (the failure mode RedisExcel v1 had and v2 removed).
-- A reference that resolves in **both** `Clusters` and `Servers` triggers a
-  **validation warning** (cluster wins), so the ambiguity is visible.
+  to `localhost` (the failure mode RedisExcel v1 had and v2 removed). A
+  misconfigured `Default` *is* allowed to fall back to the built-in URL (it must
+  not break every unauthored call); a dangling name the user typed is not.
+- A reference that resolves in **both** `Clusters` and `Servers` resolves to the
+  cluster (cluster wins). *(Designed, **not implemented**: no validation warning
+  is emitted for the ambiguity today. Tracked in `PLAN.md` §9.)*
 - A `Clusters` entry's `urls` accept `Servers` aliases **or** inline URLs, mixed.
-- `auth`, `jetstream` and `reconnect` may be set per cluster; each falls back to
-  the `Default` block, then to the built-in default.
+- `auth`, `reconnect` and `timeout` may be set per cluster; each falls back to
+  the shared top-level block, then to the built-in default. Per the shipped
+  schema a cluster may also carry a `jetstream.domain` (the only cluster
+  identifier NATS itself uses, to route JetStream API calls between clusters);
+  `Config.cs` records it for diagnostics but nothing consumes it yet.
 - `jetstream.domain` is the only cluster identifier NATS itself uses (to route
   JetStream API calls between clusters); it is exposed because a multi-cluster
   JetStream deployment needs it.
@@ -513,9 +567,9 @@ Rules:
 So all of these are valid in one spreadsheet, with nothing renamed:
 
 ```
-=RTD("NatsRtd", , "SUB", "md.binance.live.spot.>", , "feed")     // cluster
-=RTD("NatsRtd", , "SUB", "md.binance.live.spot.>", , "n1")       // server
-=RTD("NatsRtd", , "SUB", "md.binance.live.spot.>", , "nats://n1.example:4222")
+=RTD("NatsRtd", , "SUB", "md.example.live.spot.>", , "feed")     // cluster
+=RTD("NatsRtd", , "SUB", "md.example.live.spot.>", , "n1")       // server
+=RTD("NatsRtd", , "SUB", "md.example.live.spot.>", , "nats://n1.example:4222")
 =NatsUDFKVGet("prices", "BTC", "feed")
 ```
 
@@ -540,15 +594,27 @@ configurable:
 | URL userinfo | `nats://user:pass@host` | also accepted; merged into `auth` |
 
 These nine fields are exactly the set the shipped `NATSExcel.schema.json`
-accepts under `auth` (under both `Default` and each `Clusters` entry).
-Precedence, highest first: `credsFile` → `jwt`+`nkeySeed` → `nkeySeed` →
-`token` → `user`+`password` → URL userinfo → no auth. `password` requires
-`user`; `jwt` requires `nkeySeed`; a combination the client rejects is a
-`#CONFIG` error, not a silent fallback. TLS uses the platform certificate store
-by default; the optional `tlsCert` (a `.pfx`/`.p12` bundle path) /
-`tlsCertPassword` pair configures a client certificate for mTLS. A cluster's
-`auth` **merges over** the `Default.auth` (replace per field), so a shared token
-in `Default` plus a per-cluster user/pass both work.
+accepts under `auth` (under both the top-level shared `Auth` and each
+`Clusters` entry). Precedence, highest first: `credsFile` → `jwt`+`nkeySeed` →
+`nkeySeed` → `token` → `user`+`password` → URL userinfo → no auth. `password`
+requires `user`; `jwt` requires `nkeySeed`; a combination the client rejects is
+a `#CONFIG` error, not a silent fallback. TLS uses the platform certificate
+store by default; the optional `tlsCert` (a `.pfx`/`.p12` bundle path) /
+`tlsCertPassword` pair configures a client certificate for mTLS. A named
+cluster's `auth` **merges over** the shared top-level `Auth` (replace per
+field), so a shared token plus a per-cluster user/pass both work: a cluster that
+declares only a `token` keeps the shared `user`/`password` for the fields it
+did not set.
+
+**Per-cluster auth is wired to the connection.** A formula is resolved to a URL
+(list) before dispatch, so the connection manager receives the *resolved* URL,
+not the name the user typed. `AppConfig.ResolveSettings(endpoint)` therefore
+maps that URL back to the cluster that owns it (by name first, then by matching
+the URL against each cluster's `urls`), and `NatsConnectionManager.BuildOptions`
+applies the merged auth / timeout / TLS (mTLS `tlsCert` + `tlsCertPassword`)
+for the endpoint it is about to open. Without that mapping a cluster that
+declares its own token would silently connect with the shared auth — the
+per-cluster block would be dead config.
 
 **NKey seed: text *or* a `.nk` file path — read the file first.** `nkeySeed`
 accepts either the seed text itself (an `SU...` string) **or** a path to a
@@ -557,9 +623,10 @@ handing it a path fails with `Invalid base32 character` (a filesystem path is
 not base32). The loader must read a readable file and pass its trimmed
 contents, otherwise pass the value through. The installer wizard labels the
 field exactly this way ("the text, or a path to the .nk file"), so the code has
-to honor it. Reference behavior: `ReadSeed` in
-`tools/NatsValidate/ConnectionTester.cs` (`SU` prefix → use as-is; else a
-readable file → read and trim; else pass through).
+to honor it. The add-in implements this in `AppConfig.ResolveSeed` (`SU` prefix
+→ use as-is; else a readable file → read and trim; else pass through), called
+from `NatsConnectionManager.BuildAuth`; `tools/NatsValidate/ConnectionTester.cs`
+(`ReadSeed`) is the reference the add-in copied.
 
 **Masking** (`MaskNatsEndpoint`) covers every credential above: URL userinfo
 (`nats://user:pass@host`), `password=`/`user=`/`token=`, a JWT (`eyJ...`), an
@@ -568,6 +635,18 @@ error cell, RTD `#ERROR`, status cell and log line goes through it. A **cluster
 name is not a secret** and is printed as-is; only the credentials it carries are
 masked.
 
+**Logged exceptions are masked too — do not revert this.** A NATS client
+exception message can embed the connection URL (or a token) verbatim, so
+logging the exception object with NLog's stock `${exception:...}` layout would
+write the secret to `NATSExcel.log`, violating the "mask every log line" rule.
+The add-in ships `MaskedExceptionRenderer` (a `[LayoutRenderer("maskedException")]`
+registered in `AddIn.AutoOpen`), which flattens the exception chain through
+NLog's `ExceptionLayoutRenderer` and runs the result through
+`AppConfig.MaskNatsEndpoint`. `NLog.config` therefore uses
+`${maskedException:format=toString}`, **not** `${exception:...}`. An unknown
+renderer renders as an empty string, so an older config never throws; but a
+future edit that switches back to `${exception:...}` re-opens the leak.
+
 ### 8.2 Transport, TLS and WebSocket (measured)
 
 The add-in speaks the NATS protocol over **TCP by default** (`nats://host:4222`).
@@ -575,9 +654,17 @@ WebSocket (`ws://` / `wss://`) is supported for the cases TCP cannot reach — a
 browser, a corporate HTTP proxy, a firewall that only allows 80/443 — and is
 configured by simply using a `ws://` URL; there is no extra config key.
 
+Transport credentials are per endpoint. Because the dispatcher resolves a
+formula's cluster reference to a concrete URL *before* the connection exists,
+`NatsConnectionManager.BuildOptions` looks the URL back up through
+`AppConfig.ResolveSettings` and applies that cluster's merged auth, timeout and
+TLS options (`TlsOpts` with `CertBundleFile`/`CertBundleFilePassword` for mTLS)
+to the `NatsOpts` it builds (see §8.1). A raw `nats://user:pass@host` URL is
+also accepted and masked like any other credential.
+
 **Wire cost, measured (not assumed).** A proxy counted the real bytes on the
 socket for the same publish+subscribe workload, using the actual market-data
-payload shape (`{"venue":"binance",...,"seq":1}`, 306 B):
+payload shape (`{"venue":"example",...,"seq":1}`, 306 B):
 
 | Payload | TCP | WebSocket | Difference |
 | --- | --- | --- | --- |
@@ -651,11 +738,13 @@ shape; here the server teaches it.
 - **A URL list, not one URL** (optional but recommended). `Clusters.<name>.urls`
   and `Servers.<alias>` accept a comma list:
   `nats://n1:4222,nats://n2:4222,nats://n3:4222`.
-- **Reconnection knobs** (per cluster, optional), mapped to `NatsOpts`:
-  `maxReconnectAttempts` (`MaxReconnectRetry`), `reconnectWaitMs`
-  (`ReconnectWaitMin`/`Max`), `reconnectJitterMs` (`ReconnectJitter`),
-  `connectTimeoutMs` (`ConnectTimeout`). Defaults are fine; expose them because a
-  cell that silently stops updating is the failure mode we care about.
+- **Reconnection knobs** (per cluster, optional). *(Designed, **not implemented**:
+  the shipped schema accepts a per-cluster `reconnect` block
+  (`maxAttempts`/`waitMs`/`jitterMs`) and `Config.cs` parses and merges it, but
+  the connection manager does not map it onto `NatsOpts` yet — only the shared
+  `timeout` becomes `ConnectTimeout`. Tracked in `PLAN.md` §9.)* The intended
+  mapping is `maxAttempts` to `MaxReconnectRetry`, `waitMs` to
+  `ReconnectWaitMin`/`Max`, `jitterMs` to `ReconnectJitter`.
 - **`NoRandomize`**: NATS shuffles the URL list by default so many clients do not
   all hit node 1. Leave it off (the default); expose it only for deterministic
   diagnostics.
@@ -735,21 +824,32 @@ must be unique per node and the cluster `name` must match. A one-line
 
 1. **Unit** — no NATS, no Excel. Config load/schema/pruning, masking, JSON
    conversions, the busy/refresh queue, arg parsing, `NonVolatile` signature
-   parity, `TickGate`, conflation window, endpoint resolution.
+   parity, `TickGate`, conflation window, endpoint resolution. **Implemented**
+   (`test\NATSExcel.Tests`, run with `dotnet test`).
 2. **Smoke** — real `nats-server -js`, no Excel. Subscription ref-counting,
    wildcards, queue groups, request/reply, JetStream publish/consume, KV CRUD +
-   CAS, object put/get, `SyncWrite` modes, dedup markers.
+   CAS, object put/get, `SyncWrite` modes, dedup markers. *Planned.*
 3. **Excel E2E** — hidden Excel instance, packed XLL, UDF/RTD assertions,
-   multi-workbook case, connection blip (restart the server), write modes and
-   async pending marker.
+   multi-workbook case, node kill (failover), Excel restart, `...NonVolatile`
+   single-run. **Implemented** (`test\Run-ExcelE2E.ps1`; 11-pass local run).
 4. **Load** — `manager` vs raw `NATS.Client` baseline: throughput, allocated
-   bytes/message, GC.
+   bytes/message, GC. **Implemented** (`test\LoadTests`; ~204k msg/s measured on
+   a local manager run).
 5. **Liveness** — adversarial: threadpool starvation, subscribe/dispose churn,
    server restart storms, JetStream consumer reconnects; enforced stall/resume
-   bounds with a heartbeat watchdog.
+   bounds with a heartbeat watchdog. *Planned.*
 
-CI runs `nats-server -js` (a single binary; no package manager needed, unlike
-the Redis Memurai step) plus unit → smoke → liveness(quick).
+A **cluster harness** (`test\TestSupport\Start-Cluster.ps1` / `Stop-Cluster.ps1`)
+brings up a disposable 1- or 3-node `nats-server` for layers 2-5 and the E2E
+script; `tools/NatsValidate` is the standalone config/connection checker.
+
+CI (`.github/workflows/build.yml`) runs on `windows-latest`: it builds the
+packed XLL, runs the unit layer, provisions `nats-server -js` (a single binary;
+no package manager needed, unlike the Redis Memurai step) with a JetStream
+probe, and builds the installer on every run. The smoke and liveness steps are
+present but **guarded to skip while those projects do not exist yet**
+(`test\SmokeTests` / `test\LivenessTests`); a `v*` tag adds the CHANGELOG check,
+the release-asset assertion and the GitHub release.
 
 ## 11. Installer and CI
 
@@ -781,12 +881,14 @@ RedisExcel's beginner guide):
   `jetstream { store_dir: ... }` pointing at a **durable** directory, and can
   register/start the Windows service. Docker is offered only as a fallback
   option. The installer never requires admin except for the service step.
-- CI (`build.yml`) on `windows-latest`: build with msbuild, unit tests,
-  **download the `nats-server-<ver>-windows-amd64.zip`** and run it with
-  `-js --store_dir <temp>` (no Chocolatey/package manager — the community
-  `nats-server` choco package is stale, last published 2019), probe port 4222,
-  run smoke and liveness(quick), build the installer, and on a `v*` tag assert
-  the release assets and publish them.
+- CI (`build.yml`) on `windows-latest`: build the add-in with `dotnet build`,
+  run the unit tests, **download the `nats-server-<ver>-windows-amd64.zip`** and
+  run it with `-js --store_dir <temp>` (no Chocolatey/package manager, since the
+  community `nats-server` choco package is stale, last published 2019), probe
+  port 4222 and require `jetstream:true`, build the installer on every run, and
+  on a `v*` tag check the CHANGELOG heading, assert the release assets and
+  publish them. The smoke and liveness steps exist but skip while those test
+  projects are absent; the unit step is unconditional.
 - Release assets: `NATSExcel-packed.xll`, `NATSExcel64-packed.xll`,
   `NATSExcel.dll`, `NLog.config`, `NATSExcel.json`,
   `NATSExcelSetup-<version>.exe`.
@@ -802,8 +904,13 @@ silently.
 
 - The UDF names, argument order, RTD commands and ProgID `NatsRtd` are frozen
   at v1.0.0. New work is additive (new functions, new `...NonVolatile` pairs).
-- The `NATSExcel.json` shape is backward compatible (`Nats`/`RTD`/`UDF`/
-  `Servers`/`Auth`/`JetStream`).
+- The `NATSExcel.json` shape is backward compatible: the top-level `Default`
+  (a name), `Servers`, `Clusters`, the shared `Auth` and `Reconnect` blocks,
+  `RTD`, `JetStream`, and the flat toggles (`AllowAdminWrites`,
+  `SkipRepeatedMessages`, `CoalesceRealtimeUpdates`, `ConflationMs`,
+  `PublishDedupCacheSize`, `SyncWrite`, `AsyncWrites`, `UpdateCheck`). An
+  earlier draft that nested the connection settings under `Default` is still
+  parsed as a back-compat fallback.
 
 ## 13. Open decisions
 
@@ -842,36 +949,38 @@ silently.
    shim.** `LangVersion` only sets the compiler dialect; it does not retarget the
    runtime, so `net48` stays.
 
-Reviewer note (do not lose this): the `.dna` `<Reference>` list is currently not
-complete — see decision 6.
+Reviewer note (do not lose this): the `.dna` `<Reference>` list shipped complete
+(29 dependencies, each `Pack="true"`); see decision 6.
 2. **Config key names — DECIDED.** Use NATS-neutral names:
    `RTD.NatsUpdateRateMs` and `RTD.NatsUpdateStyle` (not `RedisUpdateRateMs` /
-   `ExcelUpdateStyle`); `Nats.url` (with `Nats.host` accepted as a documented
-   alias). v1 has no users, so there is no compatibility burden — the clean name
-   is chosen now. Corrected in §8; see `PLAN.md` decision D5.
-3. **Object Store in a cell.** Objects can be large; a string return must have a
-   hard size bound (error past it), and binary objects cannot be a text cell.
-   Confirm the bound and the behavior for binary.
+   `ExcelUpdateStyle`). The connection target is named by the top-level `Default`
+   (a `Clusters`/`Servers` name or a raw URL), with per-endpoint settings in
+   `Clusters`/`Servers` and shared `Auth`/`Reconnect`; the earlier `Nats.url` /
+   `Nats.host` top-level pair was dropped. Corrected in §8; see `PLAN.md`
+   decision D5.
+3. **Object Store in a cell — RESOLVED (implemented).** `NatsUDFObjectGet`
+   rejects a value over **1 MiB** (`MaxObjectCellBytes = 1_048_576`) or a binary
+   object with a named `Error:`; a text cell is bounded by
+   `MaxCellTextLength = 32767`.
 4. **License.** NATS.Net is Apache-2.0; pick a license for NATSExcel before the
    first public release (RedisExcel ships none).
-5. **Admin gate default.** `AllowAdminWrites` default `false` (proposed) vs
-   `true` ("do everything"). Destructive functions argue for `false`.
-6. **Packed dependency set (verified, needs review).** A `net48` build against
-   `NATS.Client.*` 3.3.0 (Core + JetStream + KeyValueStore + ObjectStore) restores
-   this runtime dependency set: `NATS.Client.Abstractions`, `NATS.NKeys`,
+5. **Admin gate default — DECIDED.** `AllowAdminWrites` defaults to `false`; the
+   destructive functions return the exact gate error until it is set true.
+6. **Packed dependency set — RESOLVED (the P0 gate passed).** The `net48` build
+   against `NATS.Client.*` 3.3.0 (Core + JetStream + KeyValueStore +
+   ObjectStore) restores exactly the set enumerated in `NATSExcel.dna` (29 DLLs,
+   each `Pack="true"`): `NATS.Client.Abstractions`, `NATS.NKeys`,
    `Microsoft.Bcl.AsyncInterfaces`, `Microsoft.Bcl.Memory`,
    `Microsoft.Extensions.Logging.Abstractions`, `Microsoft.Extensions.Primitives`,
-   `Nerdbank.Streams`, `System.Buffers`, `System.Diagnostics.DiagnosticSource`,
-   `System.IO.Pipelines`, `System.Memory`, `System.Numerics.Vectors`,
+   `Microsoft.VisualStudio.Threading`/`.Validation`, `Nerdbank.Streams`,
+   `System.Buffers`, `System.Diagnostics.DiagnosticSource`, `System.IO.Pipelines`,
+   `System.Memory`, `System.Numerics.Vectors`,
    `System.Runtime.CompilerServices.Unsafe`, `System.Text.Json`,
    `System.Text.Encodings.Web`, `System.Threading.Channels`,
-   `System.Threading.Tasks.Extensions`, `System.ValueTuple`, plus
+   `System.Threading.Tasks.Extensions`, `System.ValueTuple`,
    `Microsoft.Win32.Registry`, `System.ComponentModel.Annotations`,
-   `System.Security.AccessControl`, `System.Security.Principal.Windows`
-   (`Microsoft.VisualStudio.Threading`/`.Validation` appeared on the local .NET 9
-   SDK restore; the CI .NET Framework path may differ). `System.Text.Json` and its
-   transitive closure are a noticeable addition next to the existing Newtonsoft
-   dependency — confirm the exact set on the CI toolchain (msbuild/VS), decide
-   whether to keep both JSON stacks or standardize, then enumerate every one of
-   them in `NATSExcel.dna` with `Pack="true"` (an unpacked DLL is a runtime
-   `FileNotFoundException` inside the XLL).
+   `System.Security.AccessControl`, `System.Security.Principal.Windows`, plus the
+   Excel-DNA/Newtonsoft/NLog set. `System.Text.Json` and its transitive closure
+   sit next to the Newtonsoft dependency (both are packed). The packed XLL loads
+   in real Excel and answers UDFs, so the list is demonstrably complete;
+   `DnaPackagingParityTests` (PLAN V8.2) is the tripwire against future drift.

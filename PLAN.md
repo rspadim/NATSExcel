@@ -1,14 +1,16 @@
 # NATSExcel — Implementation Plan
 
 Fine-grained build plan, ready to execute. Companion to `DESIGN.md` (the
-architecture contract) and `AGENTS.md` (working guidance). **Partly executed**:
-the P0 scaffolding, the installer (P9) and the config/connection validator
-(`tools/NatsValidate`, V8.0) have landed. The **P0 gate (F0.9) is still open
-and is the one thing blocking every other phase** — the packed XLL has not yet
-been loaded in a real Excel. Tasks are tagged `**DONE**` / `**PARTIAL**` /
-`**TODO**` against the tree as it stands; an untagged task is `**TODO**`.
+architecture contract) and `AGENTS.md` (working guidance). **Largely executed**:
+the P0 gate passed (the packed XLL loads in real Excel and answers UDFs), and
+the config layer, the runtime core, the RTD server, the whole UDF catalog, the
+installer and the unit/E2E/load test layers have landed. Tasks are tagged
+`**DONE**` / `**PARTIAL**` / `**TODO**` against the tree as it stands; an
+untagged task is `**TODO**`. The known-open work is the medium/low audit
+findings, the smoke and liveness layers, the solution file and the release cut —
+see §8 and §9.
 
-Three workstreams run in parallel once the **P0 gate** is green:
+Three workstreams ran in parallel once the **P0 gate** went green:
 
 - **F — Foundation / runtime core**: scaffolding, packing, config, connections,
   subscriptions, async bridge.
@@ -49,18 +51,21 @@ Consolidated from three independent plans; interface names were reconciled
 | --- | --- |
 | `[ExcelFunction]` total (`NatsUDF*`) | **89** |
 | Base UDFs (before twins) | **64** |
-| Volatile | **61** (25 write bases + 36 reads/status) |
+| Volatile | **63** (25 write bases + 38 reads/status) |
 | Writes with a `...NonVolatile` twin | **25** |
-| Reads/status without a twin | **36** |
-| Standalone non-volatile (no twin) | **3** (`MatrixToJSON`, `JSONToMatrix`, `ConfigReload`) |
+| Reads/status without a twin | **38** |
+| Standalone non-volatile (no twin) | **1** (`ConfigReload`) |
 | RTD status helpers (`NatsRTD*`, in `NatsRtd.cs`) | **6** |
-| RTD commands | **9** (`SUB`, `KV`, `KVGET`, `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`, `RTDCluster`) |
+| RTD commands | **9** (`SUB`, `KV`, `KVGET`, `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`, `RTDCLUSTER`) |
 | Functions gated by `AllowAdminWrites` | **11** |
 
-These counts are mechanical (counted from the `DESIGN.md` §7.1–§7.8 tables and
-the §7.7 twins table). `DESIGN.md` §7.9 is the catalogue's narrative; this table
-is the pinned contract and the baseline test is the authority. Earlier drafts
-said 88 / 60 / 35 / 8 RTD — superseded.
+These counts are counted mechanically against the code (the `[ExcelFunction]`
+attributes in the root `*.cs` and the twin set). `DESIGN.md` §7.9 is the
+catalogue's narrative; this table is the pinned contract and the baseline test is
+the authority once S7.1 lands. Earlier drafts said 88 / 60 / 35 / 8 RTD and a
+61-volatile split — superseded. Note the two `MatrixToJSON`/`JSONToMatrix`
+functions were dropped from the counts: no such `[ExcelFunction]` exists (the
+matrix ⇄ JSON conversions are internal `NatsJson` helpers).
 
 The full per-function signature catalog is the
 S workstream's `docs/PUBLIC-SURFACE.md`, produced in S0.
@@ -77,15 +82,19 @@ S workstream's `docs/PUBLIC-SURFACE.md`, produced in S0.
 | `JS` | `[1]stream [2]consumer [3]filter [4]endpoint` | push | filter only |
 | `MSG` | `[1]stream [2]filter [3]endpoint` | poll | filter only |
 | `OBJ` | `[1]bucket [2]object [3]endpoint` | push (metadata) | no |
+| `RTDCLUSTER` | `[1]what [2]endpoint` | poll | no |
 
 Frozen parser rules (pinned by `RtdTopicGrammarTests`):
 
 - Command token: `ToUpperInvariant().Trim()`; unknown →
-  `unknown command 'X', expected one of [SUB, KV, KVGET, KVKEYS, REQ, JS, MSG, OBJ]`.
+  `unknown command 'X', expected one of [SUB, KV, KVGET, KVKEYS, REQ, JS, MSG, OBJ, RTDCLUSTER]`.
 - Only a **non-blank** token past the documented arity is an error.
 - Blank subject/bucket/stream/consumer/object → specific `... is required`,
   rejected **before** registration (never a retry storm).
 - `REQ everyMs`: invariant integer, clamped to `>= 100`.
+- `RTDCLUSTER what`: kind-specific check, `what` in
+  `[cluster, nodes, leader, lag]` (blank/`all` accepted), else
+  `RTDCLUSTER expects what to be one of [cluster, nodes, leader, lag]`.
 - **Optional-middle positional rule**: when the optional middle token is blank
   and a trailing token remains, the trailing token is the endpoint **only if**
   it resolves (a `Servers` alias, or contains `://`); otherwise it is the
@@ -116,52 +125,66 @@ Bounds: `MaxCellTextLength = 32767`, `MaxObjectCellBytes = 1_048_576`.
 
 ### 1.4 Reconciled interface contracts
 
-The contracts below are the **frozen target** the F workstream must land; today
-`Config.cs` implements a subset (see the P1 status column and `AGENTS.md`).
+The contracts below are the **landed shape** (the frozen target the F
+workstream set out to build); the code in `Config.cs` / `NatsConnectionManager.cs`
+/ `NatsSubscriptionManager.cs` matches it.
 
 **`AppConfig`** (`Config.cs`):
 
 ```csharp
-public enum EnumExcelUpdateStyle { Timer, Realtime, Automatic }
-
-public class NatsSection   { string url; int timeout; }          // url; legacy alias "host"
-public class RTDConfig     { int NatsUpdateRateMs; int ExcelUpdateRateMs;
-                             long MessageCounterThreshold; EnumExcelUpdateStyle NatsUpdateStyle; }
-public class UDFConfig     { int timeout; }
-public class AuthConfig    { string user, password, token, jwt, nkeySeed, credsFile;
-                             bool tls; string tlsCert, tlsCertPassword; }
-public class JetStreamConfig { bool enabled; int defaultTimeoutMs; }
-public class ConfigRoot    { NatsSection Nats; RTDConfig RTD; UDFConfig UDF;
-                             Dictionary<string,string> Servers; AuthConfig Auth;
-                             JetStreamConfig JetStream; bool AllowAdminWrites;
-                             bool SkipRepeatedMessages; bool CoalesceRealtimeUpdates;
-                             int? ConflationMs; int PublishDedupCacheSize;
-                             string SyncWrite; bool AsyncWrites; bool UpdateCheck; }
+public static class SyncWriteModes { string Sync, FireForget, FireForgetAll; }
 
 public static class AppConfig {
-  public  const  string ConfigFileName = "NATSExcel.json";
-  public  const  string DefaultUrl     = "nats://localhost:4222";
-  public  static ConfigRoot Current { get; }                 // Lazy, once per process
-  public  static string ResolveEndpoint(string endpoint, string defaultEndpoint);
-  public  static string ResolveRtdEndpoint(string endpoint);
-  public  static string ResolveUdfEndpoint(string endpoint);
-  public  static string MaskNatsEndpoint(string text);
-  public  static string SyncWrite { get; }
-  public  static bool   AsyncWrites { get; }
-  public  static bool   AllowAdminWrites { get; }
-  public  static bool   JetStreamEnabled { get; }
-  public  static int    JetStreamTimeoutMs { get; }
-  public  static string ValidateConfiguration(string path = null);
-  public  static string JsonSchemaText { get; }
-  internal static ConfigRoot CurrentOverrideForTests;
-  internal static ConfigRoot ParseTolerant(string json, Action<Exception> onError, IList<ConfigIssue> issues);
-  internal static ConfigRoot LoadFromPaths(IEnumerable<string> paths);
-  internal static ConfigRoot Sanitize(ConfigRoot config);
-  internal static string ResolveEndpointCore(string endpoint, string defaultEndpoint, IDictionary<string,string> servers);
+  public const string ConfigFileName = "NATSExcel.json";
+  public const string DefaultUrl     = "nats://localhost:4222";
+
+  public static Root Current { get; }                        // Lazy, once per process
+  public static Root Reload();                               // NatsUDFConfigReload
+  public static string ResolveEndpoint(string endpoint, string defaultEndpoint);
+  public static string ResolveRtdEndpoint(string endpoint);
+  public static string ResolveUdfEndpoint(string endpoint);
+  public static ConnectionSettings ResolveSettings(string endpoint);  // merged auth/timeout
+  public static string MaskNatsEndpoint(string text);
+  public static string Version { get; }
+  public static string SyncWrite { get; }
+  public static bool   AsyncWrites { get; }
+  public static bool   AllowAdminWrites { get; }
+  public static bool   SkipRepeatedMessages { get; }
+  public static bool   CoalesceRealtimeUpdates { get; }
+  public static int?   ConflationMs { get; }
+  public static int    PublishDedupCacheSize { get; }
+  internal static Root CurrentOverrideForTests;
+  internal static Root Parse(string text);
+  internal static Root Sanitize(Root config);
+  internal static string ResolveSeed(string seedOrPath);     // golden rule 11
+  internal static string ResolveEndpointCore(string endpoint, string defaultEndpoint,
+      IDictionary<string,string> servers, IDictionary<string,string> clusters);
   internal static string NormalizeSyncWrite(string mode);
-  internal static IEnumerable<string> CandidatePaths(string addInDirectory, string excelDirectory);
+  internal static string StripComments(string text);
+  internal static IEnumerable<string> CandidatePaths();
+
+  public class Root { string Default; int TimeoutMs; Auth Auth; Reconnect Reconnect;
+                      bool JetStreamEnabled; int JetStreamTimeoutMs;
+                      int NatsUpdateRateMs; int ExcelUpdateRateMs;
+                      long MessageCounterThreshold; string NatsUpdateStyle;
+                      bool AllowAdminWrites; bool SkipRepeatedMessages;
+                      bool CoalesceRealtimeUpdates; int? ConflationMs;
+                      int PublishDedupCacheSize; string SyncWrite;
+                      bool AsyncWrites; bool UpdateCheck;
+                      Dictionary<string,string> Servers;
+                      Dictionary<string,Cluster> Clusters; }
+  public class Cluster { string Label, ExpectCluster; List<string> Urls;
+                         string JetStreamDomain; int? TimeoutMs;
+                         Auth Auth; bool AuthOverrides; Reconnect Reconnect; }
+  public class Reconnect { int MaxAttempts, WaitMs, JitterMs; }
+  public class Auth { string User, Password, Token, Jwt, NkeySeed, CredsFile;
+                      bool Tls; string TlsCert, TlsCertPassword; }
+  public class ConnectionSettings { int TimeoutMs; Auth Auth; Reconnect Reconnect; }
 }
 ```
+
+The schema walk lives in `ConfigSchema.cs` (`ParseWithComments`/`Clean`), wired
+into the load path; a wrong-typed value is dropped individually.
 
 **`NatsConnectionManager`** (`NatsConnectionManager.cs`):
 
@@ -230,36 +253,35 @@ NormalizeTag`).
 | --- | --- | --- | --- | --- | --- |
 | F0.1 | Solution + add-in csproj: `net48`, `LangVersion 9.0`, Release `DebugType none`, `InformationalVersion dev`, `Compile Remove="test\**"` | `NATSExcel.sln`, `NATSExcel.csproj` | — | Release build zero errors/warnings | **PARTIAL** — `NATSExcel.csproj` exists and Release builds clean (0 warnings); `NATSExcel.sln` is not yet created |
 | F0.2 | `IsExternalInit` shim | `IsExternalInit.cs` | F0.1 | `NatsOpts { Url = ... }` compiles | **DONE** |
-| F0.3 | Packages: NATS.Client.Core/JetStream/KeyValueStore/ObjectStore (3.3.0), NLog 6.0.0-rc3, Newtonsoft 13.0.3, NJsonSchema 10.9.0, ExcelDna.* 1.9.0-beta2 | `NATSExcel.csproj` | F0.1 | Restore on the CI toolchain; output DLL set enumerated and recorded | **PARTIAL** — restored locally and the output DLL set enumerated into the `.dna` (29 deps); CI toolchain restore not yet exercised |
-| F0.4 | `NATSExcel.dna` with **every** shipped DLL `Pack="true"` | `NATSExcel.dna` | F0.3 | `DnaPackagingParityTests` green both directions | **PARTIAL** — `.dna` exists and 29 DLLs pack (packed XLL grew 13 KB → ~2.3 MB, proving the pack took effect); `DnaPackagingParityTests` not written yet (needs the test project) |
+| F0.3 | Packages: NATS.Client.Core/JetStream/KeyValueStore/ObjectStore (3.3.0), NLog 6.0.0-rc3, Newtonsoft 13.0.3, ExcelDna.* 1.9.0-beta2 | `NATSExcel.csproj` | F0.1 | Restore on the CI toolchain; output DLL set enumerated and recorded | **DONE** — restored and the output DLL set enumerated into the `.dna` (29 deps); the shipped build runs it on CI |
+| F0.4 | `NATSExcel.dna` with **every** shipped DLL `Pack="true"` | `NATSExcel.dna` | F0.3 | `DnaPackagingParityTests` green both directions | **DONE** — `.dna` exists and 29 DLLs pack (packed XLL ~2.3 MB); the packed XLL loads in real Excel (P0 gate) |
 | F0.5 | `NLog.config` → `NATSExcel.log` + rolling | `NLog.config` | F0.1 | Log line on load | **DONE** |
 | F0.6 | `.gitignore` | `.gitignore` | — | `git status` clean after Release build | **DONE** |
 | F0.7 | Sample `NATSExcel.json` + `NATSExcel.schema.json` (embedded resource) | both | — | Sample validates; resource name fixed | **DONE** — both files present; `tools/NatsValidate` validates the sample against the schema |
 | F0.8 | `CopyNatsExcelDllToPublish` target | `NATSExcel.csproj` | F0.1 | `publish\` has dll + both XLLs | **DONE** |
-| F0.9 | **P0 GATE**: `NatsUdf.cs` exercising the packed closure in-cell (version, config path, connection count) | `NatsUdf.cs`, `AddIn.cs` | F0.1–F0.8 | **Packed XLL loads in real (hidden) Excel and a UDF returns a value — no `FileNotFoundException`.** The scratch `ScaffoldProbe.cs` is replaced by the three real diagnostic UDFs | **TODO — THE BLOCKING GATE.** No Excel automation run has been done yet. Until the packed `NATSExcel-packed.xll` loads and `NatsUDFVersion()` returns a value in a real Excel, every phase below is unproven |
-| V0.1 | Four test project skeletons + `ProductionSources.props` + parity test | `test\*\*.csproj`, `test\TestSupport\ProductionSources.props`, `test\NATSExcel.Tests\ProjectFileParityTests.cs` | F0.1 | All 5 build; parity green | **TODO** — no `test\` directory yet |
+| F0.9 | **P0 GATE**: `NatsUdf.cs` exercising the packed closure in-cell (version, config path, connection count) | `NatsUdf.cs`, `AddIn.cs` | F0.1–F0.8 | **Packed XLL loads in real (hidden) Excel and a UDF returns a value — no `FileNotFoundException`.** The scratch `ScaffoldProbe.cs` is replaced by the three real diagnostic UDFs | **DONE** — the packed XLL loads in real Excel, `NatsUDFVersion()` returns a value, and the Excel E2E asserts it. The scratch probe was replaced by the real diagnostics (now four, incl. `NatsUDFLogPath`). The 29-DLL packing risk (R1) is retired |
+| V0.1 | Four test project skeletons + `ProductionSources.props` + parity test | `test\*\*.csproj`, `test\TestSupport\ProductionSources.props`, `test\NATSExcel.Tests\ProjectFileParityTests.cs` | F0.1 | All 5 build; parity green | **PARTIAL** — `test\NATSExcel.Tests` and `test\LoadTests` exist and build; `ProductionSources.props` and `ProjectFileParityTests` are green; the smoke and liveness projects are still TODO |
 
-**F0.1–F0.8 are landed; F0.9 is the only remaining P0 item and the single
-gate in front of everything.** The ~20-DLL packing risk (R1) is *largely*
-retired — the `.dna` list is complete enough that the packed XLL grew from
-13 KB to ~2.3 MB — but it is **not confirmed until the packed XLL loads in a
-real Excel and a UDF returns a value**. That is the P0 gate. **Nothing proceeds
-until F0.9 passes.**
+**F0.1–F0.9 are landed; the P0 gate (F0.9) passed** — the packed XLL loads in
+real Excel, a UDF returns a value and the Excel E2E asserts it. The ~20-DLL
+packing risk (R1) is **retired**: the `.dna` list is complete and the packed
+XLL runs. The one remaining P0 item is the **`NATSExcel.sln`** (F0.1), still
+deferred; the project file is the build input.
 
 ### P1 — Config (F)
 
 | ID | Task | Files | Acceptance | Status |
 | --- | --- | --- | --- | --- |
-| F1.1 | `AppConfig` model + `Lazy` load + defaults | `Config.cs` | `AppConfigTests.Sanitize_*` | **PARTIAL** — `Config.cs` has the model, `Lazy` load and safe defaults (`nats://localhost:4222`); tests pending (no test project) |
-| F1.2 | Candidate-path discovery (add-in folder first) | `Config.cs` | `CandidatePaths_*`, malformed-first stops | **PARTIAL** — `CandidatePaths` implemented (add-in folder → profile → `C:\Windows`); the design's Excel folder and the tests are pending |
-| F1.3 | Tolerant parse (schema walk, per-value drop, invariant, case-merge) | `ConfigSchema.cs` | `ConfigSchemaTests.*` | **TODO** — `ConfigSchema.cs` does not exist; today a parse error on the first candidate falls back to defaults for the whole file |
-| F1.4 | `Sanitize` (rates/timeouts, conflation, SyncWrite, style) | `Config.cs` | `Sanitize_*` | **TODO** |
-| F1.5 | **`MaskNatsEndpoint`**: userinfo, `password=`/`user=`, `token=`, **JWT (`eyJ...`)**, `SU...` seed, creds-file path, TLS cert path | `Config.cs` | `NatsMaskingTests` one case per form | **TODO** — only `tools/NatsValidate` masks today (`ConfigLoader.MaskUrl`); `Config.cs` has no `MaskNatsEndpoint` yet |
-| F1.5b | **Auth model + precedence + `NatsAuthOpts` mapping** (D7, all 7 styles): (1) none, (2) token, (3) user/password, (4) NKey seed, (5) JWT + seed, (6) creds file, (7) mTLS (`tls`, `tlsCert`, `tlsCertPassword`) — plus URL userinfo; invalid combinations → `#CONFIG`. **`nkeySeed` accepts either the seed text (`SU...`) or a path to a `.nk` file** (read the file, pass the trimmed contents; a path passed verbatim fails with `Invalid base32 character` — reference `ReadSeed` in `tools/NatsValidate/ConnectionTester.cs`). | `Config.cs` | `AuthConfigTests`: each style builds the expected `NatsAuthOpts`; illegal combos rejected; seed-text and `.nk`-path both yield the seed. **`tools/NatsValidate --test` is the proof for styles 3–7**, since only a real NATS.Net client can exercise NKey/JWT/creds/mTLS (the PowerShell check covers only token and user/password) | **PARTIAL** — the config model + validator exercise all 7 styles today; the add-in's `NatsAuthOpts` mapping and unit tests are pending |
-| F1.5c | **Cluster/URL-list support** (D8, D10, D11): `Default`/`Servers`/`Clusters` model; comma-separated URLs; **discovery via `INatsServerInfo`** (`Cluster`, `ClientConnectUrls`, `ClusterDynamic`, `LameDuckMode`, `JetStreamAvailable`); reconnect knobs mapped to `NatsOpts` (`maxReconnectAttempts`→`MaxReconnectRetry`, `reconnectWaitMs`→`ReconnectWaitMin/Max`, `reconnectJitterMs`→`ReconnectJitter`, `connectTimeoutMs`→`ConnectTimeout`) | `Config.cs`, `NatsConnectionManager.cs` | `ClusterConfigTests`: one URL reaches a 3-node cluster and discovers peers; node loss → reconnect; `Cluster`/`ClientConnectUrls` surfaced | **PARTIAL** — `Default`/`Servers`/`Clusters` and URL lists load; discovery/reconnect mapping pending |
-| F1.5d | **Cluster reference resolution** (D10): name→`Clusters`, name→`Servers`, raw URL/list, then `Default.cluster`; exact-then-case-insensitive; dangling name → `#CONFIG`; name in both sections → validation warning; per-cluster `auth`/`jetstream`/`reconnect` merge over `Default` | `Config.cs` | `ClusterResolutionTests`: all four orders; ambiguity warning; no implicit localhost fallback | **PARTIAL** — `ResolveUrl` resolves cluster/alias today; the warning text and tests are pending |
-| F1.5e | **Cluster identity** (`DESIGN.md` §8.3, D14): the `Clusters` key is a **local label** (never required to match the server); optional `expectCluster` asserts the announced `INatsServerInfo.Cluster` and reports a **non-fatal warning** on mismatch (surfaced in `=NatsUDFConfigValidate()`, `tools\NatsValidate` and the log) | `Config.cs`, `NatsConnectionManager.cs` | `ClusterIdentityTests`: label-only is silent; matching `expectCluster` is silent; mismatch warns and still connects | **PARTIAL** — `Config.cs` and the validator read `expectCluster` and warn; the `=NatsUDFConfigValidate()` surfacing and tests are pending |
-| F1.6 | Endpoint alias resolution + auth model (the scratch `ScaffoldProbe.cs` from the pre-`.dna` scaffold was already replaced by `NatsUdf.cs` in F0.9, so nothing to delete) | `Config.cs` | `ResolveEndpointCore_*`; no implicit localhost | **PARTIAL** |
+| F1.1 | `AppConfig` model + `Lazy` load + defaults | `Config.cs` | `AppConfigTests.Sanitize_*` | **DONE** — `Config.cs` has the model, `Lazy` load and safe defaults (`nats://localhost:4222`); covered by the unit suite |
+| F1.2 | Candidate-path discovery (add-in folder first) | `Config.cs` | `CandidatePaths_*`, malformed-first stops | **PARTIAL** — `CandidatePaths` implemented (add-in folder → profile → `C:\Windows`); the design's Excel folder is still pending |
+| F1.3 | Tolerant parse (schema walk, per-value drop, invariant, case-merge) | `ConfigSchema.cs` | `ConfigSchemaTests.*` | **DONE** — `ConfigSchema.cs` implements the schema walk with per-value drop (`ParseWithComments`/`Clean`), wired into `AppConfig.Install` |
+| F1.4 | `Sanitize` (rates/timeouts, conflation, SyncWrite, style) | `Config.cs` | `Sanitize_*` | **DONE** |
+| F1.5 | **`MaskNatsEndpoint`**: userinfo, `password=`/`user=`, `token=`, **JWT (`eyJ...`)**, `SU...` seed, creds-file path, TLS cert path | `Config.cs` | `NatsMaskingTests` one case per form | **DONE** — `AppConfig.MaskNatsEndpoint` covers every form; `MaskedExceptionRenderer` applies it to every logged exception |
+| F1.5b | **Auth model + precedence + `NatsAuthOpts` mapping** (D7, all 7 styles): (1) none, (2) token, (3) user/password, (4) NKey seed, (5) JWT + seed, (6) creds file, (7) mTLS (`tls`, `tlsCert`, `tlsCertPassword`) — plus URL userinfo; invalid combinations → `#CONFIG`. **`nkeySeed` accepts either the seed text (`SU...`) or a path to a `.nk` file** (read the file, pass the trimmed contents; a path passed verbatim fails with `Invalid base32 character` — reference `ReadSeed` in `tools/NatsValidate/ConnectionTester.cs`). | `Config.cs` | `AuthConfigTests`: each style builds the expected `NatsAuthOpts`; illegal combos rejected; seed-text and `.nk`-path both yield the seed. **`tools/NatsValidate --test` is the proof for styles 3–7**, since only a real NATS.Net client can exercise NKey/JWT/creds/mTLS (the PowerShell check covers only token and user/password) | **DONE** — `Config.cs` models all styles and `NatsConnectionManager.BuildAuth` maps them to `NatsAuthOpts`; `AppConfig.ResolveSeed` implements golden rule 11; `tools/NatsValidate --test` exercises each style against a live server |
+| F1.5c | **Cluster/URL-list support** (D8, D10, D11): `Default`/`Servers`/`Clusters` model; comma-separated URLs; **discovery via `INatsServerInfo`** (`Cluster`, `ClientConnectUrls`, `ClusterDynamic`, `LameDuckMode`, `JetStreamAvailable`); reconnect knobs mapped to `NatsOpts` (`maxReconnectAttempts`→`MaxReconnectRetry`, `reconnectWaitMs`→`ReconnectWaitMin/Max`, `reconnectJitterMs`→`ReconnectJitter`, `connectTimeoutMs`→`ConnectTimeout`) | `Config.cs`, `NatsConnectionManager.cs` | `ClusterConfigTests`: one URL reaches a 3-node cluster and discovers peers; node loss → reconnect; `Cluster`/`ClientConnectUrls` surfaced | **PARTIAL** — `Default`/`Servers`/`Clusters` and URL lists load; discovery is surfaced (`NatsServerSnapshot`); the reconnection-knob mapping to `NatsOpts` is **not implemented yet** (only `timeout`→`ConnectTimeout`) |
+| F1.5d | **Cluster reference resolution** (D10): name→`Clusters`, name→`Servers`, raw URL/list, then `Default.cluster`; exact-then-case-insensitive; dangling name → `#CONFIG`; name in both sections → validation warning; per-cluster `auth`/`jetstream`/`reconnect` merge over `Default` | `Config.cs` | `ClusterResolutionTests`: all four orders; ambiguity warning; no implicit localhost fallback | **PARTIAL** — `ResolveEndpointCore` resolves cluster/alias/raw/Default today and a dangling name yields `#CONFIG`; the "name in both sections → warning" is **not implemented** |
+| F1.5e | **Cluster identity** (`DESIGN.md` §8.3, D14): the `Clusters` key is a **local label** (never required to match the server); optional `expectCluster` asserts the announced `INatsServerInfo.Cluster` and reports a **non-fatal warning** on mismatch (surfaced in `=NatsUDFConfigValidate()`, `tools\NatsValidate` and the log) | `Config.cs`, `NatsConnectionManager.cs` | `ClusterIdentityTests`: label-only is silent; matching `expectCluster` is silent; mismatch warns and still connects | **PARTIAL** — `Config.cs` and the validator read `expectCluster` and warn; the `=NatsUDFConfigValidate()` surfacing is pending |
+| F1.6 | Endpoint alias resolution + auth model (the scratch `ScaffoldProbe.cs` from the pre-`.dna` scaffold was already replaced by `NatsUdf.cs` in F0.9, so nothing to delete) | `Config.cs` | `ResolveEndpointCore_*`; no implicit localhost | **DONE** |
 | F1.7 | Culture-invariance for identifiers/values | `Config.cs` | `NatsValueLocaleTests` (de-DE) | **TODO** |
 
 ### P2 — Runtime core (F)
@@ -286,7 +308,19 @@ until F0.9 passes.**
 | F2.18 | FIFO chain + idle release + reload reset | `NatsUdfAsync.cs` | order/drain tests |
 | F2.19 | `UpdateCheck` (`IsNewer`/`NormalizeTag`) | `UpdateCheck.cs` | `UpdateCheckTests` |
 
+**DONE** — every F2.* task is implemented and compiles: `TickGate.cs`,
+`Conflation.cs`, `NatsResultFormatter.cs`, `NatsConnectionManager.cs`
+(F2.3–F2.9), `NatsSubscriptionManager.cs` (F2.10–F2.14), `NatsRuntime.cs`
+(F2.15), `NatsUdfAsync.cs` (F2.16–F2.18) and `UpdateCheck.cs` (F2.19). The unit
+suite covers TickGate/Conflation/JSON; the manager/subscription/async paths are
+exercised by the load and E2E layers (the smoke/liveness layers that would pin
+them in CI are still TODO).
+
 ### P3 — Shared surface primitives (S)
+
+**DONE except S3.1** — `NatsRtdTopic.cs` (S3.2), `NatsUdfCommon.cs` (S3.3,
+S3.6), `NatsResultFormatter.cs` (S3.4) and `NatsJson.cs` (S3.5) are implemented;
+`docs/PUBLIC-SURFACE.md` (S3.1) is **TODO** (no `docs/` folder).
 
 | ID | Task | Files | Acceptance |
 | --- | --- | --- | --- |
@@ -294,15 +328,22 @@ until F0.9 passes.**
 | S3.2 | `NatsRtdTopic.cs`: `NatsRtdKind`, `NatsRtdTopicSpec.Parse` — **no Excel/COM dependency** | `NatsRtdTopic.cs` | `RtdTopicGrammarTests` |
 | S3.3 | `NatsUdfCommon.cs`: validation, `RequireSubject` (rejects wildcards on publish), endpoint resolve, `Fail`/`VerboseError`/`ErrorHint`, `ShortForLog`/`BoundContext`, F&F helpers, pair-range flatten, markers as consts | `NatsUdfCommon.cs` | `UdfArgumentValidationTests`, error strings pinned |
 | S3.4 | `NatsResultFormatter.cs`: ordinal `SameMessage`, `DecodePayload`, 32767 bound, per-family JSON/matrix formatters (deterministic key order) | `NatsResultFormatter.cs` | `NatsResultFormatterTests` |
-| S3.5 | `NatsJson.cs`: `MatrixToJSON`/`JSONToMatrix` (non-volatile, no twins) | `NatsJson.cs` | `NatsJsonTests` |
+| S3.5 | `NatsJson.cs`: `MatrixToJson`/`JsonToMatrix` (internal helpers, no twins) | `NatsJson.cs` | `NatsJsonTests` |
 | S3.6 | Admin gate helper + JetStream-disabled guard helper | `NatsUdfCommon.cs` | `AdminGateTests` (11 gated), JS-off exact text |
 
 ### P4 — RTD server (S)
 
+**DONE** — `NatsRtd.cs` implements the RTD server: `TopicData`,
+`ConnectData`/`DisconnectData`, all 9 kinds (the 8 core commands plus
+`RTDCLUSTER`), the timers/TickGate, backoff, delivery policy and the guarded
+`NatsRtdStatus` helpers; `NatsRtdTopic.cs` is the parser. It is the one
+production file excluded from the unit project (it needs Excel/COM), so it is
+covered by the Excel E2E rather than a unit test.
+
 | ID | Task | Acceptance |
 | --- | --- | --- |
 | S4.1 | `TopicData` (lock, polled two-phase, subscribe lifecycle, disconnect state) | mirrors RedisExcel |
-| S4.2 | `ConnectData` (parse, register polled/subscribed, reject malformed, JS probe, `(ConnectData)`, `#ERROR`) | all 8 kinds; malformed never registered |
+| S4.2 | `ConnectData` (parse, register polled/subscribed, reject malformed, JS probe, `(ConnectData)`, `#ERROR`) | all 9 kinds; malformed never registered |
 | S4.3 | `SUB` (wildcards, queue group identity, RTD origin) | two cells share one physical sub |
 | S4.4 | `KV` watch (no implicit bucket creation) | push per revision |
 | S4.5 | `KVGET`/`KVKEYS` polled | `(no value)` |
@@ -311,7 +352,7 @@ until F0.9 passes.**
 | S4.8 | `MSG` polled | filter `>` works |
 | S4.9 | `OBJ` metadata watch (never the body) | push on change |
 | S4.10 | `DisconnectData` idempotent + race-safe | — |
-| S4.11 | `AddIn` `AutoOpen`/`AutoClose` (runtime reset, RTD reset, ThreadPool floor, non-fatal ComServer) | reload leaves no stranded registry |
+| S4.11 | `AddIn` `AutoOpen`/`AutoClose` (runtime reset, RTD reset, non-fatal ComServer) | reload leaves no stranded registry |
 | S4.12 | `NatsRtd` `ServerStart`/`ServerTerminate`/`Instances`/`ResetAfterAddInReload` | highest-ordinal survivor promoted |
 | S4.13 | Timers via `CreateTimer` + `TickGate` (poll, Excel flush, 1s counter) | overrun skipped |
 | S4.14 | Poll tick (group by endpoint, bounded parallelism, two-phase skip/commit) | slow endpoint isolated |
@@ -319,8 +360,14 @@ until F0.9 passes.**
 | S4.16 | Delivery policy (`DeliverToTopic`, `SendToExcelIfDirty(conflationMs)`, dedup) | failed push stays dirty |
 | S4.17 | `NatsRtdStatus` (RTD counters, default endpoint, rates) guarded | neutral after teardown |
 | S4.18 | Masking audit of RTD log lines + `#ERROR` + status cells | redaction asserted |
+| S4.19 | `RTDCLUSTER` kind (`what` = cluster/nodes/leader/lag) | kind-specific validation before registration |
 
 ### P5 — UDF families (S)
+
+**DONE** — the whole catalog exists: Core (`NatsUdfCore.cs`), JetStream + admin
+(`NatsUdfJetStream.cs`), KV (`NatsUdfKv.cs`), Object Store
+(`NatsUdfObjectStore.cs`) with their `...NonVolatile` twins. 89 `NatsUDF*`
+`[ExcelFunction]` total (see §1.1).
 
 Core (`NatsUdfCore.cs`) — S5.1..S5.9: publish / publishJSON / publishIfChanged
 (LRU + `ListenerJoined` marker clear) / publishWithHeaders / request /
@@ -342,20 +389,27 @@ watch (snapshot; live = RTD `OBJ`) / buckets / delete (gated).
 
 ### P6 — Status / config / JSON UDFs (S)
 
-S6.1 `ConnectionCount`/`ServerInfo`/`Stats`/`Rtt` (guarded) · S6.2
-`UpdateAvailable` (non-blocking) · S6.3 `NatsUDFConfigValidate`/
+**DONE except the JSON pair** — S6.1 `ConnectionCount`/`ServerInfo`/`Stats`/`Rtt`
+(guarded) · S6.2 `UpdateAvailable` (non-blocking) · S6.3 `NatsUDFConfigValidate`/
 `NatsUDFConfigSchema`/`NatsUDFConfigPath` (D13) · S6.4 `ConfigReload`
-(non-volatile; does **not** tear down connections; RTD rates apply at next RTD
-start). The three diagnostic functions in the existing `NatsUdf.cs`
-(`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`) are the seeds
-of this set — `NatsUDFConfigPath` already exists; the rest are added here.
+(non-volatile; re-reads the file without tearing down connections) all exist in
+`NatsUdfStatus.cs` / `NatsUdf.cs`. The standalone `NatsUDFMatrixToJSON` /
+`NatsUDFJSONToMatrix` functions named in earlier drafts do **not** exist (the
+conversions are internal `NatsJson` helpers) — an open item.
 
 ### P7 — Surface freeze tests (S+V)
+
+**PARTIAL** — the `NatsRtdTopicGrammarTests` pin the grammar and command list;
+`NatsUdfCommonTests` pin the error strings and markers; the `ProjectFileParityTests`
+guard the production-source list. The dedicated public-surface baseline
+(`S7.1`), the twin-signature parity across the full 25-pair set (`S7.2`) and the
+unbounded-blocking source scan (`V7.3`) are still TODO. `S7.4` is **DONE** —
+`DESIGN.md` §5.1 and `AGENTS.md` name the real files.
 
 | ID | Task | Acceptance |
 | --- | --- | --- |
 | S7.1 | `PublicSurfaceParityTests` + `PublicSurface.baseline.txt` | any rename/reorder fails |
-| S7.2 | `NonVolatileTwinTests` (25 pairs; counts 60/25/35/3) | delegation identical offline |
+| S7.2 | `NonVolatileTwinTests` (25 pairs; counts 64 base / 25 twins) | delegation identical offline |
 | V7.3 | `NoUnboundedBlockingTests`: source scan fails on `.GetAwaiter().GetResult()`, `.Result`, `.Wait(` outside the bounded helper | zero hits |
 | S7.4 | Update `DESIGN.md` §5.1 and `AGENTS.md` layout for `NatsRtdTopic.cs`, `NatsUdfCommon.cs` | tables match tree |
 
@@ -364,16 +418,16 @@ of this set — `NatsUDFConfigPath` already exists; the rest are added here.
 | ID | Layer | Files | Acceptance | Status |
 | --- | --- | --- | --- | --- |
 | V8.0 | **Config + connection validator** (C# console, no Excel): validates `NATSExcel.json` against the embedded schema **and** with `--test` connects using **the same NATS.Net client the add-in uses**, so every credential style (none / token / user+password / NKey / JWT+seed / creds file / mTLS) is exercised for real. Exit codes 0–4. | `tools\NatsValidate\*` | verified against four live servers: no-auth, token, user/password, NKey | **DONE** |
-| V8.1 | Harness + probe + banner + AV helper + seams | `test\TestSupport\*`, `test\Start-NatsServer.ps1` | server starts/stops; banner one line | **TODO** |
-| V8.2 | **Unit** (no NATS/Excel): config, schema, masking, json, conflation, subscription identity, connection offline, TickGate, WaitBounded, async bridge, observe doubles, twins, arg validation, JS vocabulary, admin gate, SyncWrite, parity tests, DNA parity, schema parity, AV banner | `test\NATSExcel.Tests\*` | all green | **TODO** |
-| V8.3 | **Smoke** (real `nats-server -js`): connection identity, ref-count, wildcards, queue groups, request/reply, dedup + concurrent dedup, JetStream pub/consume/replay/purge/fetch, KV CRUD+CAS+history+watch, Object put/get/info/digest, SyncWrite modes, update check, JS-disabled branch, **auth matrix** (token / user+password / NKey seed / creds file / mTLS against a locally started server per type; **`tools\NatsValidate --test` is the tool that proves the styles the PowerShell wire check cannot**, i.e. NKey/JWT/creds/mTLS) | `test\SmokeTests\Program.cs` | every skip prints a reason; `--require-jetstream` fails on JS-off; each auth type connects | **TODO** |
-| V8.4 | **Load**: `manager` vs `raw` (+ `js`) | `test\LoadTests\Program.cs` | throughput/alloc/GC + banner | **TODO** |
-| V8.5 | **Liveness**: heartbeat/watchdog, bounds 5s/30s/20s, churn, starvation, **native restart storm**, backlogs, dedup re-join, `--quick/--skip-restart/--matrix/--soak` | `test\LivenessTests\Program.cs` | stall fails | **TODO** |
-| V8.10 | **Cluster test profile** (D8): start a 3-node `TESTCLUSTER` from `test\TestSupport`, assert R3 survives a node kill and the client reconnects; assert R3 on a 2-node cluster yields the named `no suitable peers for placement` error | `test\TestSupport\cluster\*.conf`, `test\LivenessTests\Program.cs` | R3 stream readable from a survivor; named error surfaced | **TODO** |
-| V8.6 | **Excel E2E**: scaffold + COM retry + AV banner; UDF sheet; RTD sheet; multi-workbook; connection blip; write modes + async pending marker + NonVolatile-once; workbook sanitize; params | `test\Run-ExcelE2E.ps1` | ALL PASS all 4 modes | **TODO** — the P0 gate (F0.9) is the first, minimal step of this |
+| V8.1 | Harness + probe + banner + AV helper + seams | `test\TestSupport\*`, `test\Start-NatsServer.ps1` | server starts/stops; banner one line | **PARTIAL** — `test\TestSupport\Start-Cluster.ps1`/`Stop-Cluster.ps1` (native, JetStream, durable per-node store, downloads the server if missing), `Get-AntivirusState.ps1` and `New-AddInFolder.ps1` exist; the JetStream probe/`NativeServerHarness` seam is not a shared helper |
+| V8.2 | **Unit** (no NATS/Excel): config, schema, masking, json, conflation, subscription identity, connection offline, TickGate, WaitBounded, async bridge, observe doubles, twins, arg validation, JS vocabulary, admin gate, SyncWrite, parity tests, DNA parity, schema parity, AV banner | `test\NATSExcel.Tests\*` | all green | **PARTIAL** — 88 facts + 5 theories green (`ConfigSmokeTests`, `ConflationTests`, `MaskedExceptionRendererTests`, `NatsJsonTests`, `NatsRtdTopicGrammarTests`, `NatsUdfCommonTests`, `ProjectFileParityTests`, `StripCommentsTests`); the NATS-touching seams and DNA/twin parity are not all present |
+| V8.3 | **Smoke** (real `nats-server -js`): connection identity, ref-count, wildcards, queue groups, request/reply, dedup + concurrent dedup, JetStream pub/consume/replay/purge/fetch, KV CRUD+CAS+history+watch, Object put/get/info/digest, SyncWrite modes, update check, JS-disabled branch, **auth matrix** (token / user+password / NKey seed / creds file / mTLS against a locally started server per type; **`tools\NatsValidate --test` is the tool that proves the styles the PowerShell wire check cannot**, i.e. NKey/JWT/creds/mTLS) | `test\SmokeTests\Program.cs` | every skip prints a reason; `--require-jetstream` fails on JS-off; each auth type connects | **TODO** — `test\SmokeTests` does not exist |
+| V8.4 | **Load**: `manager` vs `raw` (+ `js`) | `test\LoadTests\Program.cs` | throughput/alloc/GC + banner | **DONE** — `test\LoadTests` runs the real `NatsSubscriptionManager`; ~204k msg/s measured on a local run |
+| V8.5 | **Liveness**: heartbeat/watchdog, bounds 5s/30s/20s, churn, starvation, **native restart storm**, backlogs, dedup re-join, `--quick/--skip-restart/--matrix/--soak` | `test\LivenessTests\Program.cs` | stall fails | **TODO** — `test\LivenessTests` does not exist |
+| V8.10 | **Cluster test profile** (D8): start a 3-node `TESTCLUSTER` from `test\TestSupport`, assert R3 survives a node kill and the client reconnects; assert R3 on a 2-node cluster yields the named `no suitable peers for placement` error | `test\TestSupport\cluster\*.conf`, `test\LivenessTests\Program.cs` | R3 stream readable from a survivor; named error surfaced | **PARTIAL** — `Start-Cluster.ps1 -Nodes 3` brings up a 3-node cluster and the E2E node-kill asserts failover; the 2-node placement-error case is not asserted |
+| V8.6 | **Excel E2E**: scaffold + COM retry + AV banner; UDF sheet; RTD sheet; multi-workbook; connection blip; write modes + async pending marker + NonVolatile-once; workbook sanitize; params | `test\Run-ExcelE2E.ps1` | ALL PASS all 4 modes | **DONE** — `test\Run-ExcelE2E.ps1` passes 11/11 locally (UDF round trip, RTD push, KV/JS named errors, multi-workbook, node-kill failover, Excel restart); it reuses `New-AddInFolder.ps1` (no installer) and prints the AV banner |
 | V8.8 | **Read-only live-feed run** (D6): point the UDF/RTD read paths at an external endpoint to observe real traffic, never writing. A `-ReadOnly` switch (default ON for any non-local endpoint) (a) skips every write/admin/destructive section, (b) refuses publish-like calls at the harness level, and (c) writes nothing to a local server. Accepts a subject/pattern filter so a `>` firehose can be scoped down before `SubjectLatest`/RTD. | `test\Run-ExcelE2E.ps1`, `test\SmokeTests\Program.cs` (`--read-only`) | feed observed end-to-end; zero writes; endpoint only in argv | **TODO** |
-| V8.9 | **External-endpoint bookkeeping**: the run prints the endpoint **masked**, keeps the workbook in `%TEMP%` (never `test\NATSExcel.Test.xlsx`), and the committed sample keeps `nats://localhost:4222` + `test.natsexcel.*` only. A pre-commit/pre-release grep (golden rule 9) fails on any company name/domain. | `test\Run-ExcelE2E.ps1`, `.github\workflows\build.yml` | `git grep` returns nothing; no private host / company name in tracked files | **TODO** |
-| V8.7 | Matrix + compare + AV helpers | `test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`, `test\Set-Antivirus.ps1` | side-by-side table | **TODO** |
+| V8.9 | **External-endpoint bookkeeping**: the run prints the endpoint **masked**, keeps the workbook in `%TEMP%` (never `test\NATSExcel.Test.xlsx`), and the committed sample keeps `nats://localhost:4222` + `test.natsexcel.*` only. A pre-commit/pre-release grep (golden rule 9) fails on any company name/domain. | `test\Run-ExcelE2E.ps1`, `.github\workflows\build.yml` | `git grep` returns nothing; no private host / company name in tracked files | **PARTIAL** — the E2E keeps its workbook in `%TEMP%` and uses `test.natsexcel.*`; the dedicated grep gate is not in CI |
+| V8.7 | Matrix + compare + AV helpers | `test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`, `test\Set-Antivirus.ps1` | side-by-side table | **TODO** — only the read-only `Get-AntivirusState.ps1` exists (used as a banner) |
 
 ### P9 — Installer (V, native-first)
 
@@ -393,13 +447,13 @@ of this set — `NatsUDFConfigPath` already exists; the rest are added here.
 
 | ID | Task | Acceptance | Status |
 | --- | --- | --- | --- |
-| V10.1 | `build.yml` build job: checkout, nuget restore, msbuild (dev), unit tests | green | **TODO** — no `.github\workflows` yet |
-| V10.2 | nats-server step: pinned zip + SHA256, `-js --store_dir`, 4222 probe, `--jetstream` probe | probe prints enabled | **TODO** |
-| V10.3 | Smoke (retry 2×, 3s) + liveness quick (retry 3×, 5s) | real regression fails all attempts | **TODO** |
-| V10.4 | Tag guards: CHANGELOG heading anchored match | red on mismatch | **TODO** |
-| V10.5 | Release build with tag `InformationalVersion`; Inno Setup on every run; asset-existence assertion; `release` job (checkout first, CHANGELOG body) | release published | **TODO** |
-| V10.6 | `Readme.md` (installer + manual + beginner native-Windows guide: winget / release zip / `sc.exe` service / optional Docker) | accurate | **PARTIAL** — `Readme.md` exists; CI-served accuracy pending |
-| V10.7 | `CHANGELOG.md`, `test\README.md` | match CI | **TODO** |
+| V10.1 | `build.yml` build job: checkout, nuget restore, msbuild (dev), unit tests | green | **DONE (not yet run on GitHub)** — `.github/workflows/build.yml` builds the add-in with `dotnet build`, runs the unit tests (unconditional after the guard lands) |
+| V10.2 | nats-server step: pinned zip + SHA256, `-js --store_dir`, 4222 probe, `--jetstream` probe | probe prints enabled | **PARTIAL** — the step downloads the pinned 2.15.1 zip, runs `-js --store_dir`, and requires `jetstream:true` in INFO; the SHA256 assertion is not added |
+| V10.3 | Smoke (retry 2×, 3s) + liveness quick (retry 3×, 5s) | real regression fails all attempts | **PARTIAL** — both steps exist with the retry policy but **skip while `test\SmokeTests`/`test\LivenessTests` are absent** |
+| V10.4 | Tag guards: CHANGELOG heading anchored match | red on mismatch | **DONE** — the `v*` tag check asserts the top CHANGELOG heading |
+| V10.5 | Release build with tag `InformationalVersion`; Inno Setup on every run; asset-existence assertion; `release` job (checkout first, CHANGELOG body) | release published | **DONE (not yet run on GitHub)** — all present in `build.yml`; the unit step and installer build run on every push |
+| V10.6 | `Readme.md` (installer + manual + beginner native-Windows guide: winget / release zip / `sc.exe` service / optional Docker) | accurate | **PARTIAL** — `Readme.md` exists; the CI-served accuracy is pending |
+| V10.7 | `CHANGELOG.md`, `test\README.md` | match CI | **PARTIAL** — `test\README.md` exists and is accurate; `CHANGELOG.md` has only an `Unreleased` placeholder (no release cut yet) |
 
 ---
 
@@ -426,17 +480,18 @@ Landed already (no gate needed):
 ```
 
 - **Track F** is on the critical path for everything; F2.7 (`WaitBounded`) and
-  F2.15 (`NatsRuntime`) unblock all of Track S.
+  F2.15 (`NatsRuntime`) unblock all of Track S. *(Both landed; the gate passed.)*
 - **Track S** P3 can start once F0.3/F1.5/F1.6 land (formatters and grammar are
-  Excel-free and unit-testable immediately).
+  Excel-free and unit-testable immediately). *(Landed.)*
 - **Track V** V8.1 (harness) and V8.2 (unit) start as soon as F1/F2 seams exist;
-  they test Track S incrementally.
+  they test Track S incrementally. *(V8.2, V8.4 and V8.6 landed; V8.3/V8.5 remain.)*
 
-**Current position:** F0.1–F0.8, V8.0 and P9 are landed. The graph's one red
-edge is **F0.9 (the P0 gate)**, which is pending its first Excel automation run;
-P1 onward and every `test\` layer remain blocked behind it. P9 was scheduled
-"after F0.4" but was built early (it only needed the packed assets); its actual
-prerequisite, running the installed add-in, still waits on F0.9.
+**Current position:** the P0 gate passed; F0.2–F0.9, V8.0, P9, the P1 config
+layer, the P2 runtime, the P3 primitives, the P4 RTD server, the P5 catalog and
+the P6 status functions are landed, along with V8.2 (unit), V8.4 (load), V8.6
+(E2E) and V10.1/V10.4/V10.5. The open edges are the **`NATSExcel.sln`** (F0.1),
+the smoke/liveness layers (V8.3/V8.5), the public-surface baseline (S7.1/S7.2)
+and the release cut (V10.*). The medium/low audit findings are listed in §9.
 
 ---
 
@@ -461,10 +516,10 @@ prerequisite, running the installed add-in, still waits on F0.9.
 
 | # | Risk | Impact | Mitigation |
 | --- | --- | --- | --- |
-| R1 | `.dna` pack list incomplete → `FileNotFoundException` inside the XLL | Add-in looks broken only in Excel | **F0.9 is a hard gate**; enumerate from actual output; `DnaPackagingParityTests` fails the build on drift. **Largely retired:** `NATSExcel.dna` exists and packs 29 DLLs (packed XLL grew 13 KB → ~2.3 MB), so the list is demonstrably complete enough to pack; it is only *confirmed* once F0.9 loads the XLL in a real Excel and a UDF returns a value |
+| R1 | `.dna` pack list incomplete → `FileNotFoundException` inside the XLL | Add-in looks broken only in Excel | **Retired:** the P0 gate passed — `NATSExcel.dna` packs 29 DLLs and the packed XLL loads in real Excel and answers a UDF. `DnaPackagingParityTests` (still TODO) would fail the build on future drift |
 | R19 | The `.dna` **file name** sets the packed XLL name — a missing/renamed `.dna` silently emits `NATSExcel-AddIn-packed.xll`, which the installer, the release asset list and the E2E script do not expect | Installer/release/E2E look for `NATSExcel-packed.xll` and fail; easy to miss because the build is "green" | Ship `NATSExcel.dna` (the name *is* the contract); verify both XLL names in `publish\` after any `.dna` change (this bit us once: without the `.dna` the build emitted `NATSExcel-AddIn-packed.xll`) |
-| R20 | `nkeySeed` holding a `.nk` **file path** instead of seed text → NATS.Net fails with `Invalid base32 character` | NKey/JWT auth looks broken while the config looks right | Read a readable file and pass its trimmed contents; otherwise pass the value through (reference `ReadSeed` in `tools/NatsValidate/ConnectionTester.cs`); test both the `SU...` text and a `.nk` path |
-| R2 | CI toolchain divergence for the net48 restore (msbuild/VS vs dotnet SDK — `System.Text.Json`, `Microsoft.VisualStudio.Threading`) | Ships a broken XLL while tests pass | Standardize `nuget restore`+`msbuild` for the shipped build; pin versions; verify the `.dna` list on the CI toolchain at P0 |
+| R20 | `nkeySeed` holding a `.nk` **file path** instead of seed text → NATS.Net fails with `Invalid base32 character` | NKey/JWT auth looks broken while the config looks right | **Implemented** in `AppConfig.ResolveSeed` (read a readable file, pass its trimmed contents, else pass the value through); `tools\NatsValidate --test` exercises both the `SU...` text and a `.nk` path |
+| R2 | CI toolchain divergence for the net48 restore (msbuild/VS vs dotnet SDK — `System.Text.Json`, `Microsoft.VisualStudio.Threading`) | Ships a broken XLL while tests pass | The shipped build and CI both use `dotnet build`; the `.dna` list is pinned and verified by a successful Excel load. Re-check the exact DLL set if the SDK changes |
 | R3 | Blocking the Excel thread on the async-only client | Frozen Excel | `WaitBounded` is the only bounded primitive; writes via `Observe`; RTD reads on the timer; `NoUnboundedBlockingTests` tripwire; liveness bounds |
 | R4 | Large surface → Compile-list drift / expensive matrix | Untested production file | Central `ProductionSources.props` + extended parity test asserting coverage and the four imports |
 | R5 | Ghost/duplicate listeners | Blank or double-pushed cells | Per-key epochs + install re-check under lock; `SubscriptionEpochTests` |
@@ -496,8 +551,8 @@ prerequisite, running the installed add-in, still waits on F0.9.
   `NatsRuntime` has a shutdown tombstone and reload reset; the async bridge is a
   pure passthrough when off and an `Observe` FIFO when on; unit suite green with
   no NATS and no Excel.
-- **S**: all 88 functions with frozen signatures; all 25 twins pass parity; all 8
-  RTD commands behave per §1.2 with malformed topics rejected before
+- **S**: all **89** functions with frozen signatures; all 25 twins pass parity;
+  all **9** RTD commands behave per §1.2 with malformed topics rejected before
   registration; every marker/error string matches literally; the 11 gated
   functions return the exact gate error and are the only gated ones; zero
   unbounded blocking; masking asserted on UDF/RTD/status paths.
@@ -548,52 +603,69 @@ list (it auto-discovers peers), and JetStream durability is the stream admin's
 
 ## 8. Where we stopped (current state)
 
-Last updated after the parallel build round. Verified on this machine.
+Last updated after the build round that closed the P0 gate. Verified on this
+machine.
 
 **Working (build + tests green):**
 
 | Layer | State |
 | --- | --- |
 | Add-in build | `dotnet build NATSExcel.csproj -c Release` → **0 warnings, 0 errors**; packs `NATSExcel-packed.xll` (32-bit) and `NATSExcel64-packed.xll` (64-bit) into `bin\Release\net48\publish\` |
-| Packing | `NATSExcel.dna` lists all 29 dependency DLLs; the XLL is ~2.3 MB (proof the pack took effect) |
-| Config | `Config.cs` + `ConfigSchema.cs`: comment-tolerant load, `Default`/`Servers`/`Clusters`, 4-step resolution, `MaskNatsEndpoint`, `ResolveSeed`, `Sanitize` |
+| Packing | `NATSExcel.dna` lists all 29 dependency DLLs; the XLL is ~2.3 MB. **The packed XLL loads in real Excel and answers UDFs** (the P0 gate) |
+| Config | `Config.cs` + `ConfigSchema.cs`: comment-tolerant load, `Default`/`Servers`/`Clusters`, 4-step resolution, per-value schema drop, `MaskNatsEndpoint`, `ResolveSettings`, `ResolveSeed`, `Sanitize` |
 | Pure helpers | `Conflation.cs`, `TickGate.cs`, `NatsJson.cs`, `NatsResultFormatter.cs`, `UpdateCheck.cs` |
 | Shared UDF layer | `NatsUdfCommon.cs` (validation, markers, error vocabulary, write-mode, ranges) |
-| RTD grammar | `NatsRtdTopic.cs` (Excel-free parser, 9 commands) |
-| Runtime | `NatsConnectionManager.cs`, `NatsSubscriptionManager.cs`, `NatsRuntime.cs`, `NatsUdfAsync.cs` — all compile |
-| Exposed UDFs | only 3 diagnostics so far (`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`) |
-| Unit tests | `dotnet test test\NATSExcel.Tests` → **4/4 pass** |
+| RTD grammar | `NatsRtdTopic.cs` (Excel-free parser, 9 commands incl. `RTDCLUSTER`) |
+| RTD server | `NatsRtd.cs` (the `NatsRtd` server + the six `NatsRTD*` helpers) |
+| Runtime | `NatsConnectionManager.cs`, `NatsSubscriptionManager.cs`, `NatsRuntime.cs`, `NatsUdfAsync.cs` |
+| Exposed UDFs | the full catalog: **89** `NatsUDF*` `[ExcelFunction]` (64 base + 25 twins) + 6 `NatsRTD*` |
+| Unit tests | `dotnet test test\NATSExcel.Tests` → **88 facts + 5 theories green** |
+| Excel E2E | `test\Run-ExcelE2E.ps1` → **11/11 pass** locally (UDF round trip, RTD push, KV/JS named errors, multi-workbook, node-kill failover, Excel restart) |
+| Load | `test\LoadTests` drives the real `NatsSubscriptionManager`; **~204k msg/s** measured on a local manager run |
+| Cluster harness | `test\TestSupport\Start-Cluster.ps1` (1 or 3 nodes, JetStream, durable store); the E2E node-kill asserts failover |
 | Validator | `tools/NatsValidate` — config + connection check with the real client; verified against no-auth/token/user-password/NKey servers |
-| Installer | `NATSExcelSetup-0.1.exe` compiles; 7 auth styles; native-first server; en/es/pt-BR |
-| CI | `.github/workflows/build.yml` present (not yet run on GitHub) |
+| Installer | `NATSExcelSetup-<v>.exe` compiles (7 auth styles; native-first server; en/es/pt-BR); `NATSExcel.iss` compiles every CI run |
+| CI | `.github/workflows/build.yml` present: build, unit tests, NATS provision + JS probe, installer, tag guards, release job (not yet run on GitHub) |
 
 **Verified by experiment (recorded in DESIGN so it is not re-litigated):**
-cluster R3 survives a leader kill (Docker, 3 nodes); JetStream-disabled error
-text; TCP vs WebSocket wire cost is equal (+0.1%); permessage-deflate is
-unusable on net48 (server needs `compression: true`, client needs .NET 7+);
-runtime stays net48 (DESIGN §13.0).
+the packed XLL loads in real Excel and a UDF returns a value (P0 gate closed);
+cluster R3 survives a leader kill (3 nodes); JetStream-disabled error text; TCP
+vs WebSocket wire cost is equal (+0.1%); permessage-deflate is unusable on net48
+(server needs `compression: true`, client needs .NET 7+); runtime stays net48
+(DESIGN §13.0).
 
-**The ONE blocking gate — not done:**
+**Remaining work (the medium/low audit findings and the unstarted layers):**
 
-- **P0 gate / F0.9**: load the packed XLL in a real Excel and call
-  `=NatsUDFVersion()`. This is what confirms (or refutes) the 29-DLL packing and
-  the COM/RTD registration. Everything else is downstream of it. No Excel
-  automation run has been performed yet.
+- **`NATSExcel.sln`** (F0.1) is still not created; the project file is the build
+  input. The dependency graph and CI name the solution path.
+- **Reconnection knobs** are parsed/merged (`Reconnect` on the cluster and shared
+  blocks) but **not mapped onto `NatsOpts`** — only `timeout` becomes
+  `ConnectTimeout` (F1.5c).
+- **Cluster ambiguity warning** (a name resolving in both `Clusters` and
+  `Servers`) is designed but not emitted (F1.5d).
+- **`expectCluster` surfacing** in `=NatsUDFConfigValidate()` is pending; the
+  validator tool already warns (F1.5e).
+- **Candidate-path Excel folder** (`%USERPROFILE%` → Excel folder → `C:\Windows`)
+  is designed but not searched; the code goes profile → `C:\Windows` (F1.2).
+- **Culture-invariance** test and the `Nats.value` locale sweep (F1.7).
+- **`docs/PUBLIC-SURFACE.md`** (S3.1) and the **public-surface baseline test**
+  (S7.1), the **twin-signature parity** (S7.2) and the **unbounded-blocking
+  scan** (V7.3).
+- **Smoke** (V8.3) and **liveness** (V8.5) projects do not exist; the CI steps
+  skip them. The cluster profile's 2-node placement-error assertion (V8.10) and
+  the read-only live-feed run (V8.8) are likewise open.
+- **`NatsUDFMatrixToJSON` / `NatsUDFJSONToMatrix`**: earlier docs counted two
+  standalone functions that do not exist (the conversions are internal
+  `NatsJson` helpers). Either expose them or drop them from the catalog docs.
+- **Culture/JSON/AV matrix helpers** (V8.7), the **SHA256 pin** (V10.2) and the
+  **release cut** (`CHANGELOG.md` is still an `Unreleased` placeholder; V10.7).
 
-**Not started (the bulk of the catalog):**
+**Next step (in order):** add `NATSExcel.sln` and switch the build/CI to it →
+map the reconnection knobs onto `NatsOpts` → add the smoke and liveness layers
+(they close the biggest CI gap) → land the public-surface baseline → cut
+`v1.0.0` with the CHANGELOG section.
 
-- The write twins (`...NonVolatile`) and the ~89-function UDF catalog
-  (`NatsUdfCore/JetStream/Kv/ObjectStore/Status`).
-- `NatsRtd.cs` (the RTD server itself; the parser exists but nothing consumes it).
-- The smoke / load / liveness / Excel-E2E test programs.
-- The `.sln` (indexes into it are still per-project).
-
-**Next step (in order):** run the P0 gate in Excel → wire `NatsRuntime` +
-`NatsConnectionManager` into the 3 diagnostic UDFs so they report a real
-connection → then implement `NatsUdfCore.cs` (publish/subject-latest/request)
-against the now-live runtime.
-
-## 9. Open items to close before/at P0
+## 9. Open items to close before/at the release
 
 1. **License**: NATS.Net is Apache-2.0; pick a license for NATSExcel before the
    first public release (RedisExcel ships none).
@@ -608,3 +680,27 @@ against the now-live runtime.
    needs **auth** (user/password/token/creds), and whether a **subject filter**
    is expected (a `>` firehose should be scoped down before `SubjectLatest`/RTD).
    Do not commit the endpoint, its domain or any credential.
+
+### 9.1 Audit findings (medium / low) — still open
+
+These are real, verified doc-vs-code or feature gaps that need a code change to
+close (none of them is a release blocker on its own):
+
+1. **Reconnection knobs not wired** (medium): `Clusters.*.reconnect` and the
+   shared `Reconnect` block parse and merge, but
+   `NatsConnectionManager.BuildOptions` never maps them to `NatsOpts`; only
+   `TimeoutMs` becomes `ConnectTimeout`.
+2. **Cluster-name ambiguity has no warning** (low): a name present in both
+   `Clusters` and `Servers` resolves to the cluster silently.
+3. **`expectCluster` is not surfaced in the cell** (low): the validator tool and
+   the log warn; `=NatsUDFConfigValidate()` does not.
+4. **Excel config-search folder missing** (low): `CandidatePaths` skips the
+   designed Excel-install folder between the profile and `C:\Windows`.
+5. **Standalone JSON conversion functions** (low): `NatsUDFMatrixToJSON` /
+   `NatsUDFJSONToMatrix` are documented but not exposed; the logic is internal.
+6. **`NATSExcel.sln` missing** (low): every script/tool still builds the project
+   file directly; indexes and the release doc assume a solution.
+7. **`DnaPackagingParityTests` not written** (low): the `.dna` list is verified
+   by a successful load, not by an automated both-directions parity test.
+8. **`jetstream.domain` recorded but unused** (low): `Clusters.*.jetstream.domain`
+   parses into the model; nothing routes JetStream calls by domain yet.

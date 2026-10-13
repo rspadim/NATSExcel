@@ -16,44 +16,50 @@ integrates **NATS** with Excel, sibling to the **RedisExcel** project:
 Read `DESIGN.md` for the architecture and the full function catalog. It is the
 contract; this file is the working guidance.
 
-> **Implementation status (read this first).** The catalog above is the design
-> target, not the current build. What actually exists today: the add-in project
-> packs and loads, `Config.cs` loads `NATSExcel.json`, and `NatsUdf.cs` exposes
-> three diagnostic functions (`NatsUDFVersion`, `NatsUDFConfigPath`,
-> `NatsUDFConnectionCount`). There is no RTD server, no NATS connection, no
-> test project and no CI yet — everything else is in `PLAN.md`. The `## Layout`
-> section below splits what exists from what is planned.
+> **Implementation status (read this first).** The add-in is now largely
+> implemented: the packed XLL loads in real Excel and answers UDFs (the P0 gate
+> passed), the full `NatsUDF*` catalog (**89** functions) plus the six `NatsRTD*`
+> status helpers exist, the RTD server runs, the Excel E2E passes 11/11 and a
+> load test measures ~204k msg/s. The unit, load and E2E test layers are real;
+> the smoke and liveness layers, the solution file and the release cut are still
+> open (see `PLAN.md` §8 and §9). The `## Layout` section below splits what
+> exists from what is still planned.
 
 ## Golden rules
 
 1. **English only** — code, comments, identifiers, log messages, docs and commit
    messages are written in English.
 2. **Never change the public Excel surface** — function names, argument order,
-   `[ExcelArgument]`/`[ExcelFunction]` attributes, RTD commands (the plan's
-   frozen set is `SUB`, `KV`, `KVGET`, `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`;
-   `DESIGN.md` §7.9 adds a 9th, `NatsRTDCluster` — the baseline test is the
-   authority) and the ProgId `NatsRtd`. Users' spreadsheets depend on every one
-   of them. New additive functions (e.g. the `...NonVolatile` write twins) are
-   fine; renames, argument changes and removals are not.
+   `[ExcelArgument]`/`[ExcelFunction]` attributes, RTD commands (the frozen set
+   is `SUB`, `KV`, `KVGET`, `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`, `RTDCLUSTER`;
+   the grammar tests in `test\NATSExcel.Tests\NatsRtdTopicGrammarTests.cs` pin
+   the exact command list and error text) and the ProgId `NatsRtd`. Users'
+   spreadsheets depend on every one of them. New additive functions (e.g. the
+   `...NonVolatile` write twins) are fine; renames, argument changes and
+   removals are not.
 3. Keep the `NATSExcel.json` shape backward compatible. The shipped sample and
-   `NATSExcel.schema.json` define the real shape: `Default` (with nested `auth`
-   and `reconnect`), `RTD`, `UDF`, `Servers`, `Clusters`, `JetStream`, plus the
-   flat toggles `AllowAdminWrites`, `SkipRepeatedMessages`,
-   `CoalesceRealtimeUpdates`, `ConflationMs`, `PublishDedupCacheSize`,
-   `SyncWrite`, `AsyncWrites`, `UpdateCheck`. (An earlier draft called the
-   first section `Nats` with a top-level `Auth`; `Config.cs` and the sample do
-   not read those.)
-4. *(Planned — target of the runtime milestone.)* All NATS access will go
-   through `NatsRuntime` (`NatsConnectionManager` / `NatsSubscriptionManager`);
-   never create a `NatsConnection` anywhere else. Today only the
-   `NatsConnection.cs` stub exists.
-5. *(Planned.)* Subscription listeners are registered/removed as `IDisposable`
-   tokens. Never tear down a shared client subscription while other listeners
-   remain — it is ref-counted per `(endpoint, subject, queueGroup)`.
-6. *(Planned.)* Any code running inside a `System.Timers.Timer` callback or a
-   NATS client callback must catch and log exceptions. The shared
-   `CreateTimer` helper (planned in `NatsRtd.cs`) and the subscription
-   callback wrapper must do this.
+   `NATSExcel.schema.json` define the real shape: `Default` (a plain **name**
+   string — a `Clusters` name, a `Servers` name or a raw `nats://` URL),
+   `Servers`, `Clusters` (each with `urls` plus optional `timeout`, `auth`,
+   `reconnect`, `jetstream`, `expectCluster`), a shared top-level `Auth` block
+   and a shared top-level `Reconnect` block, `RTD` (delivery tuning only — there
+   is no `UDF` block and no RTD/UDF server split), `JetStream`, plus the flat
+   toggles `AllowAdminWrites`, `SkipRepeatedMessages`, `CoalesceRealtimeUpdates`,
+   `ConflationMs`, `PublishDedupCacheSize`, `SyncWrite`, `AsyncWrites`,
+   `UpdateCheck`. A cluster's `auth` merges OVER the shared `Auth` field by
+   field. (An earlier draft nested the settings under `Default` with a top-level
+   `Auth`/`UDF`; `Config.cs` accepts a nested `Default` only as a back-compat
+   fallback and never reads a `UDF` block.)
+4. All NATS access goes through `NatsRuntime`
+   (`NatsConnectionManager` / `NatsSubscriptionManager`); never create a
+   `NatsConnection` anywhere else. This is the only place the process-wide
+   managers are built, shut down and recreated after a same-process reload.
+5. Subscription listeners are registered/removed as `IDisposable` tokens. Never
+   tear down a shared client subscription while other listeners remain — it is
+   ref-counted per `(endpoint, subject, queueGroup)`.
+6. Any code running inside a `System.Timers.Timer` callback or a NATS client
+   callback must catch and log exceptions. The shared `CreateTimer` helper (in
+   `NatsRtd.cs`) and the subscription callback wrapper do this; keep it that way.
 7. State touched by both the Excel thread and NATS/timer threads must be
    thread-safe (`ConcurrentDictionary`, `Interlocked`, or a private lock).
 8. Keep `net48`. Use **`<LangVersion>9.0</LangVersion>`** plus a small
@@ -81,66 +87,74 @@ contract; this file is the working guidance.
     or a path to a `.nk` file. The NATS.Net client wants the seed, not the
     path: handing it a path fails with `Invalid base32 character` (the path is
     not base32). Read a readable file and pass its trimmed contents; otherwise
-    pass the value through. The installer wizard labels this field exactly this
-    way ("the text, or a path to the .nk file"), so the code must honor it.
-    The reference implementation lives in `tools/NatsValidate/ConnectionTester.cs`
-    (`ReadSeed`); copy that behavior when the add-in auth model lands.
+    pass the value through. **Implemented** in `AppConfig.ResolveSeed`, called
+    from `NatsConnectionManager.BuildAuth`. The installer wizard labels this
+    field exactly this way ("the text, or a path to the .nk file"). The
+    reference implementation lives in `tools/NatsValidate/ConnectionTester.cs`
+    (`ReadSeed`); keep `ResolveSeed` in step with it.
 
 ## Layout
 
-**The repository is at an early milestone: the add-in compiles, packs and
-loads, config loading and a few diagnostic UDFs work.** The runtime, the RTD
-server and almost the entire UDF catalog below are still `PLAN.md` targets, not
-code. Do not describe a planned file as if it exists.
+**The add-in is largely implemented: it compiles, packs, loads in real Excel and
+answers the whole UDF catalog.** The RTD server, the runtime and the config
+layer are code. What remains planned is the smoke/liveness test layers, the
+solution file and a few audit items (`PLAN.md` §8/§9). Do not describe a planned
+file as if it exists.
 
 ### Exists today (ground truth)
 
 | File | Responsibility |
 | --- | --- |
-| `AddIn.cs` | `IExcelAddIn` entry point (`AutoOpen`/`AutoClose`); currently only logs load/unload. RTD/COM `NatsRtd` registration and runtime reset are planned (PLAN S4.11). |
-| `Config.cs` | `AppConfig`: loads `NATSExcel.json` once (`Lazy`), comment-aware parse (`StripComments`), safe defaults (`nats://localhost:4222`), `Servers`/`Clusters` alias resolution (`ResolveUrl`), `Version`. `MaskNatsEndpoint` and the auth model are still planned (PLAN F1.5). |
-| `NatsUdf.cs` | The UDF class so far: `NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount` (a stub returning `0`). |
-| `NatsConnection.cs` | Stub for a raw NATS protocol client (first milestone); the planned NATS.Net runtime replaces it. |
-| `IsExternalInit.cs` | C# 9 shim so net48 accepts init-only setters. |
-| `NATSExcel.csproj` | Add-in project: net48, `LangVersion 9.0`, packs the XLLs, copies `NATSExcel.dll` into `publish\`. |
-| `NATSExcel.dna` | Excel-DNA packing manifest; its **file name** sets the packed XLL name. |
-| `NATSExcel.json` / `NATSExcel.schema.json` | Sample config + embedded JSON Schema (loaded but not yet validated by code). |
-| `NLog.config` | Logging to `NATSExcel.log`, rolling at 100 MB, 5 archives. |
-| `installer/` | Inno Setup script (`NATSExcel.iss`) + helper PowerShell + README: per-user, native-first installer. |
-| `tools/NatsValidate/` | C# console validator that runs today (see `## Tests`). |
-
-### Planned (from `PLAN.md`; none of these exist yet)
-
-| Planned file | Responsibility (per the plan) |
-| --- | --- |
-| `ConfigSchema.cs` | Embedded JSON Schema validation with per-value drop. |
-| `NatsConnectionManager.cs` | Single place that creates/caches `NatsConnection` per resolved endpoint + the JetStream context; reconnect observation; bounded wait helper. |
-| `NatsSubscriptionManager.cs` | Ref-counted Core subscriptions: one client subscription per `(endpoint, subject, queueGroup)` broadcasting to N listeners; wildcard-aware; survives reconnects. |
-| `NatsRuntime.cs` | Process-wide singleton wiring connections + subscriptions; shutdown/reload reset. |
-| `NatsRtd.cs` | RTD server lifecycle, topic registries, timers, polling; `NatsRTDStatus` functions. |
-| `NatsRtdTopic.cs` | RTD topic grammar/parser, no Excel/COM dependency (PLAN S3.2). |
-| `NatsUdfCore.cs` | Core NATS `[ExcelFunction]` implementations (publish, request/reply, subject-latest, unsubscribe) + `...NonVolatile` twins. |
+| `AddIn.cs` | `IExcelAddIn` entry point (`AutoOpen`/`AutoClose`): registers `MaskedExceptionRenderer`, the `NatsRtd` COM server, the runtime/RTD/UDF reload resets; `AutoClose` shuts the runtime down. |
+| `Config.cs` | `AppConfig`: loads `NATSExcel.json` once (`Lazy`), comment-aware parse (`StripComments`), `Default`/`Servers`/`Clusters` resolution (`ResolveEndpointCore`), per-cluster `ResolveSettings`, `MaskNatsEndpoint`, `ResolveSeed`, `Sanitize`, `Reload`, `Version`. |
+| `ConfigSchema.cs` | Embedded JSON-Schema walk (`ParseWithComments`/`Clean`) with per-value drop; wired into the load path. |
+| `NatsUdf.cs` | The seed diagnostics: `NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`, `NatsUDFLogPath`. |
+| `NatsConnectionManager.cs` | One cached `NatsConnection` per resolved endpoint; JetStream context cache; server-info snapshot; bounded `WaitBounded*`; eviction/down-sweep; bounded shutdown. |
+| `NatsSubscriptionManager.cs` | Ref-counted Core subscriptions (one client sub per `(endpoint, subject, queueGroup)`, N listeners, wildcard-aware, origin tags); per-key epochs; dedup. |
+| `NatsRuntime.cs` | Process-wide singleton wiring connections + subscriptions; shutdown tombstone + reload reset. |
+| `NatsRtd.cs` | The `NatsRtd` `ExcelRtdServer`: topic registry, poll/flush timers, backoff, all 9 topic kinds; plus the six `NatsRTD*` status helpers. |
+| `NatsRtdTopic.cs` | RTD topic grammar/parser (`NatsRtdTopicSpec.Parse`), no Excel/COM dependency. |
+| `NatsUdfCore.cs` | Core NATS `[ExcelFunction]`s (publish, request/reply, subject-latest, unsubscribe) + twins. |
 | `NatsUdfJetStream.cs` | JetStream functions (publish-with-ack, get/fetch, stream/consumer info and admin). |
 | `NatsUdfKv.cs` | Key/Value functions (get/put/create/update/delete/keys/history/watch). |
 | `NatsUdfObjectStore.cs` | Object Store functions (put/get/info/list/delete/watch). |
-| `NatsUdfStatus.cs` | Status/diagnostics functions. |
-| `NatsUdfCommon.cs` | Shared validation, error strings, markers, admin/JetStream gates (PLAN S3.3). |
-| `NatsUdfAsync.cs` | Async dispatch via Excel-DNA `ExcelAsyncUtil.Observe`; per-endpoint FIFO queue; bounded sync wait. |
-| `NatsJson.cs` | Matrix ⇄ JSON conversions. |
-| `NatsResultFormatter.cs` | Value formatting sent to Excel. |
-| `TickGate.cs` | Non-blocking reentrancy gate for timer callbacks; shared `StripedLocks` helper. |
+| `NatsUdfStatus.cs` | Status/diagnostics + cluster/server topology functions and the config functions. |
+| `NatsUdfCommon.cs` | Shared validation, error strings, markers, admin/JetStream gates, ranges, write-mode helpers. |
+| `NatsUdfAsync.cs` | Async dispatch via Excel-DNA `ExcelAsyncUtil.Observe`; per-endpoint FIFO queue; bounded sync wait; caller refusal. |
+| `NatsJson.cs` | Matrix ⇄ JSON conversions (`MatrixToJson`/`JsonToMatrix`, internal helpers reached by the `...JSON` functions). |
+| `NatsResultFormatter.cs` | Value formatting sent to Excel (ordinal `SameMessage`, `DecodePayload`, 32767 bound). |
+| `TickGate.cs` | Non-blocking reentrancy gate for timer callbacks; `StripedLocks`. |
 | `Conflation.cs` | Real-time delivery conflation window (`ConflationMs`): latest value wins per window. |
+| `MaskedExceptionRenderer.cs` | NLog `${maskedException}` layout renderer: masks credentials in every logged exception. |
 | `UpdateCheck.cs` | Non-blocking GitHub release check (background task). |
+| `IsExternalInit.cs` | C# 9 shim so net48 accepts init-only setters. |
+| `NATSExcel.csproj` | Add-in project: net48, `LangVersion 9.0`, packs the XLLs, copies `NATSExcel.dll` into `publish\`. |
+| `NATSExcel.dna` | Excel-DNA packing manifest (29 dependency DLLs); its **file name** sets the packed XLL name. |
+| `NATSExcel.json` / `NATSExcel.schema.json` | Sample config + embedded JSON Schema (validated by `ConfigSchema.cs` and `NatsUDFConfigValidate`). |
+| `NLog.config` | Logging to `NATSExcel.log`, rolling at 100 MB, 5 archives; uses `${maskedException:format=toString}` (not `${exception:...}`). |
+| `installer/` | Inno Setup script (`NATSExcel.iss`) + helper PowerShell + README: per-user, native-first installer. |
+| `tools/NatsValidate/` | C# console validator that runs today (see `## Tests`). |
+| `test/` | The unit, load and E2E layers + the cluster harness + the copy-based add-in folder helper (see `## Tests`). |
 
-When a planned file lands, move its row up into "Exists today"; `DESIGN.md` §5.1
-and the two `NatsUdf*` additions above must stay in sync (PLAN S7.4).
+### Planned (from `PLAN.md`; none of these exist yet)
+
+| Planned item | Responsibility (per the plan) |
+| --- | --- |
+| `NATSExcel.sln` | Solution file indexing the add-in and test projects (PLAN F0.1); the project file is the build input until it lands. |
+| `test\SmokeTests\` | Real-`nats-server -js` smoke layer (PLAN V8.3). |
+| `test\LivenessTests\` | Adversarial liveness/fault layer with a heartbeat watchdog (PLAN V8.5). |
+| `docs\PUBLIC-SURFACE.md` | The per-function signature catalog (PLAN S3.1). |
+| `test\...\PublicSurfaceParityTests.cs` + baseline | The public-surface baseline test (PLAN S7.1/S7.2) and the unbounded-blocking scan (V7.3). |
+| `test\Run-ExcelE2E-Matrix.ps1` / `Compare-ExcelE2E.ps1` / `Set-Antivirus.ps1` | The AV matrix/compare helpers (PLAN V8.7); only read-only `TestSupport\Get-AntivirusState.ps1` exists today. |
+
+When a planned item lands, move its row up into "Exists today"; `DESIGN.md` §5.1
+and this layout must stay in sync (PLAN S7.4).
 
 ## Runtime model (why it is the way it is)
 
-> This is the target design and the reasoning behind it; most of it is **not
-> implemented yet** (see the status note and `## Layout` above). It is the
-> contract the runtime milestone must satisfy, not a description of current
-> behavior.
+> This is the runtime design and the reasoning behind it. It is what the code
+> does today (the runtime milestone landed); the few items still not
+> implemented are called out inline. When in doubt, read the code.
 
 - Excel may create more than one RTD server per process. Connections and
   subscriptions are **process-wide** (`NatsRuntime`); topics are per RTD server
@@ -181,25 +195,26 @@ and the two `NatsUdf*` additions above must stay in sync (PLAN S7.4).
   flush; `fireforget` (default) issues result-agnostic publishes without
   awaiting the ack and returns a marker. `ChannelPublishIfChanged`-style dedup
   remembers the last payload only after a confirmed delivery in `sync` mode.
-- **Credential masking is mandatory (planned).** `MaskNatsEndpoint` will redact
-  URL userinfo, `password=`/`user=`/`token=`, NKey seeds and creds-file paths in
-  every error cell, RTD `#ERROR`, status cell and log line. It does not exist in
-  `Config.cs` yet; the only masking that runs today is in
-  `tools/NatsValidate/ConfigLoader.cs` (`MaskUrl`).
+- **Credential masking is mandatory.** `MaskNatsEndpoint` redacts URL userinfo,
+  `password=`/`user=`/`token=`, JWTs, NKey seeds, creds-file paths and TLS cert
+  paths in every error cell, RTD `#ERROR`, status cell and log line.
+  `MaskedExceptionRenderer` (NLog `${maskedException:...}`) applies the same
+  masking to logged exceptions; `NLog.config` must keep using it rather than
+  `${exception:...}`.
 - Admin/destructive operations (`Stream*`, `Consumer*`, `Purge`,
   `DeleteMessage`, KV/Object delete) are gated by `AllowAdminWrites`
   (default `false`) so an accidental recalculation cannot mutate production
   state.
 - Values and identifiers (subjects, buckets, keys, stream/consumer names)
   written to NATS always use the invariant culture, regardless of Excel locale.
-- The config file **is** read once per Excel process (restart Excel after
-  editing it) and, in the current code (`Config.cs` `CandidatePaths`), searched
-  in: add-in folder, user profile (`%USERPROFILE%`), `C:\Windows` (first
-  existing wins). `DESIGN.md` also lists an **Excel folder** between the profile
-  and `C:\Windows`; it is designed but not implemented. Comments are accepted
-  (string-aware `StripComments`). The per-value drop on a wrong type is
-  **planned** (`ConfigSchema.cs`/`Sanitize`); today a parse error on the first
-  existing candidate falls back to defaults for the whole file.
+- The config file **is** read once per Excel process at startup, but
+  `NatsUDFConfigReload` re-reads it without a restart. `Config.cs`
+  `CandidatePaths` searches: add-in folder, user profile (`%USERPROFILE%`),
+  `C:\Windows` (first existing wins). `DESIGN.md` also lists an **Excel folder**
+  between the profile and `C:\Windows`; it is designed but not implemented.
+  Comments are accepted (string-aware `StripComments`). A wrong-typed value is
+  dropped individually by `ConfigSchema.cs` (the schema walk), so the rest of the
+  file is kept; only a structural (not-JSON) failure falls back to defaults.
 
 ## Build
 
@@ -220,38 +235,52 @@ Outputs in `bin\Release\net48\publish\`:
 The XLL names come from the `.dna` file name: `NATSExcel.dna` →
 `NATSExcel-packed.xll`. **Trap:** if `NATSExcel.dna` is missing or renamed,
 Excel-DNA falls back to `<ProjectName>-AddIn-packed.xll`
-(`NATSExcel-AddIn-packed.xll`); the installer, the planned release asset list
-and the planned E2E script all expect `NATSExcel-packed.xll` and would break.
+(`NATSExcel-AddIn-packed.xll`); the installer, the release asset list
+and the E2E script all expect `NATSExcel-packed.xll` and would break.
 Verify both names in `publish\` after any `.dna` change.
 
-> **Planned (PLAN P10), not present yet.** There is no `.github/workflows`,
-> no `CHANGELOG.md` and no packed-XLL CI today. The intended CI will run on PRs
-> and main pushes; on `v*` tags it will embed the version in the `ClientName`,
-> check the top CHANGELOG heading against the tag, assert the release assets,
-> use that CHANGELOG section as the release body, and build the Inno Setup
-> installer (a broken `.iss` will fail the build on every run, not only a tag).
+> **CI (PLAN P10) — present, not yet run on GitHub.** `.github/workflows/build.yml`
+> runs on PRs, main pushes and `v*` tags. It builds the add-in with `dotnet build`
+> (the project file, since there is no `NATSExcel.sln` yet), runs the unit tests,
+> provisions `nats-server -js` and probes port 4222 for `jetstream:true`, builds
+> the Inno Setup installer on every run, and on a `v*` tag checks the top
+> CHANGELOG heading against the tag, asserts the release assets, uses the
+> CHANGELOG section as the release body and publishes the release. The smoke and
+> liveness steps are present but skip while those test projects do not exist.
 
-When the CI lands it must provision a NATS server. Unlike RedisExcel (which
-installs Memurai via Chocolatey), the server is a single self-contained
-`nats-server.exe` that runs natively on Windows: download the
+The CI provisions NATS as a single self-contained `nats-server.exe` (no
+Memurai/Chocolatey, unlike RedisExcel): download the
 `nats-server-<ver>-windows-amd64.zip` from the GitHub releases, start it with
 `-js --store_dir <temp>`, and probe port 4222 (the same readiness pattern as
 the Redis `PING` wait). Do **not** use the community `nats-server` Chocolatey
-package — it is stale (last published 2019). A `nats-server --jetstream` probe
-up front makes a "JetStream disabled" run attributable. Docker is never
-required, on CI or on a user machine.
+package — it is stale (last published 2019). The `jetstream:true` probe up front
+makes a "JetStream disabled" run attributable. Docker is never required, on CI
+or on a user machine.
 
 ## Tests
 
-**No test project exists yet.** There is no `test\` directory, no unit/smoke/
-load/liveness/E2E project and no `ProductionSources.props`; they are PLAN §V8
-work. Do not tell anyone to run `dotnet test` — it would fail to find a project.
+The real layers are `test\NATSExcel.Tests` (unit), `test\LoadTests` (load) and
+`test\Run-ExcelE2E.ps1` (Excel E2E), plus the cluster harness and helpers under
+`test\TestSupport\`. The smoke and liveness projects are still `PLAN.md` work and
+do **not** exist — the `## Tests` section below marks each layer.
+
+The single reference is `test\README.md`; keep it and this section in sync. Test
+projects compile the production sources directly (linked `Compile` items from
+`test\TestSupport\ProductionSources.props`), not via `ProjectReference`, so a
+new production `.cs` must be added to that props; `ProjectFileParityTests`
+fails if a root production file is missing.
+
+To iterate without the installer, use the copy-based helper
+`test\TestSupport\New-AddInFolder.ps1`: it copies the build output (the XLL, the
+dll, `NLog.config`, the schema and a starter config) into a throwaway folder that
+Excel loads via `RegisterXLL` — no wizard, no COM registration, nothing to
+click. Prefer it over the installer for a test iteration.
 
 ### 0. Config + connection validator (real, runs today)
 
 `tools/NatsValidate` is a C# console app that **exists and works**. It is the
 recommended way to check a `NATSExcel.json` and, with `--test`, to prove the
-connection: it uses the **same NATS.Net client the add-in will use**
+connection: it uses the **same NATS.Net client the add-in uses**
 (`NATS.Client.Core` 3.3.0), so every credential style is really exercised
 (token, user/password, NKey seed, JWT + seed, creds file, mTLS). The PowerShell
 helpers in `installer/` (`validate-config.ps1`, `test-connection.ps1`) only
@@ -272,69 +301,62 @@ A bare path argument is the config file; `--config`/`-c`, `--timeout <ms>`,
 problems, `2` unreadable, `3` dangling cluster/server reference, `4` connection
 failed.
 
-### 1. Unit tests (no NATS, no Excel) — planned (PLAN V8.2)
+### 1. Unit tests (no NATS, no Excel) — real (PLAN V8.2)
 
 ```powershell
 dotnet test test\NATSExcel.Tests\NATSExcel.Tests.csproj -c Release
 ```
 
-Covers: `NatsJson` conversions and the matrix size/total-cell budget,
-`AppConfig` load/sanitize/pruning and the JSON-Schema per-value drop,
-`MaskNatsEndpoint` (URL userinfo, `token=`, NKey seed, creds path, quoted
-values), endpoint/alias resolution, the conflation window, the subscription
-manager (ref-count, wildcard, queue-group identity, duplicate suppression,
-origin counters), the `TickGate` reentrancy helper, `UpdateCheck`, the
-`...NonVolatile` signature parity (the volatile write set is pinned), the write
-mode (`SyncWrite`/`AsyncWrites`) parsing plus async dispatch (per-endpoint
-serial order, the synchronous path, the caller refusal), the offline observable
-tests, the bounded-wait helper, and a project-file parity test that keeps the
-unit project's `Compile` list complete.
+Covers today: `NatsJson` conversions, `AppConfig` load/sanitize/`StripComments`,
+the JSON-Schema per-value drop (via the sample), `MaskNatsEndpoint` and
+`MaskedExceptionRenderer`, the conflation window, the RTD grammar
+(`NatsRtdTopicGrammarTests`), the UDF argument validation/markers/error strings
+(`NatsUdfCommonTests`), and a project-file parity test that keeps the unit
+project's `Compile` list complete. Growth areas (not yet covered): subscription
+identity, connection offline, `WaitBounded`, the async bridge, twin signature
+parity, `UpdateCheck`.
 
-The unit, smoke, load and liveness test projects compile the production sources
-directly (linked `Compile` items), so a new production `.cs` needed by tests
-must be added to their `Compile` lists; a unit parity test pins the unit
-project's list. `dotnet test` does not build or pack the add-in; CI builds it
-with msbuild.
+`dotnet test` does not build or pack the add-in; CI builds it separately.
 
 ### 2. Smoke tests (planned — PLAN V8.3; requires a NATS server with JetStream, no Excel)
 
-```powershell
-nats-server -js
-dotnet run --project test\SmokeTests -c Release -- "nats://127.0.0.1:4222"
-```
+`test\SmokeTests` does **not** exist yet. When it lands it will cover the
+ref-counted Core subscription behavior (two listeners on one subject,
+last-listener teardown, re-subscription, wildcards, queue groups, duplicate
+suppression, origin counters, argument validation), request/reply (timeout and
+`no responders`), JetStream publish/consume (ack, sequence, durable consumer,
+replay, purge), Key/Value (put/get/create CAS by revision/update/delete/
+history/watch) and Object Store (put/get/info/digest), plus the real `SyncWrite`
+modes and the dedup markers. `tools\NatsValidate --test` already proves the
+credential styles the PowerShell wire check cannot (NKey/JWT/creds/mTLS).
 
-Covers the ref-counted Core subscription behavior (two listeners on one
-subject, last-listener teardown, re-subscription, wildcards, queue groups,
-duplicate suppression, origin counters, argument validation), request/reply
-(timeout and `no responders`), JetStream publish/consume (ack, sequence,
-durable consumer, replay, purge), Key/Value (put/get/create CAS by revision/
-update/delete/history/watch) and Object Store (put/get/info/digest), plus the
-real `SyncWrite` modes and the dedup markers. CI runs it against a locally
-started `nats-server -js` (skips the JetStream section with a printed reason if
-the server was started without `-js`).
-
-### 3. Excel end-to-end (planned — PLAN V8.6)
+### 3. Excel end-to-end — real (PLAN V8.6)
 
 ```powershell
+# Start a local cluster first (or point at one):
+powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Uses a hidden Excel instance: loads the packed XLL, builds UDF/RTD test sheets,
-asserts values against NATS, then covers the multi-workbook case, a server
-restart (connection recovery) and the write modes (`sync`/`fireforget`, async
-on and off), and asserts that a `...NonVolatile` write runs once (a worksheet
-recalculation must not re-send it).
+Passes 11/11 locally. Uses a hidden Excel instance: loads the packed XLL through
+the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
+round trip, the RTD `SUB` push (two updates), the JetStream/KV named-error
+paths, the multi-workbook case, the node-kill failover, and an Excel
+restart/reload. `...NonVolatile` single-run and the write modes are exercised
+via the publish cells.
 
-Useful parameters: `-RepoRoot <path>`, `-NatsUrl <url>`, `-SubjectPrefix`,
-`-SkipServerRestart` (auto-skipped for non-local hosts), `-NatsCli <command>`,
-`-SyncWrite <mode>`, `-AsyncWrites`, `-KeepExcelOpen`.
+Useful parameters: `-RepoRoot <path>`, `-NatsUrl <url>` (default
+`nats://127.0.0.1:4222`), `-SubjectPrefix` (default `test.natsexcel`), `-Xll
+<path>`, `-SkipNodeKill` (auto-skipped for a non-local host),
+`-SkipMultiWorkbook`, `-KeepExcelOpen`, `-Fast`.
 
-For local hosts the workbook is saved to `test\NATSExcel.Test.xlsx` (committed
-sample); for remote hosts it is saved to `%TEMP%` so the host never lands in the
-repository. The committed workbook only references `nats://localhost:4222` and
-`test.natsexcel.*`.
+Every wait is condition-based; the script retries transient COM rejections and
+prints a `COM retries` summary (a retry total is normal — see the Excel
+automation lessons below). It saves its workbook to `%TEMP%`, so the host never
+lands in the repository. The cluster harness and the sample only reference
+`127.0.0.1`/`localhost` and `test.natsexcel.*`.
 
-### 4. Load tests (planned — PLAN V8.4; requires NATS)
+### 4. Load tests — real (PLAN V8.4; requires NATS)
 
 ```powershell
 dotnet run --project test\LoadTests -c Release -- manager "nats://127.0.0.1:4222" 10 2 1
@@ -342,32 +364,29 @@ dotnet run --project test\LoadTests -c Release -- manager "nats://127.0.0.1:4222
 
 `manager` exercises the subscription broadcast path; `raw` is the plain
 `NATS.Client` baseline. Parameters: url, seconds, publishers, listeners,
-subject and an optional queue group. Reports throughput, allocated bytes per
-received message and GC counts. Read-only stress runs against real servers are
-allowed, but pass the url only as a command-line argument (never commit it) and
-keep the runs short.
+subject/pattern and an optional queue group. Reports throughput and allocated
+bytes per received message. ~204k msg/s measured on a local manager run.
+Read-only stress runs against real servers are allowed, but pass the url only as
+a command-line argument (never commit it) and keep the runs short.
 
 ### 5. Liveness tests (planned — PLAN V8.5; requires NATS; Docker optional)
 
-```powershell
-dotnet run --project test\LivenessTests -c Release -- "nats://127.0.0.1:4222"
-```
-
-Drives the real managers under adversarial conditions — ThreadPool starvation,
-subscribe/dispose churn, server restart/stop-start storms, JetStream consumer
-reconnects, async queue/observable bursts, dedup re-join — and enforces liveness
-bounds with a dedicated process heartbeat and watchdog thread: a stall past
-**5 s** fails the run, delivery/queue must resume within **30 s**, and the async
-backlog must drain within **20 s**. With `--container <name>` the suite manages
-its own disposable `nats -js` container; `--quick` shortens the attack windows.
-Only run it against a disposable/local server: the restart storm is destructive.
+`test\LivenessTests` does **not** exist yet. When it lands it will drive the real
+managers under adversarial conditions — ThreadPool starvation, subscribe/dispose
+churn, server restart/stop-start storms, JetStream consumer reconnects, async
+queue/observable bursts, dedup re-join — and enforce liveness bounds with a
+dedicated process heartbeat and watchdog thread: a stall past **5 s** fails the
+run, delivery/queue must resume within **30 s**, and the async backlog must drain
+within **20 s**. `--quick` shortens the attack windows. Only run it against a
+disposable/local server: the restart storm is destructive. (The cluster harness
+and the E2E node-kill are the real failover coverage today.)
 
 ## Excel automation lessons (hard-won, inherited from RedisExcel)
 
-These cost real debugging time — read before writing automation. The E2E
-script and suites they name do **not exist yet** (PLAN §V8); the lessons are
-what the planned automation must honor, and several describe intended add-in
-behavior (e.g. the `NatsRtd` registration), not code that runs today.
+These cost real debugging time — read before writing automation. The E2E script
+and cluster harness exist (`test\Run-ExcelE2E.ps1`, `test\TestSupport\`); the
+smoke/liveness suites do not. Several lessons describe add-in behavior that now
+runs (the `NatsRtd` registration) rather than intent.
 
 1. **Excel COM automation is inherently flaky; antivirus/EDR only adds to it.**
    Even with no antivirus, expect a retry count (`RPC_E_CALL_REJECTED`); a retry
@@ -375,10 +394,10 @@ behavior (e.g. the `NatsRtd` registration), not code that runs today.
    `RPC_E_CALL_REJECTED`, COM calls hanging); the E2E retries with backoff and a
    warm-up phase, so **if a run fails this way, run it again**. Never assume such
    an error means the add-in is broken. Every suite prints the active AV state.
-2. **Elevated processes ignore per-user COM classes.** The add-in is *meant* to
-   register `NatsRtd` under `HKCU\Software\Classes` in `AutoOpen` (not wired
-   yet: `AutoOpen` only logs). If Excel runs elevated, `=RTD("NatsRtd", ...)`
-   shows `#N/D`. Workaround for test machines: register under
+2. **Elevated processes ignore per-user COM classes.** The add-in registers
+   `NatsRtd` under `HKCU\Software\Classes` in `AutoOpen` (via
+   `ComServer.DllRegisterServer`). If Excel runs elevated, `=RTD("NatsRtd", ...)`
+   can show `#N/D`. Workaround for test machines: register under
    `HKLM\Software\Classes` (admin), pointing at the packed XLL.
 3. **A server restart is destructive to other users** — only stop/restart a
    disposable/local NATS server; the E2E script skips the restart step for
@@ -399,9 +418,11 @@ behavior (e.g. the `NatsRtd` registration), not code that runs today.
 
 ## Release
 
-*(Planned — there is no `.github/workflows` and no `CHANGELOG.md` yet.)* The
-intended flow: push an annotated `v*` tag; the CI workflow builds and publishes
-the packed XLLs, `NATSExcel.dll`, `NLog.config`, `NATSExcel.json` and the
-installer (`NATSExcelSetup-<version>.exe`) as release assets. The version
-embedded in the NATS connection `Name` (shown as `dev` for local builds) is the
-tag. `INFORMATIONALVERSION` defaults to `dev` in `NATSExcel.csproj`.
+The CI workflow exists (`.github/workflows/build.yml`); `CHANGELOG.md` exists
+but still holds only an `Unreleased` placeholder — no release has been cut. The
+flow: push an annotated `v*` tag; CI builds and publishes the packed XLLs,
+`NATSExcel.dll`, `NLog.config`, `NATSExcel.json` and the installer
+(`NATSExcelSetup-<version>.exe`) as release assets, using the CHANGELOG section
+for the tag as the release body. The version embedded in the NATS connection
+`Name` (shown as `dev` for local builds) is the tag. `INFORMATIONALVERSION`
+defaults to `dev` in `NATSExcel.csproj`.

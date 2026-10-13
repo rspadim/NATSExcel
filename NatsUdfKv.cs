@@ -1237,6 +1237,15 @@ namespace NATSExcel
 
                 foreach (object cell in range)
                 {
+                    // Reject an Excel error cell explicitly: TextOf swallows it
+                    // (ToNatsString throws and TextOf returns null), so a #N/A
+                    // would be skipped like a blank and shift every later key
+                    // onto the wrong row of the result. RequireRange already
+                    // checks the range, but it is re-read here, so the per-cell
+                    // guard is repeated (NatsUdfCommon.RequireRange / PLAN 1.3).
+                    if (cell is ExcelError)
+                        return NatsUdfCommon.Fail(NatsUdfCommon.ErrorExcelErrorCell);
+
                     string text = TextOf(cell);
                     if (!string.IsNullOrWhiteSpace(text))
                         keys.Add(text);
