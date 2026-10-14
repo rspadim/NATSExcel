@@ -21,20 +21,21 @@ jobs:
 
       # Golden rule 9: no private data in tracked files. A company name, a
       # company-owned domain or an internal host in a shipped doc or config is a
-      # leak, so the gate fails the build on any hit. The patterns come from the
-      # rule itself; generic placeholders (localhost, 127.0.0.1, reserved
-      # documentation domains) are allowed.
+      # leak, so the gate fails the build on any hit. Only PRIVATE IPv4 ranges are
+      # matched (each octet bounded, so "net10.0" or "V10.2" never matches), plus
+      # internal-only TLDs; reserved documentation domains (example.com/or) and
+      # localhost/127.0.0.1 are allowed. Add the project's own forbidden markers
+      # (company name/domain) to the alternation below.
       - name: Private-data gate (golden rule 9)
         shell: pwsh
         run: |
-          # Add the project's own forbidden markers (company name, domain, hosts)
-          # here as an alternation; the pattern below is intentionally minimal so
-          # the check is auditable. 'LocalOnly' keeps the sample working.
-          $pattern = '@example\.com|@example\.org|(^|[^0-9])(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)[0-9]'
+          $ip = '(^|[^\d.])(10\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})|172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})|192\.168\.(\d{1,3})\.(\d{1,3}))([^\d]|$)'
+          $names = '[a-zA-Z0-9.-]+\.(local|internal|corp|lan|intranet)([^\w]|$)'
+          $pattern = "$ip|$names"
           $hits = & git grep -n -I -E $pattern -- ':!installer/languages' 2>$null
           if ($LASTEXITCODE -eq 0 -and $hits) {
             Write-Host $hits
-            throw "Private-data gate: non-reserved host/address found in tracked files"
+            throw "Private-data gate: a private IP or internal-only host is in a tracked file"
           }
           Write-Host "Private-data gate: clean"
 
