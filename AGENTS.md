@@ -22,7 +22,7 @@ published; this file is the working guidance.
 > released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
-> layers are real and pass: unit (365), smoke (168, and 0 skipped on a full local
+> layers are real and pass: unit (366), smoke (168, and 0 skipped on a full local
 > run), Excel E2E (57 assertions in the default run; the async-marker journey
 > SKIPs unless `-AsyncWrites`),
 > load (~204k msg/s) and liveness. The solution file, the CI tag/release flow and
