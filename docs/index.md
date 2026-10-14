@@ -3,6 +3,13 @@ title: NATSExcel
 description: Add-in do Excel (XLL) que traz o NATS para dentro do Excel via RTD e funções de planilha
 ---
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/logo-dark.svg">
+    <img src="../assets/logo.svg" alt="NATSExcel" width="420">
+  </picture>
+</p>
+
 **Add-in do Excel (XLL) que traz o [NATS](https://nats.io/) para dentro do Excel**
 por meio de RTD (Real-Time Data) e UDF (funções definidas pelo usuário): você digita
 uma fórmula, o dado do NATS chega na célula e — nas funções de streaming — fica

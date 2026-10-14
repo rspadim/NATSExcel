@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="NATSExcel icon">
+  <defs>
+    <linearGradient id="nx-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2FA36B"/>
+      <stop offset="1" stop-color="#196C43"/>
+    </linearGradient>
+    <linearGradient id="nx-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="244" height="244" rx="54" fill="url(#nx-bg)"/>
+  <rect x="6" y="6" width="244" height="244" rx="54" fill="url(#nx-gloss)"/>
+  <g stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="2">
+    <path d="M64 30V226M128 30V226M192 30V226M30 64H226M30 128H226M30 192H226"/>
+  </g>
+  <g stroke="#FFFFFF" stroke-width="7" stroke-linecap="round">
+    <path d="M128 128L128 64M128 128L183.4 96M128 128L183.4 160M128 128L128 192M128 128L72.6 160M128 128L72.6 96"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="128" cy="64" r="14"/>
+    <circle cx="183.4" cy="96" r="14"/>
+    <circle cx="183.4" cy="160" r="14"/>
+    <circle cx="128" cy="192" r="14"/>
+    <circle cx="72.6" cy="160" r="14"/>
+    <circle cx="72.6" cy="96" r="14"/>
+    <circle cx="128" cy="128" r="12"/>
+  </g>
+  <circle cx="183.4" cy="96" r="14" fill="#A5EBFF"/>
+</svg>
