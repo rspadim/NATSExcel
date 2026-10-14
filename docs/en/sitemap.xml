@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Per-language sitemap: some crawlers and SEO tools probe <language>/sitemap.xml
+  directly. The alternate-aware sitemap at the site root stays the canonical one
+  (it is what robots.txt advertises).
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://rspadim.github.io/NATSExcel/en/</loc>
+    </url>
+    <url>
+        <loc>https://rspadim.github.io/NATSExcel/en/PUBLIC-SURFACE/</loc>
+    </url>
+</urlset>
