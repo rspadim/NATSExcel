@@ -18,9 +18,9 @@ Cubre **NATS Core** (pub/sub, request/reply, grupos de cola, headers) y
 Construido con Excel-DNA sobre .NET Framework 4.8, usando NATS.Net, NLog y
 Newtonsoft.Json.
 
-Los binarios para Windows están **firmados digitalmente**; la firma la ofrece
-gratuitamente a proyectos de código abierto la
-[SignPath Foundation](https://signpath.org/).
+Los binarios para Windows **aún no están firmados digitalmente**, así que Windows
+puede mostrar el aviso de SmartScreen — en **Más información**, haz clic en
+**Ejecutar de todas formas**.
 
 [![Licencia: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/rspadim/NATSExcel/blob/main/LICENSE)
 [![Última versión](https://img.shields.io/github/v/release/rspadim/NATSExcel?sort=semver)](https://github.com/rspadim/NATSExcel/releases/latest)
@@ -57,9 +57,8 @@ Descarga la versión más reciente en la
 | `NLog.config` | Configuración de registro (log) |
 | `NATSExcel.json` | Configuración inicial |
 
-Los releases están firmados digitalmente; el servicio de firma lo proporciona la
-[SignPath Foundation](https://signpath.org/), que emite certificados a proyectos de
-código abierto.
+Los releases **aún no están firmados digitalmente**; Windows puede mostrar el aviso
+de SmartScreen — en **Más información**, haz clic en **Ejecutar de todas formas**.
 
 ## Instalación
 

@@ -16,8 +16,8 @@ It covers **Core NATS** (pub/sub, request/reply, queue groups, headers) and
 **JetStream** (streams, consumers, replay, Key/Value Store, Object Store). Built
 with Excel-DNA on .NET Framework 4.8, backed by NATS.Net, NLog and Newtonsoft.Json.
 
-Windows builds are **code-signed**; signing is provided free of charge to
-open-source projects by the [SignPath Foundation](https://signpath.org/).
+Windows builds **are not code-signed yet**, so Windows may show a SmartScreen
+warning — click **More info > Run anyway**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/rspadim/NATSExcel/blob/main/LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/rspadim/NATSExcel?sort=semver)](https://github.com/rspadim/NATSExcel/releases/latest)
@@ -53,8 +53,8 @@ Grab the latest release from the **[releases page](https://github.com/rspadim/NA
 | `NLog.config` | Logging configuration |
 | `NATSExcel.json` | Starter configuration |
 
-Releases are code-signed; the signing service is provided free of charge to
-open-source projects by the [SignPath Foundation](https://signpath.org/).
+Releases **are not code-signed yet**; Windows may show a SmartScreen warning —
+click **More info > Run anyway**.
 
 ## Install
 
