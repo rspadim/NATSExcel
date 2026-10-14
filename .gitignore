@@ -27,3 +27,7 @@ _site/
 
 # A local logo-preview tool (it embeds a machine-specific path)
 assets/_preview.html
+
+# Internal design/plan notes: kept on disk for the maintainers, not published.
+DESIGN.md
+PLAN.md

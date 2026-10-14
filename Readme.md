@@ -16,7 +16,6 @@ It covers **Core NATS** (pub/sub, request/reply, queue groups, headers) and
 Backed by NATS.Net, NLog and Newtonsoft.Json, and targeting .NET Framework 4.8.
 
 - Per-function catalog (frozen): [`docs/PUBLIC-SURFACE.md`](docs/PUBLIC-SURFACE.md)
-- Architecture and the full function list: [`DESIGN.md`](DESIGN.md)
 - Contributor/agent guidance: [`AGENTS.md`](AGENTS.md)
 - Release history: [`CHANGELOG.md`](CHANGELOG.md)
 
@@ -25,7 +24,7 @@ Backed by NATS.Net, NLog and Newtonsoft.Json, and targeting .NET Framework 4.8.
 > helpers** and an RTD server with **9 commands** (`SUB`, `KV`, `KVGET`,
 > `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`, `RTDCLUSTER`). The installer, the config
 > validator, the unit/smoke/liveness/load suites and the Excel end-to-end script
-> all exist (see [`CHANGELOG.md`](CHANGELOG.md) and [`PLAN.md`](PLAN.md) §8/§9).
+> all exist (see [`CHANGELOG.md`](CHANGELOG.md)).
 > Sibling project: [RedisExcel](https://github.com/rspadim/RedisExcel) — same
 > idea, built on NATS; not a code port, because the NATS client is async-only.
 
@@ -227,9 +226,9 @@ Notes:
 - A cluster's `auth`, `timeout` and `reconnect` **merge over the shared
   top-level blocks field by field**, so you can set a shared default and change
   only what differs per cluster.
-- Never commit a real endpoint or credential. See [`DESIGN.md`](DESIGN.md) §8 for
-  every key, and [`NATSExcel.schema.json`](NATSExcel.schema.json) for the schema
-  the add-in embeds.
+- Never commit a real endpoint or credential. [`NATSExcel.schema.json`](NATSExcel.schema.json)
+  is the schema the add-in embeds and validates against, and
+  [`NATSExcel.json`](NATSExcel.json) is a commented starter sample.
 
 The optional last argument of every UDF/RTD call is a **cluster reference**: a
 `Clusters` name, a `Servers` alias, or a raw URL. A non-empty name that does not
