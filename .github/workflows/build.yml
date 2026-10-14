@@ -43,8 +43,10 @@ jobs:
       # Cache the NuGet package graph: every later step then restores from the
       # cache instead of the network. The key hashes the project files, so the
       # cache misses (and rebuilds) only when a dependency really changes.
+      # v6, not v4: v4 still declares the Node 20 runtime, which GitHub now forces
+      # onto Node 24 and reports as a deprecation warning on every run.
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
