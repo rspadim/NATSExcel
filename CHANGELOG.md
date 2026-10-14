@@ -3,6 +3,41 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
+## Unreleased
+
+Post-`v0.1.2` fixes, found by a read-only review of the PUBLISHED artifacts and of
+the release batch itself. No change to the public Excel surface or to the
+`NATSExcel.json` shape.
+
+### Fixed
+
+- **The installer's `FileVersion` was empty**: `installer\NATSExcel.iss` set
+  `AppVersion` but no `VersionInfoVersion`, so Explorer's Details tab showed a blank
+  "File version" and inventory/AV tooling that keys on it read `0.0.0.0` (the
+  ProductVersion was correct). The version-info directives are now set and the
+  compiled installer reports `FileVersion 0.1.2`. The published `v0.1.2` asset still
+  carries the blank field; the next release ships the fix.
+- **`test\TestSupport\Run-Tests.ps1 -WithE2E` silently SKIPPED the failover
+  journey**: the runner starts each layer's cluster under its own temp root
+  (`%TEMP%\natsexcel-tests`), which the E2E's ownership proof did not recognize, so
+  it reported "not a disposable test node" and skipped. The proof accepts that root
+  now, so the documented `-WithE2E` path really runs the journey.
+- **`"maxAttempts": 0` does not mean "no retry"**: NATS.Client.Core 3.3.0 bounds the
+  retries only when the value is positive, so `0` and `-1` both leave its unlimited
+  default (its own documentation says "-1, unlimited"). The code comment, the schema
+  descriptions, a test name and the validator's comment claimed otherwise;
+  `tools\NatsValidate` now uses `MaxReconnectRetry = 1` so a validator really fails
+  fast, and the schema says what `0` does.
+- **The "10 s ceiling" was wrong**: `NatsOpts.Default.ReconnectWaitMax` is 5 s in
+  NATS.Client.Core 3.3.0, so the pre-fix wait sequence was 2, 4, 5, 5 s - corrected
+  in the code comment, `AGENTS.md` and this file, and the schema's `waitMs` now
+  documents what `0` does (the client's own schedule).
+- Tests only: the `RTDCLUSTER cluster/nodes` predicates accepted Excel's own `#N/D`
+  and `#VALUE!` markers as "the cell answers", and the catalog sweep's
+  `NatsUDFSubjectLatestJSON` entry accepted the `(null)` marker. The predicates now
+  reject every `#`-prefixed marker, and the sweep warms that read and asserts a real
+  value (`1x1 value`).
+
 ## v0.1.2
 
 Four rounds of audit fixes plus the test coverage that pins them. **No change to the
