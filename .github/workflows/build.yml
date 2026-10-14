@@ -149,6 +149,22 @@ jobs:
           }
           if (-not $ok) { throw "liveness tests failed on all attempts" }
 
+      # The load layer is a real assertion now: it FAILS below a conservative
+      # throughput floor, so a regression in the broadcast path is visible. Own
+      # server, same as the other layers.
+      - name: Run load tests (manager + raw)
+        shell: pwsh
+        run: |
+          $urls = & powershell -NoProfile -ExecutionPolicy Bypass -File test/TestSupport/Start-Cluster.ps1 -Nodes 1 -ServerExe "$env:NATSEXCEL_NATS_SERVER" | Select-Object -Last 1
+          $url = "$urls".Split(',')[0].Trim()
+          if (-not $url) { $url = 'nats://127.0.0.1:4222' }
+          Write-Host "load target: $url"
+          foreach ($mode in 'manager','raw') {
+            Write-Host "load mode $mode"
+            dotnet run --project test/LoadTests -c Release --no-build --no-restore -- $mode "$url" 8 2 1
+            if ($LASTEXITCODE -ne 0) { throw "load test ($mode) failed (exit $LASTEXITCODE)" }
+          }
+
       - name: Verify CHANGELOG matches the tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh

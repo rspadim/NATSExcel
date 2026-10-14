@@ -367,6 +367,7 @@ lands in the repository. The cluster harness and the sample only reference
 
 ```powershell
 dotnet run --project test\LoadTests -c Release -- manager "nats://127.0.0.1:4222" 10 2 1
+dotnet run --project test\LoadTests -c Release -- raw     "nats://127.0.0.1:4222" 10 2 1
 ```
 
 `manager` exercises the subscription broadcast path; `raw` is the plain

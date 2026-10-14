@@ -394,5 +394,10 @@ if ($failed.Count -gt 0) {
     Write-Host ("FAILED layer(s): " + ($failed -join ', ')) -ForegroundColor Red
     exit 1
 }
-Write-Host 'ALL LAYERS PASSED' -ForegroundColor Green
+$ran = @($script:running.Values | ForEach-Object { $_.Name })
+$notRun = @()
+if (-not $WithE2E) { $notRun += 'e2e (needs Excel; -WithE2E)' }
+$notRun += 'load (Run-Tests does not run it; see CI)'
+Write-Host ("ALL STARTED LAYERS PASSED (ran: " + ($ran -join ', ') + ")") -ForegroundColor Green
+Write-Host ("not run: " + ($notRun -join '; '))
 exit 0
