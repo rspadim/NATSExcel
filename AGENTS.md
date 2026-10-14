@@ -139,13 +139,14 @@ items from the audit/plan are still open (`PLAN.md` §8/§9).
 
 | Open item | Responsibility (per the plan) |
 | --- | --- |
-| `jetstream.domain` routing | `Cluster.JetStreamDomain` is parsed and surfaced for diagnostics, but no JetStream call is routed by domain yet (PLAN §9.1#8). |
+| V8.8 read-only live-feed run | A `-ReadOnly` switch for a non-local feed endpoint (the endpoint stays a CLI argument, never committed). |
+| V8.10 2-node placement error | Assert the named `no suitable peers for placement` error on a 2-node cluster (the 3-node failover half is covered by the E2E). |
 
-The AV matrix helpers (`test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`)
-and the read-only AV banner (`test\TestSupport\Get-AntivirusState.ps1`, which only
-*reads* the state and never disables protection) have landed; the
-`expectCluster`/ambiguity surfacing in `=NatsUDFConfigValidate()` is done too, so
-they now live under "Exists today".
+The AV matrix helpers (`test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`),
+the read-only AV banner (`test\TestSupport\Get-AntivirusState.ps1`, which only
+*reads* the state and never disables protection), the `expectCluster`/ambiguity
+surfacing in `=NatsUDFConfigValidate()` and the `jetstream.domain` routing have
+landed, so they now live under "Exists today".
 
 **The wizard is never asked to, and never does, disable or reconfigure antivirus
 software.** No script in this repository touches `Set-MpPreference` or any

@@ -178,6 +178,11 @@ namespace NATSExcel.SmokeTests
                 // nats-server.exe, not the CLI URL, and its probes are reads
                 // (PING/RTT), so it also runs under --read-only.
                 await RunAuthMatrixChecksAsync().ConfigureAwait(false);
+
+                // The JetStream DOMAIN routing also resets the runtime (the JS
+                // context is cached per endpoint), so it runs alongside the auth
+                // matrix, last.
+                await RunJetStreamDomainChecksAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1117,6 +1122,108 @@ namespace NATSExcel.SmokeTests
             {
                 return NatsUdfCommon.ErrorPrefix + NatsUdfAsync.SafeMessage(ex);
             }
+        }
+
+        // ------------------------------------------------------------------
+        // JetStream domain routing (PLAN §9.1#8)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Proves the <c>Clusters.*.jetstream.domain</c> knob is actually USED: on a
+        /// server configured with a domain, a JS context built with the MATCHING
+        /// domain answers while one built with a WRONG domain does not. The wrong
+        /// case is the point - it shows the domain reaches the API subjects instead
+        /// of being inert (a context without the domain would answer on $JS.API.
+        /// and look correct either way).
+        /// </summary>
+        private static async Task RunJetStreamDomainChecksAsync()
+        {
+            string serverExe = FindNatsServer();
+            if (serverExe == null)
+            {
+                Skip("JetStream domain", "no nats-server.exe (set NATSEXCEL_NATS_SERVER)");
+                return;
+            }
+
+            const string domain = "SMOKEDOM";
+            string workRoot = Path.Combine(Path.GetTempPath(), "natsexcel-smoke-jsdomain");
+            string dir = Path.Combine(workRoot, "dom");
+            NatsAuthServer server = null;
+            try
+            {
+                Directory.CreateDirectory(dir);
+                // A durable store keeps JetStream happy; the domain is what the
+                // client must prefix its API subjects with.
+                server = StartNatsServer(serverExe, workRoot, "dom", new[]
+                {
+                    "jetstream {",
+                    "  store_dir: " + dir.Replace('\\', '/'),
+                    "  domain: " + domain,
+                    "}",
+                });
+                if (!server.Ready)
+                {
+                    Skip("JetStream domain", "the disposable domain server did not start");
+                    return;
+                }
+
+                Check(await JsDomainAnswersAsync(server.Url, domain).ConfigureAwait(false),
+                    "jsdomain: a JS call with the cluster's declared domain answers");
+
+                bool wrong = await JsDomainAnswersAsync(server.Url, domain + "-WRONG").ConfigureAwait(false);
+                Check(!wrong,
+                    "jsdomain: a WRONG domain does NOT answer (the knob is really used, not inert)");
+            }
+            catch (Exception ex)
+            {
+                Check(false, "jsdomain: unexpected failure: " + Describe(ex));
+            }
+            finally
+            {
+                if (server != null) server.Dispose();
+                try { NatsRuntime.Shutdown(); NatsRuntime.ResetAfterAddInReload(); } catch { }
+                AppConfig.CurrentOverrideForTests = null;
+            }
+        }
+
+        /// <summary>True when a JetStream round trip succeeds for the given domain.</summary>
+        private static async Task<bool> JsDomainAnswersAsync(string url, string domain)
+        {
+            // The context is cached per endpoint, so each attempt needs a fresh
+            // runtime for its own domain to be the one in the context options.
+            NatsRuntime.Shutdown();
+            NatsRuntime.ResetAfterAddInReload();
+
+            string json = "{\"Default\":\"d\",\"Clusters\":{\"d\":{\"urls\":[\"" + url
+                + "\"],\"jetstream\":{\"domain\":\"" + domain + "\"}}}}";
+            AppConfig.CurrentOverrideForTests = AppConfig.Sanitize(AppConfig.Parse(json));
+
+            try
+            {
+                var context = NatsRuntime.Connections.GetJetStream(url);
+                // Account info always round-trips (a stream listing may legitimately
+                // be empty), so it is the honest probe for "did the server answer".
+                await WithTimeoutAsync(
+                    SafeAccountInfoAsync(context), 8000).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // A wrong domain fails here; that IS the expected outcome, so keep
+                // the reason visible in the console rather than silent.
+                Console.WriteLine("  jsdomain diagnostic: domain '" + domain + "' -> "
+                    + NatsUdfAsync.SafeMessage(ex));
+                return false;
+            }
+            finally
+            {
+                AppConfig.CurrentOverrideForTests = null;
+            }
+        }
+
+        private static async Task SafeAccountInfoAsync(INatsJSContext context)
+        {
+            await context.GetAccountInfoAsync().ConfigureAwait(false);
         }
 
         private static AppConfig.Root AuthRoot(AppConfig.Auth auth, string url, string syncWrite)

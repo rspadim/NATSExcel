@@ -707,6 +707,23 @@ namespace NATSExcel
             if (declaredJitterMs || !over) to.JitterMs = from.JitterMs;
         }
 
+        /// <summary>
+        /// The JetStream domain an endpoint's cluster declares
+        /// (<c>Clusters.&lt;name&gt;.jetstream.domain</c>), or null when none does.
+        /// A domain routes the JetStream API subjects to the right cluster in a
+        /// multi-domain deployment, so the context must be created WITH it; a
+        /// cluster that declares none keeps the plain context (the $JS.API
+        /// default).
+        /// </summary>
+        public static string ResolveJetStreamDomain(string endpoint)
+        {
+            var cfg = Current;
+            string name = string.IsNullOrWhiteSpace(endpoint) ? cfg.Default : endpoint.Trim();
+            Cluster cluster = FindCluster(cfg, name);
+            string domain = cluster?.JetStreamDomain;
+            return string.IsNullOrWhiteSpace(domain) ? null : domain.Trim();
+        }
+
         /// <summary>The effective auth/reconnect/timeout a resolved endpoint uses.</summary>
         public sealed class ConnectionSettings
         {

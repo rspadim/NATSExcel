@@ -679,18 +679,19 @@ JetStream by `jetstream.domain` (the one open §9.1 item).
    is expected (a `>` firehose should be scoped down before `SubjectLatest`/RTD).
    Do not commit the endpoint, its domain or any credential.
 
-### 9.1 Audit findings — closed in the audit round
+### 9.1 Audit findings — all closed
 
-All the medium/low findings below (except `jetstream.domain` routing, item 8)
-were closed together: the reconnection knobs now reach `NatsOpts` (with a
-declared `0` overriding), the cluster ambiguity and `expectCluster` are surfaced
-by `=NatsUDFConfigValidate()`, the Excel config-search folder is searched, the
-standalone JSON conversions exist and are pinned, `NATSExcel.sln` exists, the
-packaging parity tests pass, and `jetstream.domain` is parsed and surfaced for
-diagnostics (routing by domain remains open).
+Every medium/low finding below has been closed:
 
-**The one still-open item:**
-
-8. **`jetstream.domain` routing** (low): `Clusters.*.jetstream.domain` parses
-   into the model and is surfaced, but nothing routes JetStream calls by domain
-   yet.
+1–7. The reconnection knobs reach `NatsOpts` (a declared `0` overriding), the
+   cluster ambiguity and `expectCluster` are surfaced by
+   `=NatsUDFConfigValidate()`, the Excel config-search folder is searched, the
+   standalone JSON conversions exist and are pinned, `NATSExcel.sln` exists, and
+   the packaging parity tests pass.
+8. **`jetstream.domain` routing is implemented**: `AppConfig.ResolveJetStreamDomain`
+   resolves the cluster's declared domain (by label or by the resolved URL) and
+   `NatsConnectionManager.CreateJetStreamContextFor` builds the context WITH it
+   (`NatsJSOpts.Domain`), so a multi-domain deployment is routed by the domain
+   instead of the default `$JS.API` subjects. Pinned by a unit test and by a
+   smoke check that starts a server with `jetstream { domain: … }` and proves the
+   matching domain answers while a WRONG one does not.

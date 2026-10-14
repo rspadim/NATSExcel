@@ -188,6 +188,40 @@ namespace NATSExcel.Tests
         }
 
         // ------------------------------------------------------------------
+        // JetStream domain routing (PLAN §9.1#8): the knob was parsed and surfaced
+        // but never used, so a multi-domain deployment talked to the default
+        // $JS.API subjects instead of the cluster's.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ResolveJetStreamDomain_ReturnsTheDeclaredDomain()
+        {
+            var root = AppConfig.Sanitize(AppConfig.Parse(@"{
+                ""Default"": ""west"",
+                ""Clusters"": {
+                    ""west"": { ""urls"": [""nats://west:4222""], ""jetstream"": { ""domain"": ""WEST"" } },
+                    ""plain"": { ""urls"": [""nats://plain:4222""] }
+                }
+            }"));
+            var previous = AppConfig.CurrentOverrideForTests;
+            try
+            {
+                AppConfig.CurrentOverrideForTests = root;
+                Assert.Equal("WEST", AppConfig.ResolveJetStreamDomain("west"));
+                // Also by the resolved URL, not only by the label.
+                Assert.Equal("WEST", AppConfig.ResolveJetStreamDomain("nats://west:4222"));
+                // A cluster that declares none must stay on the default subjects.
+                Assert.Null(AppConfig.ResolveJetStreamDomain("plain"));
+                // A raw URL that matches no cluster has no domain.
+                Assert.Null(AppConfig.ResolveJetStreamDomain("nats://nowhere:4222"));
+            }
+            finally
+            {
+                AppConfig.CurrentOverrideForTests = previous;
+            }
+        }
+
+        // ------------------------------------------------------------------
         // Masking: the CLIENT's own credential-file phrasing (round-2 lens C).
         // ------------------------------------------------------------------
 

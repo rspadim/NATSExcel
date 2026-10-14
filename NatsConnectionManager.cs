@@ -252,7 +252,7 @@ namespace NATSExcel
 
             string key = endpoint.Trim();
             var lazy = _jetStream.GetOrAdd(key, k => new Lazy<INatsJSContext>(
-                () => GetConnection(k).CreateJetStreamContext(),
+                () => CreateJetStreamContextFor(k),
                 LazyThreadSafetyMode.ExecutionAndPublication));
             try
             {
@@ -279,6 +279,37 @@ namespace NATSExcel
                 _jetStream.TryRemove(key, out _);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Creates the JetStream context for an endpoint, carrying the cluster's
+        /// declared <c>jetstream.domain</c> when there is one. Without the domain a
+        /// multi-domain deployment answers (or refuses) on the default $JS.API
+        /// subjects instead of the cluster's own, so the knob would be inert.
+        /// A config failure must not break the context: fall back to the plain
+        /// context (the domain is a routing hint, not a credential).
+        /// </summary>
+        private INatsJSContext CreateJetStreamContextFor(string endpoint)
+        {
+            NatsConnection connection = GetConnection(endpoint);
+            string domain = null;
+            try
+            {
+                domain = AppConfig.ResolveJetStreamDomain(endpoint);
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "GetJetStream: could not resolve the JetStream domain for "
+                    + MaskedEndpoint(endpoint));
+            }
+
+            if (string.IsNullOrWhiteSpace(domain))
+                return connection.CreateJetStreamContext();
+
+            if (logger.IsDebugEnabled)
+                logger.Debug("GetJetStream: using domain '" + domain + "' for "
+                    + MaskedEndpoint(endpoint));
+            return connection.CreateJetStreamContext(new NatsJSOpts(connection.Opts, domain: domain));
         }
 
         /// <summary>
