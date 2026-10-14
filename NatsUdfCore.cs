@@ -229,6 +229,11 @@ namespace NATSExcel
 
         private static readonly ConcurrentDictionary<string, SubjectListener> _subjectListeners =
             new ConcurrentDictionary<string, SubjectListener>(StringComparer.Ordinal);
+
+        /// <summary>Upper bound on distinct SubjectLatest registrations, so a
+        /// workbook sweeping subjects cannot register an unbounded number of wire
+        /// subscriptions. Mirrors the RTD MaxTopics cap.</summary>
+        internal const int MaxSubjectListeners = 10000;
         private static readonly ConcurrentDictionary<string, string> _latestMessages =
             new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
@@ -887,24 +892,41 @@ namespace NATSExcel
         {
             long epochBefore = 0;
             bool needsSubscribe = false;
+            string limitError = null;
             lock (LifecycleLock(key))
             {
                 if (!_subjectListeners.ContainsKey(key))
                 {
-                    // Register the in-flight watch BEFORE reading the epoch. The
-                    // bounded prune runs from any other key's BumpSubjectEpoch
-                    // and removes an entry that is in neither the watch set nor
-                    // the listener map; reading the epoch first left a window
-                    // where the prune could drop the entry, the unsubscribe
-                    // re-create it as epoch 1, and the install re-check (epoch
-                    // == epochBefore) wrongly pass - a ghost listener. The watch
-                    // makes the entry visible to the prune immediately.
-                    BeginSubscribeWatch(key);
-                    epochBefore = SubjectEpoch(key);
-                    needsSubscribe = true;
+                    // Cap distinct registrations: a workbook (or macro) sweeping
+                    // distinct subjects would otherwise register one wire
+                    // subscription + consume-loop task per subject, for the process
+                    // lifetime (a cell deletion does not release it). Mirrors the
+                    // RTD MaxTopics cap; the caller surfaces the named error.
+                    if (_subjectListeners.Count >= MaxSubjectListeners)
+                    {
+                        limitError = "too many NatsUDFSubjectLatest cells (max "
+                            + MaxSubjectListeners.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                            + "); call NatsUDFSubjectUnsubscribe on the ones you no longer need";
+                    }
+                    else
+                    {
+                        // Register the in-flight watch BEFORE reading the epoch. The
+                        // bounded prune runs from any other key's BumpSubjectEpoch
+                        // and removes an entry that is in neither the watch set nor
+                        // the listener map; reading the epoch first left a window
+                        // where the prune could drop the entry, the unsubscribe
+                        // re-create it as epoch 1, and the install re-check (epoch
+                        // == epochBefore) wrongly pass - a ghost listener. The watch
+                        // makes the entry visible to the prune immediately.
+                        BeginSubscribeWatch(key);
+                        epochBefore = SubjectEpoch(key);
+                        needsSubscribe = true;
+                    }
                 }
             }
 
+            if (limitError != null)
+                throw new InvalidOperationException(limitError);
             if (!needsSubscribe)
                 return;
 
@@ -1175,12 +1197,12 @@ namespace NATSExcel
                 if (string.IsNullOrWhiteSpace(text))
                     return null;
                 // The queue group lands in the SUB control line too, so it shares
-                // the subject bound (a 32767-char group could exceed the server's
-                // max_control_line).
-                if (text.Length > NatsUdfCommon.MaxSubjectLength)
+                // the control-line byte bound (a huge group could exceed the
+                // server's max_control_line). Use bytes, like RequireSubject.
+                if (NatsUdfCommon.TooLongForControlLine(text))
                 {
                     error = NatsUdfCommon.Fail("the queue group is too long (max "
-                        + NatsUdfCommon.MaxSubjectLength.ToString(System.Globalization.CultureInfo.InvariantCulture) + " characters)");
+                        + NatsUdfCommon.MaxSubjectBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + " bytes)");
                     return null;
                 }
                 return text;
@@ -1235,10 +1257,11 @@ namespace NATSExcel
 
             if (string.IsNullOrWhiteSpace(endpoint))
             {
-                error = NatsUdfCommon.VerboseError(
-                    "host=" + NatsUdfCommon.ShortForLog(display, 128),
-                    NatsUdfCommon.ConfigError + ": not a known cluster or server",
-                    "check Default.cluster, Clusters and Servers");
+                // The frozen marker, bare, to match the JS/KV/OBJ/Status families
+                // (a formula that tests ="#CONFIG" must match every family; the
+                // earlier verbose form broke that). The reference is already
+                // echoed by ResolveEndpoint's callers' own context when needed.
+                error = NatsUdfCommon.ConfigError;
                 return null;
             }
             return endpoint;

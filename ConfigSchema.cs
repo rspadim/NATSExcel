@@ -154,7 +154,7 @@ namespace NATSExcel
                 if (path == null)
                     return "OK (no " + ConfigFileName + " found; using defaults)";
                 if (!File.Exists(path))
-                    return "Error: file not found: " + path;
+                    return NatsUdfCommon.Fail("file not found: " + path);
 
                 string json = File.ReadAllText(path);
                 JObject root;
@@ -164,10 +164,12 @@ namespace NATSExcel
                 }
                 catch (Exception ex)
                 {
-                    return "Error: " + ex.Message + " (" + path + ")";
+                    // Mask: a JSON parse error echoes the offending text/key
+                    // verbatim, which could carry a credential-bearing URL.
+                    return NatsUdfCommon.Fail(AppConfig.MaskNatsEndpoint(ex.Message) + " (" + path + ")");
                 }
                 if (root == null)
-                    return "Error: the config root is not a JSON object (" + path + ")";
+                    return NatsUdfCommon.Fail("the config root is not a JSON object (" + path + ")");
 
                 var issues = new List<ConfigIssue>();
                 Clean(root, issues);
@@ -184,7 +186,7 @@ namespace NATSExcel
 
                 var lines = new List<string>();
                 if (issues.Count > 0)
-                    lines.Add("Error: " + issues.Count + " problem(s) in " + path);
+                    lines.Add(NatsUdfCommon.Fail(issues.Count + " problem(s) in " + path));
                 else
                     lines.Add("OK (" + path + ") with " + warnings.Count + " warning(s)");
                 foreach (var issue in issues)
@@ -195,7 +197,7 @@ namespace NATSExcel
             }
             catch (Exception ex)
             {
-                return "Error: " + ex.Message;
+                return NatsUdfCommon.Fail(AppConfig.MaskNatsEndpoint(ex.Message));
             }
         }
 

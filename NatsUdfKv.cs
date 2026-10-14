@@ -118,6 +118,13 @@ namespace NATSExcel
             error = TryReadKeys(keys, out List<string> keyList);
             if (error != null)
                 return error;
+            // The keys range is Excel-supplied and bounded only by the 50 M-cell
+            // budget; each key costs a round trip and a row, so cap the batch like
+            // the key list (otherwise a pasted huge range allocates an ~800 MB
+            // matrix before the first timeout).
+            if (keyList.Count > MaxKeyRows)
+                return NatsUdfCommon.Fail("too many keys (max "
+                    + MaxKeyRows.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
             if (!TryReadFlag(columns, "columns", out bool withColumns, out error))
                 return error;
             if (!TryPrepare(host, admin: false, out string endpoint, out error))

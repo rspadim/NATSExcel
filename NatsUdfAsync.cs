@@ -63,6 +63,14 @@ namespace NATSExcel
             public Task<object> Tail = Task.FromResult<object>(null);
         }
 
+        /// <summary>
+        /// Bumped by <see cref="ResetAfterAddInReload"/>. A work item captures the
+        /// generation when it is enqueued; if the add-in reloads before the item
+        /// runs, the stale tail is skipped instead of executing the write again
+        /// (Excel re-registers the observer and would otherwise issue it twice).
+        /// </summary>
+        private static int _generation;
+
         private static readonly ConcurrentDictionary<string, EndpointQueue> _queues =
             new ConcurrentDictionary<string, EndpointQueue>(StringComparer.Ordinal);
 
@@ -214,6 +222,7 @@ namespace NATSExcel
 #pragma warning disable VSTHRD200 // Enqueue is the frozen internal name; see above.
         internal static Task<object> Enqueue(string endpoint, Func<object> work)
         {
+            int generation = Volatile.Read(ref _generation);
             while (true)
             {
                 EndpointQueue queue = _queues.GetOrAdd(endpoint, _ => new EndpointQueue());
@@ -223,9 +232,18 @@ namespace NATSExcel
                         continue; // idle-removal race: retry against the live queue
 
                     Task<object> next = queue.Tail.ContinueWith(
-                        _ => ExecuteSafely(work),
+                        _ => generation == Volatile.Read(ref _generation)
+                            ? ExecuteSafely(work)
+                            : SkippedByReload(),
                         CancellationToken.None,
-                        TaskContinuationOptions.None,
+                        // RunContinuationsAsynchronously is REQUIRED: a fresh or
+                        // idle-released queue's Tail is an already-completed
+                        // sentinel (Task.FromResult), and without this flag the
+                        // continuation runs INLINE on the subscribing (Excel)
+                        // thread - so a reply-dependent KV/JS put would block the
+                        // UI thread for up to its response timeout, exactly the
+                        // freeze AsyncWrites exists to remove.
+                        TaskContinuationOptions.RunContinuationsAsynchronously,
                         TaskScheduler.Default);
                     queue.Tail = next;
 
@@ -283,6 +301,16 @@ namespace NATSExcel
         internal static void ResetAfterAddInReload()
         {
             _queues.Clear();
+            // Invalidate any in-flight tail so it skips its work instead of
+            // running it a second time when Excel re-registers the observer.
+            Interlocked.Increment(ref _generation);
+        }
+
+        /// <summary>The result of a work item skipped because the add-in reloaded
+        /// between its enqueue and its run.</summary>
+        private static object SkippedByReload()
+        {
+            return NatsUdfCommon.Fail("superseded by add-in reload (the write was already issued; Excel re-registered the cell)");
         }
 
         /// <summary>

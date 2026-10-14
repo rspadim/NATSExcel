@@ -76,10 +76,6 @@ namespace NATSExcel
         /// </summary>
         public const int MaxSubjectBytes = 2048;
 
-        /// <summary>Character cap kept for callers that only need a cheap bound;
-        /// the real guard is <see cref="MaxSubjectBytes"/>.</summary>
-        public const int MaxSubjectLength = 1024;
-
         // ------------------------------------------------------------------
         // Error vocabulary. Every helper returns null when the argument is fine,
         // or the text to hand to a cell (the caller wraps it with Fail).
@@ -321,6 +317,12 @@ namespace NATSExcel
             if (TooLongForControlLine(text, out int textBytes))
                 return Fail("the " + label + " is too long (max " + MaxSubjectBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + " bytes; got " + textBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
             return null;
+        }
+
+        /// <summary>TRUE when the UTF-8 byte length exceeds the control-line budget.</summary>
+        public static bool TooLongForControlLine(string text)
+        {
+            return TooLongForControlLine(text, out _);
         }
 
         /// <summary>TRUE when the UTF-8 byte length exceeds the control-line budget.</summary>

@@ -54,6 +54,11 @@ namespace NATSExcel
         /// an unrelated constant.</summary>
         private const int MaxPauseMs = 60000;
 
+        // Row caps for the server-side listings (a hostile/exotic server must not
+        // grow the list unbounded). Mirrors the KV/Object Store listing caps.
+        private const int MaxStreamRows = 10000;
+        private const int MaxConsumerRows = 10000;
+
         // NatsUDFJSFetch batch bounds ([count]).
         private const int MaxFetchCount = 10000;
 
@@ -801,7 +806,14 @@ namespace NATSExcel
             {
                 var streams = new List<INatsJSStream>();
                 await foreach (INatsJSStream stream in context.ListStreamsAsync())
+                {
                     streams.Add(stream);
+                    // Cap the drain: a hostile/exotic server can expose a huge
+                    // number of streams; without this the list grows unbounded
+                    // (the KV/Object Store listings already cap).
+                    if (streams.Count >= MaxStreamRows)
+                        break;
+                }
                 return streams;
             });
         }
@@ -813,7 +825,11 @@ namespace NATSExcel
             {
                 var consumers = new List<INatsJSConsumer>();
                 await foreach (INatsJSConsumer consumer in context.ListConsumersAsync(stream))
+                {
                     consumers.Add(consumer);
+                    if (consumers.Count >= MaxConsumerRows)
+                        break;
+                }
                 return consumers;
             });
         }
@@ -842,7 +858,12 @@ namespace NATSExcel
                         message.Subject ?? string.Empty,
                         sequence.ToString(CultureInfo.InvariantCulture),
                         timestamp,
-                        NatsResultFormatter.DecodePayload(message.Data) ?? string.Empty
+                        // Bound each payload HERE, during collection: the cell
+                        // bound must not wait until the whole batch is
+                        // materialised (a hostile server could send 10000 x 1 MB
+                        // messages and the decoded strings would be 10-20 GB).
+                        NatsResultFormatter.BoundCellText(
+                            NatsResultFormatter.DecodePayload(message.Data) ?? string.Empty)
                     });
                 }
 

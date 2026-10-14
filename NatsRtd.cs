@@ -1733,6 +1733,10 @@ namespace NATSExcel
             PushPolled(td, value, () => td.CommitPolledBytes(data));
         }
 
+        /// <summary>Upper bound on the keys an RTD <c>KVKEYS</c> cell lists, so a
+        /// bucket with millions of subjects cannot pin the CPU per poll tick.</summary>
+        private const int MaxRtdKeys = 5000;
+
         private void PollKvKeys(TopicData td, NatsConnectionManager connections)
         {
             string bucket = td.Spec.Arg1;
@@ -1744,6 +1748,10 @@ namespace NATSExcel
                 CancellationToken.None));
 
             string prefix = "$KV." + bucket + ".";
+            // Cap the list BEFORE sorting/serialising: a bucket with millions of
+            // distinct subjects would otherwise rebuild, sort and JSON-encode the
+            // whole set every poll tick (then throw it away when the cell bound
+            // truncates to 255). The RTD twin mirrors the UDF MaxKeyRows cap.
             var keys = new List<string>();
             var subjects = handle?.Info?.State?.Subjects;
             if (subjects != null)
@@ -1755,6 +1763,8 @@ namespace NATSExcel
                     keys.Add(subject.StartsWith(prefix, StringComparison.Ordinal)
                         ? subject.Substring(prefix.Length)
                         : subject);
+                    if (keys.Count >= MaxRtdKeys)
+                        break;
                 }
             }
             keys.Sort(StringComparer.Ordinal);
@@ -1960,7 +1970,7 @@ namespace NATSExcel
 
                 string body = reply.Data;
                 if (string.IsNullOrWhiteSpace(body))
-                    return noSystemAccount;
+                    return ErrorCell(ErrorContext(td), noSystemAccount);
 
                 // The documented PING reply nests the node identity under
                 // "server" ({ "server": { "name": ..., "id": ... }, "statsz": ... }).
@@ -1984,19 +1994,19 @@ namespace NATSExcel
             }
             catch (NatsNoRespondersException)
             {
-                return noSystemAccount;
+                return ErrorCell(ErrorContext(td), noSystemAccount);
             }
             catch (NatsNoReplyException)
             {
-                return "the system account did not answer within the response timeout";
+                return ErrorCell(ErrorContext(td), "the system account did not answer within the response timeout");
             }
             catch (TimeoutException)
             {
-                return "the system account did not answer within the response timeout";
+                return ErrorCell(ErrorContext(td), "the system account did not answer within the response timeout");
             }
             catch (Exception ex)
             {
-                return AppConfig.MaskNatsEndpoint(ex.Message);
+                return ErrorCell(ErrorContext(td), ex.Message);
             }
         }
 

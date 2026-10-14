@@ -107,7 +107,7 @@ namespace NATSExcel
             catch (Exception ex)
             {
                 logger.Error(ex, "NatsJson.MatrixToJson");
-                return NatsUdfCommon.Fail(ex.Message);
+                return NatsUdfCommon.Fail(AppConfig.MaskNatsEndpoint(ex.Message));
             }
         }
 
@@ -165,9 +165,10 @@ namespace NATSExcel
                 }
                 catch (JsonException ex)
                 {
-                    // Newtonsoft's message names the position; surface it as an
-                    // "Error: ..." cell rather than a raw exception.
-                    throw new ArgumentException($"invalid JSON: {ex.Message}", ex);
+                    // Newtonsoft's message echoes the JSON path (including an object
+                    // key verbatim), so mask it before it reaches a cell - a key
+                    // like "nats://user:secret@host" would otherwise leak.
+                    throw new ArgumentException($"invalid JSON: {AppConfig.MaskNatsEndpoint(ex.Message)}", ex);
                 }
 
                 if (token is JArray array)
@@ -179,7 +180,7 @@ namespace NATSExcel
             catch (Exception ex)
             {
                 logger.Error(ex, "NatsJson.JsonToMatrix");
-                return new object[,] { { NatsUdfCommon.Fail(ex.Message) } };
+                return new object[,] { { NatsUdfCommon.Fail(AppConfig.MaskNatsEndpoint(ex.Message)) } };
             }
         }
 
