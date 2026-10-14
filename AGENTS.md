@@ -538,9 +538,10 @@ assets, using the CHANGELOG section for the tag as the release body. Releases
 `NATSExcel.csproj`.
 
 The landing page (`docs/`, published to GitHub Pages by
-`.github/workflows/pages.yml`) is a **release-adjacent** artifact, not a per-change
-one: `pages.yml` only runs when `docs/**` or `mkdocs.yml` change, and the page is
-worth revisiting **when the version changes** (the download section and the
-`vX.Y.Z` strings), not after every fix. A push that touches only code and tests
-does not redeploy it, and that is expected - do not go looking for a Pages run to
-verify it.
+`.github/workflows/pages.yml`) is **version-agnostic by design**: the download
+section links `releases/latest`, the version is rendered by a shields.io badge and
+the asset table uses a `NATSExcelSetup-<versão>.exe` placeholder, so **cutting a
+release needs NO page change**. `pages.yml` only runs when `docs/**` or `mkdocs.yml`
+change, so a code/test push does not redeploy it and that is expected. After a
+release, the check is just: `/releases/latest` resolves to the new tag and the badge
+renders.
