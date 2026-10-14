@@ -11,8 +11,9 @@ use_directory_urls: true
 theme:
   name: material
   language: pt-BR
+  custom_dir: overrides
   logo: assets/logo-icon.svg
-  favicon: assets/logo-icon.svg
+  favicon: assets/favicon.ico
   features:
     - navigation.top
     - content.code.copy

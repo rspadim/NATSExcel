@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{# Link/social previews.
+   The card is one 1280x640 PNG at the root of the built site, so it is
+   referenced through config.site_url: a relative path would break on the
+   localized pages (/en/, /es/) and on every crawler that resolves the URL
+   without the page context. The 404 page renders without a page object. #}
+{% block extrahead %}
+  {{ super() }}
+  {% if page %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{% if page.is_homepage %}{{ config.site_name }}{% else %}{{ page.title }} · {{ config.site_name }}{% endif %}">
+  <meta property="og:description" content="{{ page.meta.description if page.meta.description else config.site_description }}">
+  <meta property="og:image" content="{{ config.site_url }}assets/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ config.site_url }}assets/social-preview.png">
+  {% endif %}
+{% endblock %}

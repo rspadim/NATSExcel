@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="NATSExcel — real-time NATS messaging inside Excel">
+  <defs>
+    <linearGradient id="nx-card-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0E2E44"/>
+      <stop offset="1" stop-color="#17663F"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#nx-card-bg)"/>
+  <g stroke="#FFFFFF" stroke-opacity="0.055" stroke-width="2">
+    <path d="M64 0V640M192 0V640M320 0V640M448 0V640M576 0V640M704 0V640M832 0V640M960 0V640M1088 0V640M1216 0V640"/>
+    <path d="M0 64H1280M0 192H1280M0 320H1280M0 448H1280M0 576H1280"/>
+  </g>
+  <g transform="translate(310 230) scale(0.625)">
+    <g stroke="#FFFFFF" stroke-width="7" stroke-linecap="round">
+      <path d="M128 128L128 64M128 128L183.4 96M128 128L183.4 160M128 128L128 192M128 128L72.6 160M128 128L72.6 96"/>
+    </g>
+    <g fill="#FFFFFF">
+      <circle cx="128" cy="64" r="14"/>
+      <circle cx="183.4" cy="96" r="14"/>
+      <circle cx="183.4" cy="160" r="14"/>
+      <circle cx="128" cy="192" r="14"/>
+      <circle cx="72.6" cy="160" r="14"/>
+      <circle cx="72.6" cy="96" r="14"/>
+      <circle cx="128" cy="128" r="12"/>
+    </g>
+    <circle cx="183.4" cy="96" r="14" fill="#A5EBFF"/>
+  </g>
+  <text x="510" y="352" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="100" font-weight="700" letter-spacing="-2">
+    <tspan fill="#FFFFFF">NATS</tspan><tspan fill="#7FE0A6">Excel</tspan>
+  </text>
+  <text x="640" y="438" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="34" fill="#A9D3BC">
+    Real-time NATS messaging inside Excel
+  </text>
+</svg>
