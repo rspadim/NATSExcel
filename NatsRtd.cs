@@ -219,13 +219,17 @@ namespace NATSExcel
             }
         }
 
-        /// <summary>Stores the polled payload as seen; call once it was accepted for delivery.</summary>
+        /// <summary>Stores the polled payload as seen; call once it was accepted
+        /// for delivery. Clears the TEXT marker: KVGET/MSG commit bytes on success
+        /// but text on failure, and the two markers must not both be live, or a
+        /// later failure whose text equals a stored one is silently swallowed.</summary>
         public void CommitPolledBytes(byte[] value)
         {
             lock (_sync)
             {
                 _lastPolledBytes = value;
                 _hasLastPolledBytes = true;
+                _hasLastPolledText = false;
             }
         }
 
@@ -244,13 +248,15 @@ namespace NATSExcel
             }
         }
 
-        /// <summary>Stores the polled text as seen; call once it was accepted for delivery.</summary>
+        /// <summary>Stores the polled text as seen; call once it was accepted for
+        /// delivery. Clears the BYTES marker (see <see cref="CommitPolledBytes"/>).</summary>
         public void CommitPolledText(string value)
         {
             lock (_sync)
             {
                 _lastPolledText = value;
                 _hasLastPolledText = true;
+                _hasLastPolledBytes = false;
             }
         }
 
@@ -353,6 +359,11 @@ namespace NATSExcel
                 return;
             lock (_sync)
             {
+                // Re-check inside the lock, as every other mutator does: a
+                // DisconnectData that won the race must not leave a stale dirty
+                // value behind.
+                if (Disconnected)
+                    return;
                 _lastValue = data;
                 _dirty = true;
             }
@@ -490,6 +501,14 @@ namespace NATSExcel
         private bool _realTimeUpdates = true;
         private bool _skipRepeatedMessages = true;
         private int _conflationMs;
+
+        /// <summary>Set (volatile) the moment <see cref="Teardown"/> starts, so a
+        /// <c>=NatsUDFConfigReload()</c> that snapshotted this instance before the
+        /// teardown cannot resurrect its timers (an unguarded <see cref="ApplyConfig"/>
+        /// could otherwise create and start a timer pair on a server already removed
+        /// from <see cref="Instances"/> - a stranded live timer that roots the
+        /// object and no later teardown can reach).</summary>
+        private volatile bool _terminated;
         private string _defaultEndpoint;
 
         private System.Timers.Timer _natsTimer;
@@ -584,12 +603,15 @@ namespace NATSExcel
         /// the timers only when an interval actually changed.</summary>
         private void ApplyConfig()
         {
+            // A reload that snapshotted this instance before a Teardown must not
+            // resurrect its timers: bail out if teardown has started.
+            if (_terminated)
+                return;
+
             var config = AppConfig.Current;
             bool intervalsChanged = false;
 
             _skipRepeatedMessages = config.SkipRepeatedMessages;
-            _conflationMs = Conflation.Resolve(
-                config.ConflationMs, config.CoalesceRealtimeUpdates, (int)_excelUpdateRateMs);
             _realTimeUpdates = !string.Equals(
                 config.NatsUpdateStyle, StyleTimer, StringComparison.OrdinalIgnoreCase);
             _defaultEndpoint = AppConfig.ResolveRtdEndpoint(null);
@@ -603,8 +625,17 @@ namespace NATSExcel
                 intervalsChanged = true;
             }
 
+            // Derive the conflation window from the NEW Excel rate, not the old one
+            // (an update that changed the rate but not ConflationMs would otherwise
+            // keep the old window until the next reload).
+            _conflationMs = Conflation.Resolve(
+                config.ConflationMs, config.CoalesceRealtimeUpdates, (int)_excelUpdateRateMs);
+
             if (intervalsChanged)
             {
+                // Re-check: a teardown could have started since the entry guard.
+                if (_terminated)
+                    return;
                 // Recreate both timers so the new cadence takes effect. Stop and
                 // dispose the old pair before starting the new one so no tick
                 // overlaps (the TickGate already drops a re-entrant tick).
@@ -642,13 +673,10 @@ namespace NATSExcel
         protected override bool ServerStart()
         {
             logger.Info("ServerStart: starting RTD server");
-            lock (InstancesSync)
-            {
-                Instance = this;
-                _startOrdinal = Interlocked.Increment(ref _nextStartOrdinal);
-                Instances[this] = 0;
-            }
 
+            // Create and start the timers BEFORE publishing this instance, so a
+            // failure here cannot leave a half-registered server (a survivor with
+            // no timers) in Instances for the reload hook to pick up.
             var config = AppConfig.Current;
             _skipRepeatedMessages = config.SkipRepeatedMessages;
             _natsUpdateRateMs = config.NatsUpdateRateMs > 0
@@ -681,6 +709,13 @@ namespace NATSExcel
             _excelTimer = CreateTimer(_excelUpdateRateMs, "excel", OnExcelTick);
             _natsTimer.Start();
             _excelTimer.Start();
+
+            lock (InstancesSync)
+            {
+                Instance = this;
+                _startOrdinal = Interlocked.Increment(ref _nextStartOrdinal);
+                Instances[this] = 0;
+            }
             // Let =NatsUDFConfigReload() re-apply this tuning on a live server.
             NatsRuntime.ConfigReloadHook = RefreshFromConfig;
             return true;
@@ -713,6 +748,10 @@ namespace NATSExcel
         /// </summary>
         private void Teardown()
         {
+            // Set the tombstone FIRST: a concurrent ApplyConfig (a reload that
+            // snapshotted this instance) must not resurrect the timers below.
+            _terminated = true;
+
             // Mark every topic before disposing the timers and clearing the
             // registries: despite its name, Timer.Dispose does not wait for an
             // Elapsed callback that is already running, so only the Disconnected
@@ -817,6 +856,10 @@ namespace NATSExcel
 
         private static void DisposeTimer(ref System.Timers.Timer timer)
         {
+            // Interlocked.Exchange would be atomic but the `ref` parameter defeats
+            // it; this is called from ApplyConfig/Teardown, which are serialized by
+            // the _terminated guard and the instance lifecycle, so the read-then-null
+            // is safe. Keep the two statements adjacent.
             var toDispose = timer;
             timer = null;
             if (toDispose == null)
@@ -824,11 +867,17 @@ namespace NATSExcel
             try
             {
                 toDispose.Stop();
-                toDispose.Dispose();
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, "DisposeTimer: error");
+                logger.Debug(ex, "DisposeTimer: stop error");
+            }
+            finally
+            {
+                // Dispose even when Stop threw: a timer that keeps firing while
+                // unreachable is the exact stranded-timer failure to avoid.
+                try { toDispose.Dispose(); }
+                catch (Exception ex) { logger.Debug(ex, "DisposeTimer: dispose error"); }
             }
         }
 
@@ -1931,7 +1980,7 @@ namespace NATSExcel
                     logger.Debug(ex, "ClusterLeader: the $SYS ping reply was not JSON");
                 }
 
-                return NatsResultFormatter.BoundCellText(body);
+                return NatsResultFormatter.BoundRtdCellText(body);
             }
             catch (NatsNoRespondersException)
             {
@@ -2020,12 +2069,15 @@ namespace NATSExcel
         /// push only when the resolved conflation window is off, otherwise the
         /// value waits for the Excel tick (dirty flag), which conflates to the
         /// newest value per window. The window is also bounded by
-        /// <see cref="NatsResultFormatter.BoundCellText"/> so an oversized payload
-        /// can never break the cell.
+        /// <see cref="NatsResultFormatter.MaxRtdCellTextLength"/> so an oversized
+        /// payload cannot exceed the Excel-DNA RTD cell limit (255).
         /// </summary>
         private void DeliverToTopic(TopicData td, string value)
         {
-            value = NatsResultFormatter.BoundCellText(value);
+            // 255, not 32767: the Excel-DNA RTD base class truncates every topic
+            // value at 255 without a marker, so bounding here keeps the visible
+            // "...(truncated N chars)" suffix on a long payload/list.
+            value = NatsResultFormatter.BoundRtdCellText(value);
             if (_realTimeUpdates && Conflation.PushImmediately(_conflationMs))
                 td.UpdateAndSendToExcel(value);
             else
@@ -2040,7 +2092,7 @@ namespace NATSExcel
         /// The frozen RTD error cell: <c>#ERROR: &lt;context&gt;: &lt;masked cause&gt;</c>
         /// (PLAN §1.3). Every part is masked, so a server error naming a
         /// credential-bearing URL can never leak it, and the text is bounded to
-        /// the Excel cell limit.
+        /// the RTD cell limit (255, see <see cref="NatsResultFormatter.MaxRtdCellTextLength"/>).
         /// </summary>
         private static string ErrorCell(string context, string message)
         {
@@ -2048,7 +2100,7 @@ namespace NATSExcel
             string text = string.IsNullOrWhiteSpace(context)
                 ? "#ERROR: " + cause
                 : "#ERROR: " + context + ": " + cause;
-            return NatsResultFormatter.BoundCellText(text);
+            return NatsResultFormatter.BoundRtdCellText(text);
         }
 
         /// <summary><c>#ERROR: &lt;masked cause&gt;</c> without a context.</summary>

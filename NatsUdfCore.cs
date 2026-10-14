@@ -495,7 +495,7 @@ namespace NATSExcel
         {
             string error;
             string latest = SubjectLatestText(subject, queueGroup, optionalHost, out error);
-            return error ?? latest ?? NatsUdfCommon.NullValue;
+            return error ?? NatsResultFormatter.BoundCellText(latest) ?? NatsUdfCommon.NullValue;
         }
 
         [ExcelFunction(Description = "Reads the latest message seen on a NATS subject and parses it as JSON into cells", IsVolatile = true)]
@@ -945,18 +945,18 @@ namespace NATSExcel
 
                 if (!installed)
                 {
-                    // Lost a race (another thread registered first) or an
-                    // unsubscribe/reset won: close before disposing so this
-                    // losing listener never writes. The callback and the close
-                    // share listener.Sync, and the cached value is dropped in
-                    // the same critical section, so a message this losing
-                    // listener already cached cannot outlive it (a stale value
-                    // with no live listener would be served until a new one
-                    // arrived).
+                    // Lost a race: either an unsubscribe/reset won (the epoch
+                    // changed) or another registrant won (the epoch is unchanged).
+                    // Only in the FIRST case must the cached value be dropped - it
+                    // was written by a listener the removal already closed. In the
+                    // second case the key now belongs to the WINNER's live
+                    // listener, and its fresh value must be left alone.
+                    bool removedByEpoch = SubjectEpoch(key) != epochBefore;
                     lock (listener.Sync)
                     {
                         listener.Close();
-                        _latestMessages.TryRemove(key, out _);
+                        if (removedByEpoch)
+                            _latestMessages.TryRemove(key, out _);
                     }
                     listener.Token?.Dispose();
                     return;
@@ -1172,7 +1172,18 @@ namespace NATSExcel
             try
             {
                 string text = NatsUdfCommon.ToNatsString(queueGroup);
-                return string.IsNullOrWhiteSpace(text) ? null : text;
+                if (string.IsNullOrWhiteSpace(text))
+                    return null;
+                // The queue group lands in the SUB control line too, so it shares
+                // the subject bound (a 32767-char group could exceed the server's
+                // max_control_line).
+                if (text.Length > NatsUdfCommon.MaxSubjectLength)
+                {
+                    error = NatsUdfCommon.Fail("the queue group is too long (max "
+                        + NatsUdfCommon.MaxSubjectLength.ToString(System.Globalization.CultureInfo.InvariantCulture) + " characters)");
+                    return null;
+                }
+                return text;
             }
             catch (ArgumentException ex)
             {

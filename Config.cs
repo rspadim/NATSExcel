@@ -453,22 +453,23 @@ namespace NATSExcel
         //  (3) an UNQUOTED value of a TOKEN key (password/user/token) stops at
         //      the first whitespace or delimiter.
         //
-        // Each is preceded by start/whitespace/`&`/`,`/`;` and carries the
-        // following `key=` boundary, so `key=token=abc` is not rewritten. The
-        // longer keys are listed before the shorter ones they contain
-        // (tlsCertPassword before tlsCert, username before user). tlsCert,
-        // credsFile and tlsCertPassword hold secret paths/passwords and are named
-        // masked forms (DESIGN §7.1, AGENTS golden rule 9).
+        // Each is preceded by start/whitespace/`&`/`,`/`;`/`?`/`:` and accepts `=`
+        // or `:` after the key, and carries the following `key=` boundary, so
+        // `key=token=abc` is not rewritten. The longer keys are listed before the
+        // shorter ones they contain (tlsCertPassword before tlsCert, username
+        // before user). tlsCert, credsFile and tlsCertPassword hold secret
+        // paths/passwords and are named masked forms (DESIGN §7.1, AGENTS golden
+        // rule 9).
         private static readonly Regex CredentialPairQuoted = new Regex(
-            @"(^|[\s&,;])(password|pass|username|tlsCertPassword|tlsCert|credsFile|user|token)\s*=\s*(""[^""]*""|'[^']*')",
+            @"(^|[\s&,;?:])(password|pass|username|tlsCertPassword|tlsCert|credsFile|user|token)\s*[=:]\s*(""[^""]*""|'[^']*')",
             RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private static readonly Regex CredentialPairPath = new Regex(
-            @"(^|[\s&,;])(tlsCertPassword|tlsCert|credsFile)\s*=\s*([^\r\n]*?)(?=$|[&;,]|\s*[A-Za-z][A-Za-z0-9_]*\s*=)",
+            @"(^|[\s&,;?:])(tlsCertPassword|tlsCert|credsFile)\s*[=:]\s*([^\r\n]*?)(?=$|[&;,?]|\s+[A-Za-z][A-Za-z0-9_]*\s*[=:])",
             RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private static readonly Regex CredentialPairToken = new Regex(
-            @"(^|[\s&,;])(password|pass|username|user|token)\s*=\s*([^\s&,;]*)",
+            @"(^|[\s&,;?:])(password|pass|username|user|token)\s*[=:]\s*([^\s&,;?]*)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         // A JWT: "eyJ" (base64url of '{"') followed by one or more base64url

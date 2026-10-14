@@ -74,6 +74,15 @@ namespace NATSExcel
         public const int MinEveryMs = 100;
 
         /// <summary>
+        /// Maximum UTF-8 byte length of one RTD slot (subject, queue group, bucket,
+        /// filter, endpoint...). The parser is the only bound the RTD path has, and
+        /// an over-long slot would exceed the server's <c>max_control_line</c>
+        /// (default 4096 bytes) - a fatal server error. 2048 leaves room for the
+        /// `SUB `/reply-queue prefix while refusing the pathological token.
+        /// </summary>
+        public const int MaxSlotBytes = 2048;
+
+        /// <summary>
         /// The command list as it appears in the unknown-command error. The order is
         /// frozen (tests assert the exact text) and includes <c>RTDCLUSTER</c>, the
         /// ninth command (DESIGN.md §6 / §7.9).
@@ -348,6 +357,16 @@ namespace NATSExcel
                     if (IsBlank(slots[1])) return RequiredMessage(cmd, "object", 3);
                     break;
                 // RTDCLUSTER has no required value: both `what` and the endpoint are optional.
+            }
+
+            // Every non-blank slot lands in the SUB/JS control line, so cap its
+            // UTF-8 byte length here (the parser is the only gate the RTD path has;
+            // the UDF path uses RequireSubject/RequireText). A 32767-char subject
+            // from one cell could otherwise exceed the server's max_control_line.
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (!IsBlank(slots[i]) && System.Text.Encoding.UTF8.GetByteCount(slots[i]) > MaxSlotBytes)
+                    return cmd + " argument " + (i + 2) + " is too long (max " + MaxSlotBytes + " bytes)";
             }
             return null;
         }

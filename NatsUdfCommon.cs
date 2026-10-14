@@ -66,12 +66,18 @@ namespace NATSExcel
         public const int MaxObjectCellBytes = 1_048_576;
 
         /// <summary>
-        /// Upper bound for a subject or identifier placed on the wire. NATS's
-        /// default <c>max_control_line</c> is 4096 bytes and an over-long control
-        /// line is a FATAL server error, so a 32767-char subject from one cell
-        /// could cost the shared connection. 1024 leaves ample room for a real
-        /// subject while refusing the pathological one before any I/O.
+        /// Upper bound, in UTF-8 BYTES, for a subject or identifier placed on the
+        /// wire. NATS's default <c>max_control_line</c> is 4096 bytes and an
+        /// over-long control line is a FATAL server error, so a 32767-char subject
+        /// from one cell could cost the shared connection. 2048 bytes leaves room
+        /// for the protocol prefix/reply-queue while refusing the pathological one
+        /// before any I/O. (Bytes, not chars: a 1024-char string of astral
+        /// characters is 4096 bytes and would otherwise slip through.)
         /// </summary>
+        public const int MaxSubjectBytes = 2048;
+
+        /// <summary>Character cap kept for callers that only need a cheap bound;
+        /// the real guard is <see cref="MaxSubjectBytes"/>.</summary>
         public const int MaxSubjectLength = 1024;
 
         // ------------------------------------------------------------------
@@ -140,12 +146,8 @@ namespace NATSExcel
         /// <summary>
         /// Masks every credential form (URL userinfo, token=/user=/password=,
         /// JWT, NKey seed, creds/TLS paths) before text reaches a cell or a log
-        /// line (DESIGN.md §8, PLAN F1.5).
-        ///
-        /// NOTE: <c>AppConfig.MaskNatsEndpoint</c> is planned (PLAN F1.5) and is
-        /// not implemented in <c>Config.cs</c> yet. This is the only call site in
-        /// this file, so wiring it is a one-line change in Config.cs; until then
-        /// the add-in project does not compile.
+        /// line (DESIGN.md §8, PLAN F1.5). Delegates to
+        /// <c>AppConfig.MaskNatsEndpoint</c>.
         /// </summary>
         private static string Mask(string text)
         {
@@ -316,9 +318,16 @@ namespace NATSExcel
             }
             if (string.IsNullOrWhiteSpace(text))
                 return Fail("a " + label + " is required");
-            if (text.Length > MaxSubjectLength)
-                return Fail("the " + label + " is too long (max " + MaxSubjectLength.ToString(System.Globalization.CultureInfo.InvariantCulture) + " characters)");
+            if (TooLongForControlLine(text, out int textBytes))
+                return Fail("the " + label + " is too long (max " + MaxSubjectBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + " bytes; got " + textBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
             return null;
+        }
+
+        /// <summary>TRUE when the UTF-8 byte length exceeds the control-line budget.</summary>
+        private static bool TooLongForControlLine(string text, out int bytes)
+        {
+            bytes = string.IsNullOrEmpty(text) ? 0 : System.Text.Encoding.UTF8.GetByteCount(text);
+            return bytes > MaxSubjectBytes;
         }
 
         /// <summary>
@@ -339,8 +348,8 @@ namespace NATSExcel
             }
             if (string.IsNullOrWhiteSpace(subject))
                 return Fail("a non-empty subject is required");
-            if (subject.Length > MaxSubjectLength)
-                return Fail("the subject is too long (max " + MaxSubjectLength.ToString(System.Globalization.CultureInfo.InvariantCulture) + " characters)");
+            if (TooLongForControlLine(subject, out int subjectBytes))
+                return Fail("the subject is too long (max " + MaxSubjectBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + " bytes; got " + subjectBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
             if (!allowWildcard && ContainsWildcardToken(subject))
                 return Fail("a non-empty subject is required (a publish needs a concrete subject; wildcards are subscribe-only)");
             return null;
@@ -526,7 +535,12 @@ namespace NATSExcel
             if (max < 1)
                 max = 1;
             value = CollapseNewlines(value);
-            return value.Length <= max ? value : value.Substring(0, max) + "...(truncated)";
+            if (value.Length <= max)
+                return value;
+            int keep = max;
+            if (keep < value.Length && char.IsHighSurrogate(value[keep - 1]) && char.IsLowSurrogate(value[keep]))
+                keep--;
+            return value.Substring(0, keep) + "...(truncated)";
         }
 
         /// <summary>
@@ -555,7 +569,14 @@ namespace NATSExcel
             if (max < 1)
                 max = 1;
             value = CollapseNewlines(value);
-            return value.Length <= max ? value : value.Substring(0, max) + "...";
+            if (value.Length <= max)
+                return value;
+            int keep = max;
+            // Never split a surrogate pair: a lone high surrogate is invalid UTF-16
+            // and Excel renders it as garbage (same guard as BoundCellText).
+            if (keep < value.Length && char.IsHighSurrogate(value[keep - 1]) && char.IsLowSurrogate(value[keep]))
+                keep--;
+            return value.Substring(0, keep) + "...";
         }
 
         // ==================================================================

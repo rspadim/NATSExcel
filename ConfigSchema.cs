@@ -59,6 +59,24 @@ namespace NATSExcel
 
         private static readonly Lazy<JObject> _schema = new Lazy<JObject>(ParseSchema);
 
+        /// <summary>
+        /// The legacy nested-<c>Default</c> shape (an object with
+        /// <c>cluster</c>/<c>timeout</c>/<c>auth</c>), pruned so a wrongly-typed
+        /// nested value is dropped on its own. It is not part of the shipped
+        /// schema (which models <c>Default</c> as a plain name), so it lives here
+        /// as the one accepted back-compat shape.
+        /// </summary>
+        private static readonly JObject LegacyDefaultSchema = JObject.Parse(
+            @"{
+                ""type"": ""object"",
+                ""additionalProperties"": true,
+                ""properties"": {
+                    ""cluster"": { ""type"": ""string"" },
+                    ""timeout"": { ""type"": ""integer"" },
+                    ""auth"": { ""type"": ""object"" }
+                }
+            }");
+
         /// <summary>The schema document, verbatim (for inspection through
         /// NatsUDFConfigSchema). Empty when neither the embedded resource nor a
         /// copy next to the assembly is available.</summary>
@@ -311,17 +329,22 @@ namespace NATSExcel
                     // The `Default` back-compat shape: an older config nested the
                     // settings under `Default` as an object. The schema models
                     // `Default` as a plain name, so the nested object would be
-                    // "wrong typed" and dropped - losing a legacy file's cluster
-                    // AND (because any drop drags the file through the tolerant
-                    // re-parse) exposing the old bug where every nested section
-                    // was discarded. Keep it verbatim and record no issue: the
-                    // documented back-compat path in `AppConfig.Parse` reads it
-                    // (cluster/timeout/auth) and an accepted legacy shape is not
-                    // a schema violation.
+                    // "wrong typed" and dropped - losing a legacy file's cluster.
+                    // Keep the object but PRUNE ITS SUBTREE against the small legacy
+                    // schema (cluster/timeout/auth), so a wrongly-typed nested value
+                    // is dropped on its own without discarding the whole file: a
+                    // verbatim keep let `"Default": {"timeout": "abc"}` reach the
+                    // strict `Parse`, which throws and reverts everything. The
+                    // pruned shape is still the object `AppConfig.Parse` reads.
                     if (path.Length == 0 && prop.Name == "Default" && prop.Value.Type == JTokenType.Object)
-                        cleaned[prop.Name] = prop.Value;
+                    {
+                        JToken pruned = Prune(prop.Value, LegacyDefaultSchema, childPath, issues);
+                        cleaned[prop.Name] = pruned ?? prop.Value;
+                    }
                     else
+                    {
                         Append(cleaned, prop.Name, Prune(prop.Value, declared, childPath, issues));
+                    }
                 }
                 else if (additional is JObject additionalSchema)
                 {

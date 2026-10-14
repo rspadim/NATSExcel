@@ -143,7 +143,7 @@ namespace NATSExcel
                 // Offline, DNS failure, rate limit, proxy, TLS: expected on the
                 // field. Log it, never surface it to Excel.
                 if (logger.IsInfoEnabled)
-                    logger.Info("UpdateCheck: " + ex.Message);
+                    logger.Info("UpdateCheck: " + AppConfig.MaskNatsEndpoint(ex.Message));
             }
         }
 

@@ -639,7 +639,7 @@ namespace NATSExcel
                 {
                     // A malformed seed stays a clear failure at connect time rather
                     // than an exception out of the config layer.
-                    logger.Warn("BuildAuth: could not derive the public NKey from the seed: " + ex.Message);
+                    logger.Warn("BuildAuth: could not derive the public NKey from the seed: " + AppConfig.MaskNatsEndpoint(ex.Message));
                 }
                 return new NatsAuthOpts { Seed = seed, NKey = publicKey };
             }

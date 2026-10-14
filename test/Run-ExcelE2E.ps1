@@ -316,10 +316,10 @@ Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublish("' + $pub + '","hello","
 Invoke-Com { $ws.Range('A3').Formula = '=NatsUDFSubjectLatest("' + $pub + '","","' + $NatsUrl + '")' } | Out-Null
 Invoke-Com { $excel.CalculateFullRebuild() } | Out-Null
 
-$version = Wait-Cell $ws 'A1' { param($t) $t -match '^\d+\.\d+' }
+$version = Wait-Cell $ws 'A1' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^#' }
 $marker = Wait-Cell $ws 'A2' { param($t) $t -match '^(OK|Error|#)' }
 Log "  version=$version publish=$marker"
-Assert "UDF: the XLL answers (packing OK)" ($version -match '^\d+\.\d+')
+Assert "UDF: the XLL answers (packing OK)" (-not [string]::IsNullOrWhiteSpace($version) -and $version -notmatch '^#')
 # The publish must return the OK marker, never an error or a pending #N/A: the
 # earlier predicate accepted "Error" and "#", so a broken write could pass.
 Assert "UDF: publish returns the OK marker" ($marker -match '^OK')
@@ -927,9 +927,9 @@ if (-not $SkipJourneys) {
 $excel = New-HiddenExcel
 $wb = $excel.Workbooks.Add(); $ws = $wb.Worksheets.Item(1)
 Invoke-Com { $ws.Range('A1').Formula = '=NatsUDFVersion()' } | Out-Null
-$restart = Wait-Cell $ws 'A1' { param($t) $t -match '^\d+\.\d+' }
+$restart = Wait-Cell $ws 'A1' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^#' }
 Log "  after 'restart' version=$restart"
-Assert "Excel restart: the XLL reloads and answers" ($restart -match '^\d+\.\d+')
+Assert "Excel restart: the XLL reloads and answers" (-not [string]::IsNullOrWhiteSpace($restart) -and $restart -notmatch '^#')
 if (-not $KeepExcelOpen) { Close-Excel $excel } else { $excel.Visible = $true }
 
 # ---------------------------------------------------------------------------

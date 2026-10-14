@@ -9,6 +9,10 @@
     <AssemblyName>NATSExcel</AssemblyName>
     <!-- Embedded in the NATS ClientName; the CI overrides it with the release tag. -->
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">dev</InformationalVersion>
+    <!-- The SDK appends "+<git-sha>" to InformationalVersion by default, so a
+         tagged build would report "v0.1.2+c62b474..." instead of the bare tag the
+         connection Name and the release docs promise. Keep it bare. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- Release binaries must not embed the builder's local paths. -->
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <!-- The Excel-DNA pack list (.dna) names only the neutral dependency

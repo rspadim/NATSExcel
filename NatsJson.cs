@@ -300,7 +300,7 @@ namespace NATSExcel
             for (int j = 0; j < keys.Count; j++)
             {
                 string key = keys[j];
-                result[0, j] = key;
+                result[0, j] = NatsResultFormatter.BoundCellText(key);
                 for (int i = 0; i < rows; i++)
                     result[i + 1, j] = fill;
 

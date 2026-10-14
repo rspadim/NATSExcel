@@ -30,6 +30,17 @@ namespace NATSExcel
         public const int MaxCellTextLength = 32767;
 
         /// <summary>
+        /// Excel-DNA's RTD base class hard-truncates every topic value to 255
+        /// characters (<c>ExcelRtdServer.Topic.FixValue</c>: <c>ldc.i4 255</c> +
+        /// <c>Substring(0,255)</c>, confirmed against the shipped
+        /// <c>ExcelDna.Integration</c> assembly IL). An RTD cell can therefore
+        /// never display more than 255 chars, so the RTD delivery path bounds
+        /// visibly at 255 rather than promising a 32767 bound whose suffix Excel
+        /// silently discards.
+        /// </summary>
+        public const int MaxRtdCellTextLength = 255;
+
+        /// <summary>
         /// The single cell a zero-row matrix formatter returns. A matrix function
         /// must never return an empty range: Excel renders an empty range as a
         /// blank cell, which looks like a broken formula rather than "no rows".
@@ -62,6 +73,17 @@ namespace NATSExcel
         // ------------------------------------------------------------------
 
         /// <summary>
+        /// Clamps a string to <see cref="MaxRtdCellTextLength"/> (255): the Excel-DNA
+        /// RTD base class truncates every topic value there without a marker, so the
+        /// RTD path bounds first and keeps a visible <c>...(truncated N chars)</c>
+        /// suffix. Same pair-atomic cut as <see cref="BoundCellText"/>.
+        /// </summary>
+        public static string BoundRtdCellText(string text)
+        {
+            return BoundText(text, MaxRtdCellTextLength);
+        }
+
+        /// <summary>
         /// Clamps a string to <see cref="MaxCellTextLength"/>. A string at or under
         /// the limit is returned unchanged; a longer one keeps its head and gets a
         /// <c>...(truncated N chars)</c> suffix, where N is the number of characters
@@ -71,20 +93,25 @@ namespace NATSExcel
         /// </summary>
         public static string BoundCellText(string text)
         {
+            return BoundText(text, MaxCellTextLength);
+        }
+
+        private static string BoundText(string text, int limit)
+        {
             if (string.IsNullOrEmpty(text))
                 return text;
-            if (text.Length <= MaxCellTextLength)
+            if (text.Length <= limit)
                 return text;
 
             // The head/suffix split is a fixed point: the suffix width depends on
             // the number of dropped characters, which depends on the head width.
             // Starting at "keep everything" is within a couple of characters of the
             // answer, so this converges in two or three passes; the cap is a guard.
-            int keep = MaxCellTextLength;
+            int keep = limit;
             for (int i = 0; i < 8; i++)
             {
                 int dropped = text.Length - keep;
-                int nextKeep = MaxCellTextLength - TruncationSuffix(dropped).Length;
+                int nextKeep = limit - TruncationSuffix(dropped).Length;
                 if (nextKeep == keep)
                     break;
                 keep = nextKeep;
