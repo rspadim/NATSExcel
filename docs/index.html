@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NATSExcel — NATS dentro do Excel</title>
+<meta name="description" content="Add-in do Excel (XLL) que traz o NATS para dentro do Excel via RTD e funções de planilha, cobrindo NATS Core e JetStream.">
+<link rel="canonical" href="https://rspadim.github.io/NATSExcel/">
+<style>
+  :root { --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --bg:#fff; --accent:#0969da; --code:#f6f8fa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --bg:#0d1117; --accent:#4493f8; --code:#151b23; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 2.2rem; margin: 0 0 .3em; letter-spacing: -.02em; }
+  h2 { font-size: 1.3rem; margin: 2em 0 .5em; padding-bottom: .3em; border-bottom: 1px solid var(--line); }
+  p, ul, ol { margin: .6em 0; }
+  a { color: var(--accent); }
+  code, pre { background: var(--code); border-radius: 6px; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size: .9em; }
+  code { padding: .15em .35em; }
+  pre { padding: 12px 14px; overflow-x: auto; }
+  pre code { padding: 0; background: none; }
+  table { border-collapse: collapse; width: 100%; margin: .8em 0; display: block; overflow-x: auto; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--code); }
+  .lead { font-size: 1.1rem; color: var(--muted); }
+  .badges img { vertical-align: middle; margin-right: .4em; }
+  .signed { border-left: 3px solid var(--accent); padding-left: 12px; margin: 1em 0; }
+  footer { margin-top: 3em; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--line); padding-top: 1em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>NATSExcel</h1>
+<p class="lead"><strong>Add-in do Excel (XLL) que traz o <a href="https://nats.io/">NATS</a>
+para dentro do Excel</strong> por meio de RTD (Real-Time Data) e UDF (funções
+definidas pelo usuário): você digita uma fórmula, o dado do NATS chega na célula
+e — nas funções de streaming — fica ao vivo.</p>
+
+<p>Cobre o <strong>NATS Core</strong> (pub/sub, request/reply, grupos de fila,
+headers) e o <strong>JetStream</strong> (streams, consumidores, replay, Key/Value
+Store, Object Store). Construído com Excel-DNA sobre o .NET Framework 4.8, usando
+NATS.Net, NLog e Newtonsoft.Json.</p>
+
+<p class="badges">
+  <a href="https://github.com/rspadim/NATSExcel/blob/main/LICENSE"><img alt="Licença: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+  <a href="https://github.com/rspadim/NATSExcel/releases/latest"><img alt="Última versão" src="https://img.shields.io/github/v/release/rspadim/NATSExcel?sort=semver"></a>
+</p>
+
+<h2>Requisitos</h2>
+<ul>
+  <li><strong>Windows</strong> com Microsoft Office (Excel), 64 bits ou 32 bits.</li>
+  <li><strong>.NET Framework 4.8</strong>, que já vem no Windows 10 e no Windows 11.</li>
+  <li>Um <strong>servidor NATS</strong> para conectar. O instalador consegue subir um
+      nativamente no Windows; Docker é opcional e nunca obrigatório.</li>
+</ul>
+
+<h2>O que ele faz</h2>
+<table>
+  <tr><th>Área</th><th>Cobertura</th></tr>
+  <tr><td>NATS Core</td><td>publish, request/reply, último valor por assunto, unsubscribe, grupos de fila, headers</td></tr>
+  <tr><td>JetStream</td><td>publish com ack, get/fetch/replay, streams e consumidores (informações + administração)</td></tr>
+  <tr><td>Key/Value</td><td>get/put/create/update/delete/keys/history/watch</td></tr>
+  <tr><td>Object Store</td><td>put/get/info/list/watch/delete</td></tr>
+  <tr><td>Status</td><td>versão, caminho do config, número de conexões, informações do servidor, RTT, topologia do cluster</td></tr>
+  <tr><td>Células ao vivo</td><td>tópicos de <code>=RTD("NatsRtd", ...)</code>: <code>SUB</code>, <code>KV</code>, <code>KVGET</code>, <code>KVKEYS</code>, <code>REQ</code>, <code>JS</code>, <code>MSG</code>, <code>OBJ</code>, <code>RTDCLUSTER</code></td></tr>
+</table>
+
+<h2 id="download">Download</h2>
+<p>Baixe a versão mais recente na
+<a href="https://github.com/rspadim/NATSExcel/releases/latest">página de releases</a>:</p>
+<table>
+  <tr><th>Arquivo</th><th>Para que serve</th></tr>
+  <tr><td><code>NATSExcelSetup-&lt;versão&gt;.exe</code></td><td>Instalador de um clique (por usuário, nativo primeiro; assistente em 11 idiomas)</td></tr>
+  <tr><td><code>NATSExcel64-packed.xll</code></td><td>Add-in para Office 64 bits</td></tr>
+  <tr><td><code>NATSExcel-packed.xll</code></td><td>Add-in para Office 32 bits</td></tr>
+  <tr><td><code>NATSExcel.dll</code></td><td>Assembly gerenciado do add-in (vai ao lado do XLL)</td></tr>
+  <tr><td><code>NLog.config</code></td><td>Configuração de log</td></tr>
+  <tr><td><code>NATSExcel.json</code></td><td>Configuração inicial</td></tr>
+</table>
+
+<p class="signed">Os releases são <strong>assinados digitalmente</strong>; o serviço de
+assinatura é fornecido gratuitamente a projetos de código aberto pela
+<a href="https://signpath.org/">SignPath Foundation</a>.</p>
+
+<h2>Instalação</h2>
+<ol>
+  <li>Execute <code>NATSExcelSetup-&lt;versão&gt;.exe</code>. Ele copia o add-in,
+      detecta a arquitetura do seu Office, escreve um <code>NATSExcel.json</code>
+      inicial e (se você quiser) sobe um servidor NATS para você.</li>
+  <li>Abra o Excel. O add-in se registra sozinho, então o XLL carrega
+      automaticamente. Se não carregar, habilite à mão em
+      <strong>Arquivo → Opções → Suplementos → Gerenciar: Suplementos do Excel →
+      Procurar…</strong>.</li>
+  <li>Conecte: edite o <code>NATSExcel.json</code> (ou use o assistente do
+      instalador). O padrão é <code>nats://localhost:4222</code>.</li>
+</ol>
+<p>Ainda não tem servidor NATS? O instalador consegue rodar um nativamente no
+Windows (um único <code>nats-server.exe</code>, com JetStream incluído). Docker é
+opcional, nunca obrigatório.</p>
+
+<h2>Veja funcionando</h2>
+<pre><code>=NatsUDFVersion()                                        ' o add-in responde
+=NatsUDFPublish("orders.new","hello")                    ' publish no Core
+=NatsUDFSubjectLatest("orders.new")                      ' lê o último valor
+=NatsUDFKVPut("config","rate","1.23")                    ' escrita no Key/Value
+=RTD("NatsRtd",,"SUB","orders.&gt;")                        ' uma célula ao vivo</code></pre>
+
+<h2>Documentação</h2>
+<ul>
+  <li><strong>Catálogo de funções (congelado):</strong> <a href="https://github.com/rspadim/NATSExcel/blob/main/docs/PUBLIC-SURFACE.md">docs/PUBLIC-SURFACE.md</a></li>
+  <li><strong>Arquitetura e design:</strong> <a href="https://github.com/rspadim/NATSExcel/blob/main/DESIGN.md">DESIGN.md</a></li>
+  <li><strong>Guia de primeiros passos:</strong> <a href="https://github.com/rspadim/NATSExcel/blob/main/Readme.md">Readme.md</a></li>
+  <li><strong>Plano de desenvolvimento:</strong> <a href="https://github.com/rspadim/NATSExcel/blob/main/PLAN.md">PLAN.md</a></li>
+  <li><strong>Testes:</strong> <a href="https://github.com/rspadim/NATSExcel/blob/main/test/README.md">test/README.md</a></li>
+</ul>
+
+<h2>Privacidade</h2>
+<p>O NATSExcel não coleta nenhum dado do usuário. A única requisição que ele faz
+por conta própria é uma chamada em segundo plano à API de releases do GitHub, para
+verificar se existe uma versão mais nova; o resultado fica em cache e falhas
+(offline, limite de requisições) são ignoradas. Ele grava um arquivo de log local
+(<code>NATSExcel.log</code>) ao lado dos próprios arquivos. O tráfego NATS vai
+apenas para o(s) servidor(es) que você configurar. A checagem de atualização pode
+ser desligada com <code>UpdateCheck: false</code> no <code>NATSExcel.json</code>.</p>
+
+<h2>Suporte e contribuição</h2>
+<p>Dúvidas, relatos de bug e pull requests são bem-vindos em
+<a href="https://github.com/rspadim/NATSExcel/issues">github.com/rspadim/NATSExcel</a>.
+Ao abrir um bug, inclua a versão do add-in (<code>=NatsUDFVersion()</code>), a
+arquitetura do seu Office e se o servidor tinha JetStream ativado.</p>
+
+<h2>Licença</h2>
+<p>O NATSExcel é distribuído sob a <strong>Licença MIT</strong> — veja o
+<a href="https://github.com/rspadim/NATSExcel/blob/main/LICENSE">LICENSE</a>.
+O cliente NATS.Net embarcado é Apache-2.0.</p>
+
+<footer>
+  NATSExcel é um projeto independente e não é afiliado nem endossado pelo projeto
+  NATS ou pela Synadia.
+</footer>
+
+</div>
+</body>
+</html>
