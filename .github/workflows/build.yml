@@ -38,11 +38,24 @@ jobs:
           }
           Write-Host "Private-data gate: clean"
 
-      # Build the whole solution: the add-in (Excel-DNA packs the XLLs as part of
-      # the build, and 'publish\' then holds both packed XLLs plus NATSExcel.dll),
-      # the four test projects and the validator. Only on a 'v*' tag is the
-      # release tag embedded as the InformationalVersion; a branch build keeps the
-      # csproj default 'dev'.
+      # Cache the NuGet package graph: every later step then restores from the
+      # cache instead of the network. The key hashes the project files, so the
+      # cache misses (and rebuilds) only when a dependency really changes.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      # Build the whole solution ONCE: the add-in (Excel-DNA packs the XLLs as
+      # part of the build, and 'publish\' then holds both packed XLLs plus
+      # NATSExcel.dll), the four test projects and the validator. Every test
+      # step below then runs --no-build --no-restore against THIS output, so no
+      # layer pays for a second restore or a second compile. Only on a 'v*' tag
+      # is the release tag embedded as the InformationalVersion; a branch build
+      # keeps the csproj default 'dev'.
       - name: Build the solution (Release)
         shell: pwsh
         run: |
@@ -51,10 +64,12 @@ jobs:
           dotnet build NATSExcel.sln -c Release "/p:InformationalVersion=$tag"
 
       # Unit tests do NOT retry: a failure is a real defect, not runner noise.
+      # --no-build --no-restore reuses the solution build above (which already
+      # compiled this project), so the step is restore-free and compile-free.
       - name: Run unit tests
         shell: pwsh
         run: |
-          dotnet test test/NATSExcel.Tests/NATSExcel.Tests.csproj -c Release
+          dotnet test test/NATSExcel.Tests/NATSExcel.Tests.csproj -c Release --no-build --no-restore
 
       # NATS runs natively on Windows as a single self-contained binary, so
       # there is no Memurai/Chocolatey-style service to install. The official
@@ -103,7 +118,7 @@ jobs:
           $ok = $false
           for ($attempt = 1; $attempt -le 2; $attempt++) {
             Write-Host "smoke attempt $attempt/2"
-            dotnet run --project test/SmokeTests -c Release -- "$url" --require-jetstream
+            dotnet run --project test/SmokeTests -c Release --no-build --no-restore -- "$url" --require-jetstream
             if ($LASTEXITCODE -eq 0) { Write-Host "smoke passed on attempt $attempt"; $ok = $true; break }
             Write-Host "smoke attempt $attempt failed (exit $LASTEXITCODE)"
             if ($attempt -lt 2) { Start-Sleep -Seconds 3 }
@@ -127,7 +142,7 @@ jobs:
           $ok = $false
           for ($attempt = 1; $attempt -le 3; $attempt++) {
             Write-Host "liveness attempt $attempt/3"
-            dotnet run --project test/LivenessTests -c Release -- "$url" --quick --skip-restart
+            dotnet run --project test/LivenessTests -c Release --no-build --no-restore -- "$url" --quick --skip-restart
             if ($LASTEXITCODE -eq 0) { Write-Host "liveness passed on attempt $attempt"; $ok = $true; break }
             Write-Host "liveness attempt $attempt failed (exit $LASTEXITCODE)"
             if ($attempt -lt 3) { Start-Sleep -Seconds 5 }

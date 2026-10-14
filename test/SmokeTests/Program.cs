@@ -232,6 +232,14 @@ namespace NATSExcel.SmokeTests
                 Skip("refcount: server-side subscription count",
                     "no monitoring port (start nats-server with -m for /connz); delivery-based proof used");
 
+            // The wire SUBSCRIBE is asynchronous (at-most-once Core): a publish
+            // before it is established is silently dropped. Warm the shared
+            // subscription up (the same pattern the wildcard/queue sections use)
+            // and clear the throwaway payloads so "msg1" is still the first
+            // counted message.
+            await WarmUpAsync(raw, subject, receivedA, receivedB).ConfigureAwait(false);
+            lock (Sync) { receivedA.Clear(); receivedB.Clear(); }
+
             await PublishAsync(raw, subject, "msg1").ConfigureAwait(false);
             Check(await WaitUntilAsync(() => Count(receivedA) == 1 && Count(receivedB) == 1, 5000).ConfigureAwait(false),
                 "refcount: both listeners received the first message");
@@ -256,7 +264,15 @@ namespace NATSExcel.SmokeTests
             int afterDispose = Count(receivedB);
             await PublishAsync(raw, subject, "msg3").ConfigureAwait(false);
             await PublishAsync(raw, subject, "msg4").ConfigureAwait(false);
-            await Task.Delay(400).ConfigureAwait(false);
+            // No delivery can be awaited (the assertion is that NOTHING arrives),
+            // so a bounded settle replaces the fixed 400 ms sleep. The manager
+            // marks the state disposed and drops any not-yet-dispatched message
+            // before removing it, so this window only covers an already in-flight
+            // fan-out; afterwards the raw publish is flushed so msg3/msg4 are
+            // known to have been processed by the server. The assertion is
+            // unchanged.
+            await Task.Delay(150).ConfigureAwait(false);
+            await WithTimeoutAsync(raw.PingAsync().AsTask(), 2000).ConfigureAwait(false);
             Check(Count(receivedB) == afterDispose && Count(receivedA) == 1,
                 "refcount: no delivery to either disposed listener after the last dispose");
             if (connzOk && TryConnzSubscriptionCount(_url, subject, out connzSubs))
@@ -268,6 +284,11 @@ namespace NATSExcel.SmokeTests
                 m => { lock (Sync) receivedC.Add(Data(m)); }, "SMOKE");
             Check(await WaitUntilAsync(() => subscriptions.SubscriptionCount == statesBefore + 1, 5000).ConfigureAwait(false),
                 "refcount: re-subscription registers a new state");
+            // The re-subscription has a fresh asynchronous wire SUBSCRIBE; warm
+            // it (like the wildcard/queue sections do) so the asserted payload
+            // is not lost to a SUB that has not reached the server yet.
+            await WarmUpAsync(raw, subject, receivedC).ConfigureAwait(false);
+            lock (Sync) receivedC.Clear();
             await PublishAsync(raw, subject, "msg5").ConfigureAwait(false);
             Check(await WaitUntilAsync(() => Count(receivedC) == 1 && Items(receivedC)[0] == "msg5", 5000).ConfigureAwait(false),
                 "refcount: the new listener receives after re-subscription");
@@ -450,7 +471,7 @@ namespace NATSExcel.SmokeTests
                 await PublishAsync(raw, literal, "dup").ConfigureAwait(false);
             await PublishAsync(raw, literal, "dup2").ConfigureAwait(false);
             await WaitUntilAsync(() => Count(received) >= 2, 5000).ConfigureAwait(false);
-            int stable = WaitForCountStable(() => Count(received), 2, 400, 5000);
+            int stable = WaitForCountStable(() => Count(received), 2, 250, 5000);
             Check(stable >= 2 && stable <= 3,
                 "dedup: four identical payloads collapse to one delivery plus the change "
                 + "(received " + stable + ", expected 2 for \"dup\"*4 + \"dup2\")");
@@ -459,7 +480,11 @@ namespace NATSExcel.SmokeTests
             string ordinal = _prefix + ".dedup.ordinal";
             var ord = new List<string>();
             var ordToken = subscriptions.Subscribe(_url, ordinal, null, m => { lock (Sync) ord.Add(Data(m)); }, "SMOKE");
-            await Task.Delay(150).ConfigureAwait(false);
+            // Warm the wire SUBSCRIBE up before publishing the values that are
+            // asserted (Core is at-most-once), exactly like the wildcard/queue
+            // sections; the throwaway payloads are cleared afterwards.
+            await WarmUpAsync(raw, ordinal, ord).ConfigureAwait(false);
+            lock (Sync) ord.Clear();
             await PublishAsync(raw, ordinal, "007").ConfigureAwait(false);
             await PublishAsync(raw, ordinal, "7").ConfigureAwait(false);
             Check(await WaitUntilAsync(() => Count(ord) == 2, 5000).ConfigureAwait(false),
@@ -472,7 +497,8 @@ namespace NATSExcel.SmokeTests
             string wildSubject = _prefix + ".dedup.wild";
             var wild = new List<string>();
             var wildToken = subscriptions.Subscribe(_url, wildcard, null, m => { lock (Sync) wild.Add(Data(m)); }, "SMOKE");
-            await Task.Delay(150).ConfigureAwait(false);
+            await WarmUpAsync(raw, wildSubject, wild).ConfigureAwait(false);
+            lock (Sync) wild.Clear();
             await PublishAsync(raw, wildSubject, "same").ConfigureAwait(false);
             await PublishAsync(raw, wildSubject, "same").ConfigureAwait(false);
             await PublishAsync(raw, wildSubject, "same").ConfigureAwait(false);
@@ -482,7 +508,6 @@ namespace NATSExcel.SmokeTests
             token.Dispose();
             ordToken.Dispose();
             wildToken.Dispose();
-            await Task.Delay(100).ConfigureAwait(false);
         }
 
         // ==================================================================
@@ -1236,7 +1261,9 @@ namespace NATSExcel.SmokeTests
                         Ready = true;
                         return;
                     }
-                    Thread.Sleep(200);
+                    // A local server answers within milliseconds; a 50 ms poll
+                    // reaches readiness quickly without a 200 ms quantisation.
+                    Thread.Sleep(50);
                 }
             }
 
@@ -1456,7 +1483,14 @@ namespace NATSExcel.SmokeTests
                 Check(string.Equals(AsString(consumerCreated), NatsUdfCommon.Ok, StringComparison.Ordinal),
                     "jetstream: a durable consumer was created (got '" + AsString(consumerCreated) + "')");
 
-                object fetch = NatsUdfJetStream.NatsUDFJSFetch(stream, consumer, 10, 2000, null);
+                // Both messages are already stored (the publishes above were
+                // acknowledged), so the pull returns as soon as they are read;
+                // the window only caps waiting for a third (MaxMsgs is 10, so
+                // the client waits the full window when fewer arrive). A pull
+                // needs the consumer/cursor warm, so the window must stay above
+                // that setup: 1500 ms keeps margin on a busy machine while
+                // halving the original 2 s fixed window.
+                object fetch = NatsUdfJetStream.NatsUDFJSFetch(stream, consumer, 10, 1500, null);
                 string[][] rows = MatrixRows(fetch);
                 Check(rows.Length == 2,
                     "jetstream: the durable consumer pulled the two stored messages (got " + rows.Length + " rows)");
@@ -1815,9 +1849,8 @@ namespace NATSExcel.SmokeTests
                 // payload would be dropped after the first one.
                 await PublishAsync(connection, subject, "warm-" + Guid.NewGuid().ToString("N")).ConfigureAwait(false);
                 if (await WaitUntilAsync(
-                        () => observed.Select((list, i) => Count(list) > baseline[i]).All(grew => grew), 500).ConfigureAwait(false))
+                        () => observed.Select((list, i) => Count(list) > baseline[i]).All(grew => grew), 200).ConfigureAwait(false))
                     return true;
-                await Task.Delay(50).ConfigureAwait(false);
             }
             return false;
         }
@@ -1833,9 +1866,8 @@ namespace NATSExcel.SmokeTests
             for (int attempt = 0; attempt < 50; attempt++)
             {
                 await PublishAsync(connection, subject, "warm-" + Guid.NewGuid().ToString("N")).ConfigureAwait(false);
-                if (await WaitUntilAsync(() => Count(q1) + Count(q2) > baseline, 500).ConfigureAwait(false))
+                if (await WaitUntilAsync(() => Count(q1) + Count(q2) > baseline, 200).ConfigureAwait(false))
                     return true;
-                await Task.Delay(50).ConfigureAwait(false);
             }
             return false;
         }
@@ -1957,10 +1989,21 @@ namespace NATSExcel.SmokeTests
 
             foreach (int monitorPort in new[] { port + 4000, 8222 })
             {
+                // A bounded connect first: connecting to a CLOSED loopback port
+                // can take ~2s on a machine with a stealth firewall, and doing it
+                // once per candidate made a no-monitoring-port run pay ~4s for a
+                // mere SKIP. A monitoring port accepts immediately, so a short
+                // probe cannot produce a false negative.
+                if (!IsPortOpen(host, monitorPort, 150))
+                    continue;
+
                 try
                 {
                     using (var client = new WebClient())
                     {
+                        // No proxy auto-detection: the monitor endpoint is loopback
+                        // and a proxy probe only adds latency.
+                        client.Proxy = null;
                         client.Headers[HttpRequestHeader.Accept] = "application/json";
                         string body = client.DownloadString(
                             "http://" + host + ":" + monitorPort.ToString(CultureInfo.InvariantCulture) + "/connz?subs=1");
@@ -1991,6 +2034,32 @@ namespace NATSExcel.SmokeTests
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Bounded "is something listening here" probe. A closed loopback port
+        /// normally refuses instantly, but on a machine with a stealth firewall
+        /// the SYN is silently dropped and the connect blocks until the OS
+        /// timeout (seconds). Bounding it keeps a skipped monitoring check cheap.
+        /// </summary>
+        private static bool IsPortOpen(string host, int port, int timeoutMs)
+        {
+            try
+            {
+                IPAddress address = IPAddress.TryParse(host, out var parsed) ? parsed : IPAddress.Loopback;
+                using (var client = new TcpClient())
+                {
+                    IAsyncResult result = client.BeginConnect(address, port, null, null);
+                    if (!result.AsyncWaitHandle.WaitOne(timeoutMs))
+                        return false;
+                    client.EndConnect(result);
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ==================================================================

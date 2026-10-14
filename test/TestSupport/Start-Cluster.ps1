@@ -74,9 +74,23 @@ function Stop-Previous {
             Select-Object -First 1
         if ($conn) {
             $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
-            if ($proc -and $proc.Path -and $proc.Path -like "*$WorkDir*") {
-                Write-Step "stopping the previous test node on $port (pid $($proc.Id))"
+            if (-not $proc) { continue }
+            # Attribute by the process NAME, not by $proc.Path: a nats-server
+            # started by Start-Process has an empty .Path and an empty
+            # Win32_Process.CommandLine on a hardened host, so a path/command
+            # match never fires and a stale node is never replaced. The port is
+            # already ours (this script owns the base ports), and a nats-server
+            # listening on it is the test node we started before.
+            if ($proc.ProcessName -like 'nats-server*') {
+                Write-Step "stopping the previous test node on $port (pid $($proc.Id), $($proc.ProcessName))"
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                # Wait for the port to actually free so the next bind succeeds.
+                $deadline = (Get-Date).AddSeconds(5)
+                while ((Get-Date) -lt $deadline) {
+                    $still = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+                    if (-not $still) { break }
+                    Start-Sleep -Milliseconds 100
+                }
             }
         }
     }

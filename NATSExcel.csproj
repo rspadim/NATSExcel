@@ -11,6 +11,14 @@
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">dev</InformationalVersion>
     <!-- Release binaries must not embed the builder's local paths. -->
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <!-- The Excel-DNA pack list (.dna) names only the neutral dependency
+         assemblies; satellite resource folders for the analyzer/threading
+         dependencies are never packed. Emitting English only drops 13 resource
+         folders from the output and the copy/pack pass, and the .dna parity test
+         (top-level DLLs) and both XLLs are unaffected. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Reuse the Roslyn compiler server across the solution build. -->
+    <UseSharedCompilation>true</UseSharedCompilation>
   </PropertyGroup>
 
   <ItemGroup>

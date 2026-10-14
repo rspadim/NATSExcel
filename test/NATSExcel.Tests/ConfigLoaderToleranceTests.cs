@@ -11,6 +11,7 @@ namespace NATSExcel.Tests
     /// steps: the strict parse ran first, so a single bad value threw and
     /// discarded the whole file (URLs, per-cluster auth, delivery tuning).
     /// </summary>
+    [Collection("config-seam")]
     public class ConfigLoaderToleranceTests
     {
         private static AppConfig.Root Load(string json)

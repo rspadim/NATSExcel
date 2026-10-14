@@ -483,7 +483,13 @@ namespace NATSExcel.LivenessTests
             });
 
             churn.Start();
-            Thread.Sleep(Quick ? 1500 : 4000);
+            // Soak on the observed churn counter, not a fixed window: a healthy
+            // run reaches the floor in a fraction of the window and exits early,
+            // while a wedged/slow run still runs the whole window (the maximum is
+            // unchanged) and then fails the assertions below. The floor is a
+            // ~3x margin over the A0.churn-hot-path assertion floor, so the phase
+            // still executes tens of thousands of real subscribe/dispose ops.
+            WaitUntil(() => churn.Ops >= (Quick ? 20000 : 80000), Quick ? 1500 : 4000);
             churn.StopAndJoin();
 
             int disposeErrors = 0;
@@ -815,7 +821,18 @@ namespace NATSExcel.LivenessTests
             }));
 
             foreach (var w in list) w.Start();
-            Thread.Sleep(Quick ? 3000 : 8000);
+            // Flood on real progress from EVERY public entry point, not a fixed
+            // window: the flood stops once each entry point has really been
+            // hammered (every worker counts only SUCCESSFUL ops, so a wedged entry
+            // point never reaches its floor), while a stuck/slow entry point still
+            // consumes the whole window (the same maximum) and then fails
+            // B.entrypoints-not-stuck / B.no-unexpected-errors below.
+            WaitUntil(() =>
+            {
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i].Ops < (Quick ? 25 : 60)) return false;
+                return true;
+            }, Quick ? 3000 : 8000);
             foreach (var w in list) w.StopAndJoin();
             foreach (var w in list)
                 Console.WriteLine("[METRIC] phase=B worker=" + w.Name + " ops=" + w.Ops + " errors=" + w.Errors
@@ -1030,7 +1047,11 @@ namespace NATSExcel.LivenessTests
                 GetLat(phase + ".subscribe-dispose").Record(Stopwatch.GetTimestamp() - t0);
             });
             churn.Start();
-            Thread.Sleep(Quick ? 800 : 2000);
+            // Soak on the observed churn counter, not a fixed window: the burst
+            // stops as soon as it has really churned, while a stuck/erroring burst
+            // (ops only counts successes) still runs the whole window (the maximum
+            // is unchanged) and then fails the no-exception assertion below.
+            WaitUntil(() => churn.Ops >= (Quick ? 5000 : 15000), Quick ? 800 : 2000);
             churn.StopAndJoin();
             foreach (var token in leftovers) { try { token.Dispose(); } catch { } }
 
@@ -1864,7 +1885,11 @@ namespace NATSExcel.LivenessTests
                 publisher.IsBackground = true;
                 publisher.Name = "K-publisher";
                 publisher.Start();
-                Thread.Sleep(Quick ? 500 : 1500);
+                // Soak on the observed in-flight traffic, not a fixed window: the
+                // shutdown below must land while a delivery has really flowed.
+                // A silent publisher still consumes the whole window (the maximum
+                // is unchanged) and then the shutdown bound assertion fails.
+                WaitUntil(() => Interlocked.Read(ref deliveries) > 0, Quick ? 500 : 1500);
 
                 // Shut the shared runtime down WHILE traffic is in flight.
                 long t0 = Stopwatch.GetTimestamp();
@@ -2745,7 +2770,17 @@ namespace NATSExcel.LivenessTests
             int sleepers = Math.Max(32, Environment.ProcessorCount * 2 + 8);
             for (int i = 0; i < sleepers; i++)
                 ThreadPool.QueueUserWorkItem(_ => release.Wait(120000));
-            Thread.Sleep(settleMs);
+            // Settle on the real condition the window exists for - the pool has no
+            // free worker (every worker thread is blocked on a sleeper) - up to the
+            // SAME maximum. A healthy box reaches it almost immediately; a box where
+            // the clamp did not take still waits the whole window (the fallback
+            // preserves the old behaviour exactly).
+            WaitUntil(() =>
+            {
+                ThreadPool.GetAvailableThreads(out int availableWorkers, out int availableIo);
+                GC.KeepAlive(availableIo);
+                return availableWorkers == 0;
+            }, settleMs);
             return release;
         }
 
