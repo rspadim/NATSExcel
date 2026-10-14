@@ -21,3 +21,6 @@ dump.rdb
 secret*.json
 nats-local.json
 *.creds
+
+# MkDocs build output (the Pages workflow builds it)
+_site/

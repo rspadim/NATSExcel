@@ -1,24 +1,25 @@
 name: Deploy landing page
 
-# Publishes the static landing page in docs/ to GitHub Pages. This is separate
-# from build.yml (the build/release pipeline) and never touches it.
+# Builds the MkDocs site (docs/ -> _site/) and publishes it to GitHub Pages.
+# Separate from build.yml (the build/release pipeline); never touches it.
 on:
   push:
     branches: [ main ]
     paths:
       - 'docs/**'
+      - 'mkdocs.yml'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
-# Least privilege: the deploy job needs to publish to Pages, identify itself to
-# the Pages service and read the repository contents.
+# Least privilege: the deploy job publishes to Pages, identifies itself to the
+# Pages service and reads the repository contents.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow one concurrent deployment; queued runs are not cancelled so a push
-# never leaves the site half-published.
+# One concurrent deployment; queued runs are not cancelled so a push never
+# leaves the site half-published.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -33,13 +34,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # Pinned so the site cannot break under us: a new MkDocs/Material release
+      # must be a deliberate change here.
+      - name: Install MkDocs
+        run: |
+          python -m pip install --disable-pip-version-check \
+            mkdocs==1.6.1 \
+            mkdocs-material==9.7.7 \
+            mkdocs-static-i18n==1.3.1
+
+      # --strict turns a broken link or a bad reference into a failed build
+      # instead of a silently wrong page.
+      - name: Build the site
+        run: python -m mkdocs build --strict
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
