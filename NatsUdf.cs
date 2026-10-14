@@ -74,6 +74,50 @@ namespace NATSExcel
         }
 
         /// <summary>
+        /// Points the NLog file target at <paramref name="logPath"/> - the path
+        /// <see cref="NatsUDFLogPath"/> reports - so the log really lands next to the
+        /// add-in. NLog resolves a RELATIVE <c>fileName</c> against
+        /// <c>AppDomain.BaseDirectory</c>, which in Excel is the OFFICE folder: the
+        /// file went to Program Files while every document, the installer's
+        /// uninstaller and this UDF all said "next to the add-in". Returns TRUE when
+        /// the target was repointed; FALSE leaves the configured default in place,
+        /// because an unwritable add-in folder must never cost the user the log.
+        /// </summary>
+        internal static bool TryPointLogAt(string logPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(logPath))
+                    return false;
+
+                string dir = System.IO.Path.GetDirectoryName(logPath);
+                if (string.IsNullOrEmpty(dir) || !System.IO.Directory.Exists(dir))
+                    return false;
+
+                // Probe first: a folder we cannot write to must keep the default.
+                string probe = System.IO.Path.Combine(dir, ".natsexcel-write-probe");
+                using (var fs = new System.IO.FileStream(
+                    probe, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None))
+                {
+                    fs.WriteByte(0);
+                }
+                System.IO.File.Delete(probe);
+
+                NLog.Targets.FileTarget target =
+                    NLog.LogManager.Configuration?.FindTargetByName<NLog.Targets.FileTarget>("file");
+                if (target == null)
+                    return false;
+
+                target.FileName = logPath;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Serializes a range to JSON, as the standalone twin of the `...JSON`
         /// write functions. Non-volatile: a conversion of its inputs has no
         /// reason to re-run on every recalculation. Pure - it touches no server

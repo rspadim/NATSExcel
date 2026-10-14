@@ -56,7 +56,7 @@ parity, the culture invariance of every value written to the wire
 (`HarnessInvariantTests`). Source scans pin what cannot be behavioural
 (`RtdInvariantTests`, `NoUnboundedBlockingTests`, `SubjectEpochLeakTests`).
 Growth areas: the RTD kinds under `-AsyncWrites`, the JetStream
-cluster-replica paths, and a live-feed read-only run (V8.8).
+cluster-replica paths, and observing a real read-only feed (V8.8: the `-ReadOnly` plumbing and the refusal of a non-local endpoint landed; the observation itself needs an endpoint from its owner).
 
 ## 2. Cluster and server harness (no Excel)
 

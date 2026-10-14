@@ -27,6 +27,7 @@
   "RTD": {
     "NatsUpdateRateMs": 1000,
     "ExcelUpdateRateMs": 100,
+    // Reserved: parsed but NOT applied today ("Automatic" behaves as "Realtime").
     "MessageCounterThreshold": 10000,
     "NatsUpdateStyle": "Automatic"
   },

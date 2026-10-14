@@ -20,8 +20,9 @@ service registration, which is isolated in `nats-service.ps1`.
    README "Languages" section): a formula must return the same text whatever the
    user's locale.
 3. Asks for the **connection**: the server URL (a comma-separated list for a
-   cluster) and an optional **token**. Other credential styles (user/password,
-   NKey, JWT+seed, creds file, mTLS) are edited in `NATSExcel.json` afterwards.
+   cluster) and the credential style - none, token, user/password, NKey,
+   JWT + seed, creds file or mTLS - showing only the fields the chosen style
+   needs. Any of them can be edited in `NATSExcel.json` afterwards.
 4. **Optional: installs a server.** NATS runs natively on Windows, so the
    default is *download one small `nats-server.exe`* and start it with JetStream
    on. Docker is offered as an alternative. The native path writes a starter

@@ -90,7 +90,7 @@
       "properties": {
         "NatsUpdateRateMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "How often the poll timer reads NATS." },
         "ExcelUpdateRateMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "How often dirty values are flushed to Excel." },
-        "MessageCounterThreshold": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807, "description": "Messages/second above which Automatic switches to timer delivery." },
+        "MessageCounterThreshold": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807, "description": "Reserved: parsed but NOT applied today - NatsUpdateStyle Automatic behaves exactly as Realtime. Kept in the schema so an existing file still validates." },
         "NatsUpdateStyle": { "type": "string", "pattern": "^(?:[Tt][Ii][Mm][Ee][Rr]|[Rr][Ee][Aa][Ll][Tt][Ii][Mm][Ee]|[Aa][Uu][Tt][Oo][Mm][Aa][Tt][Ii][Cc])$", "description": "Timer, Realtime or Automatic (case-insensitive; ASCII)." },
         "cluster": { "type": ["string", "null"], "description": "Optional RTD endpoint override (a Clusters/Servers name or a URL); unset falls back to Default." }
       }

@@ -42,6 +42,41 @@ the release batch itself. No change to the public Excel surface or to the
   reject every `#`-prefixed marker, and the sweep warms that read and asserts a real
   value (`1x1 value`).
 
+- **The log file was written to the OFFICE folder, not next to the add-in** -
+  while `Readme.md`, the three site pages, `installer\NATSExcel.iss` (11
+  translations) and the uninstaller all promised "next to the add-in", and
+  `=NatsUDFLogPath()` reported that same folder. NLog resolves a relative
+  `fileName` against `AppDomain.BaseDirectory`, which in Excel is the Office
+  install directory. `AddIn.AutoOpen` now points the file target at the folder
+  `=NatsUDFLogPath()` reports, so all four agree; an unwritable add-in folder keeps
+  NLog's default instead of costing the user the log (`LogPathTests` pins the
+  wiring, the fallback and the probe-file cleanup).
+- **`Validate-Config.cmd` was broken as installed**: the installer puts it in
+  `{app}` but every `.ps1` in `{app}\scripts`, and the `.cmd` called
+  `%~dp0validate-config.ps1` - so the documented double-click in `C:\NATSExcel\`
+  failed with "file not found". It now calls `%~dp0scripts\validate-config.ps1`.
+- **Dead links on all three published pages**: the "Architecture and design"
+  (`DESIGN.md`) and "Development plan" (`PLAN.md`) bullets pointed at files that
+  are not in the repository (they are maintainer notes kept on disk and
+  gitignored), so every click 404'd. The bullets are replaced by a
+  `CHANGELOG.md` link, and `docs\PUBLIC-SURFACE.md` now names the maintainer notes
+  instead of citing them as files a reader could open.
+- **`installer\verify-connection.ps1` showed Portuguese message boxes** (and a
+  Portuguese sample sheet: "NATSExcel instalado com sucesso!", `"FALHOU"`,
+  "Servidor:") to every user, whatever the wizard language - against golden rule 1
+  and the "the Excel-facing surface stays English" promise. All user-visible text is
+  English now.
+- **Docs that said things the code does not do**: `MessageCounterThreshold` was
+  documented as "Automatic switches to timer delivery" but is never read (the
+  schema and the sample now mark it reserved and say `Automatic` behaves as
+  `Realtime`); `ConflationMs` "default 200 ms" is the sample's value (with the key
+  absent the window is the Excel tick); `#N/D` is the localized rendering of
+  `#N/A` (the docs quote both now); the stale "unit (366)", "asserts 53 times",
+  "11/11", "Status: v0.1.0", the "~204k msg/s" figure, the growth-area lists that
+  have since landed (async bridge, RTD kinds, `expectCluster`, V8.8's `-ReadOnly`),
+  the installer README's "token only" wizard description, and the RedisExcel
+  sibling prose ("built on NATS" / "sent to Redis/NATS") are corrected.
+
 ## v0.1.2
 
 Four rounds of audit fixes plus the test coverage that pins them. **No change to the

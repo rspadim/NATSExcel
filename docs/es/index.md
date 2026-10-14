@@ -88,9 +88,8 @@ nunca obligatorio.
 ## Documentación
 
 - **Catálogo de funciones (congelado):** [PUBLIC-SURFACE.md](../PUBLIC-SURFACE.md)
-- **Arquitectura y diseño:** [DESIGN.md](https://github.com/rspadim/NATSExcel/blob/main/DESIGN.md)
 - **Guía de primeros pasos:** [Readme.md](https://github.com/rspadim/NATSExcel/blob/main/Readme.md)
-- **Plan de desarrollo:** [PLAN.md](https://github.com/rspadim/NATSExcel/blob/main/PLAN.md)
+- **Historial de versiones:** [CHANGELOG.md](https://github.com/rspadim/NATSExcel/blob/main/CHANGELOG.md)
 - **Pruebas:** [test/README.md](https://github.com/rspadim/NATSExcel/blob/main/test/README.md)
 
 ## Privacidad

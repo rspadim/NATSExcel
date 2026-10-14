@@ -72,18 +72,18 @@ Write-Host "[verify] testing NATS at $target ..."
 $ok = Test-Nats $serverHost $serverPort $Token
 
 if (-not $ok) {
-  Show ("Nao consegui falar com o NATS em $target.`r`n`r`n" +
-        "- Confira se o servidor esta rodando (o servico NATS, nats-server.exe, ou docker ps).`r`n" +
-        "- Se ele esta em outro host/porta, ajuste o NATSExcel.json.") 'NATSExcel - conexao'
+  Show ("Could not reach NATS at $target.`r`n`r`n" +
+        "- Check that the server is running (the NATS service, nats-server.exe, or docker ps).`r`n" +
+        "- If it runs on another host/port, adjust NATSExcel.json.") 'NATSExcel - connection'
   exit 1
 }
 
 Write-Host "[verify] NATS answered at $target"
 
 if (-not $OpenExcel) {
-  Show ("Tudo certo!`r`n`r`nO NATS respondeu em $target.`r`n" +
-        "Abra o Excel, registre o XLL (File > Options > Add-ins > Go... > Browse...) " +
-        'e use, por exemplo, =RTD("NatsRtd",,"SUB","test.>") em uma celula.') 'NATSExcel - instalado'
+  Show ("All good!`r`n`r`nNATS answered at $target.`r`n" +
+        "Open Excel, register the XLL (File > Options > Add-ins > Go... > Browse...) " +
+        'and use, for example, =RTD("NatsRtd",,"SUB","test.>") in a cell.') 'NATSExcel - installed'
   exit 0
 }
 
@@ -92,7 +92,7 @@ $xll64 = Join-Path $AddInDir 'NATSExcel64-packed.xll'
 $xll32 = Join-Path $AddInDir 'NATSExcel-packed.xll'
 $xll = if (Test-Path $xll64) { $xll64 } elseif (Test-Path $xll32) { $xll32 } else { $null }
 if (-not $xll) {
-  Show ("Nao encontrei o XLL em $AddInDir.") 'NATSExcel'
+  Show ("Could not find the XLL in $AddInDir.") 'NATSExcel'
   exit 0
 }
 
@@ -105,20 +105,20 @@ try {
   $ws = $wb.Worksheets.Item(1)
   $ws.Name = 'NATSExcel'
 
-  $ws.Range('A1').Value2 = 'NATSExcel instalado com sucesso!'
+  $ws.Range('A1').Value2 = 'NATSExcel installed successfully!'
   $ws.Range('A1').Font.Size = 16
   $ws.Range('A1').Font.Bold = $true
-  $ws.Range('A2').Value2 = 'Teste de conexao com o NATS - ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+  $ws.Range('A2').Value2 = 'NATS connection test - ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
   $ws.Range('A2').Font.Italic = $true
 
-  $ws.Range('A4').Value2 = 'Servidor:'
+  $ws.Range('A4').Value2 = 'Server:'
   $ws.Range('B4').Value2 = $target
   $ws.Range('A5').Value2 = 'Status:'
   # Use the configured default cluster (no explicit host), so the credentials
   # the installer just wrote to NATSExcel.json apply. A raw URL argument would
   # bypass that config and fail on an authenticated server.
-  $ws.Range('B5').Formula = '=IF(ISERROR(NatsUDFServerInfo()),"FALHOU","OK - NATS respondeu")'
-  $ws.Range('A6').Value2 = 'Servidor diz:'
+  $ws.Range('B5').Formula = '=IF(ISERROR(NatsUDFServerInfo()),"FAILED","OK - NATS answered")'
+  $ws.Range('A6').Value2 = 'Server says:'
   $ws.Range('B6').Formula = '=NatsUDFServerInfo()'
   $ws.Range('A7').Value2 = 'Cluster:'
   $ws.Range('B7').Formula = '=NatsUDFClusterName()'
@@ -138,6 +138,6 @@ try {
   Write-Host "[verify] sample workbook opened (XLL registered: $registered)"
   exit 0
 } catch {
-  Show ('Nao consegui abrir o Excel: ' + $_.Exception.Message) 'NATSExcel'
+  Show ('Could not open Excel: ' + $_.Exception.Message) 'NATSExcel'
   exit 0
 }

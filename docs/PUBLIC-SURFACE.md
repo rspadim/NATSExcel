@@ -43,7 +43,7 @@ built assembly; this document must agree with it.
 | Functions gated by `AllowAdminWrites` (bases) | **11** |
 | RTD commands | **9** |
 
-> **Doc drift, documented not hidden.** `DESIGN.md` §7.9 and `PLAN.md` §1.1 say
+> **Doc drift, documented not hidden.** The maintainer design notes (§7.9) and plan (§1.1) - kept on disk, deliberately not part of this repository - said
 > "89 `NatsUDF*` + 6 RTD = 95". That count left the two standalone
 > `[ExcelFunction]` conversions (`NatsUDFMatrixToJSON`, `NatsUDFJSONToMatrix`)
 > out of the `NatsUDF*` total even though they carry the `NatsUDF` prefix. The
@@ -172,7 +172,7 @@ built assembly; this document must agree with it.
 ## Matrix ⇄ JSON conversions — `NatsUdf.cs` (2)
 
 Both are server-free, non-volatile pure conversions over the same `NatsJson`
-helpers the `...JSON` functions use (DESIGN.md §7.6).
+helpers the `...JSON` functions use (the maintainer design notes, section 7.6; those notes are kept on disk and are not part of this repository).
 
 | Function | Arguments | Volatile | Admin-gated |
 | --- | --- | --- | --- |
@@ -182,7 +182,7 @@ helpers the `...JSON` functions use (DESIGN.md §7.6).
 ## RTD status helpers — `NatsRtd.cs` (6)
 
 All volatile, none has a twin, none is admin-gated. They carry
-`[ExcelFunction]` like the UDFs but live with the RTD server (DESIGN.md §7.9).
+`[ExcelFunction]` like the UDFs but live with the RTD server (maintainer design notes, section 7.9; not part of this repository).
 
 | Function | Arguments | Volatile | Admin-gated |
 | --- | --- | --- | --- |
@@ -197,7 +197,7 @@ All volatile, none has a twin, none is admin-gated. They carry
 
 The RTD server is the COM class `NATSExcel.NatsRtd` with the frozen ProgId
 **`NatsRtd`**, used as `=RTD("NatsRtd", , <command>, ...)`. The nine frozen
-commands (PLAN.md §1.2; pinned by
+commands (maintainer plan, section 1.2; not part of this repository; pinned by
 `test\NATSExcel.Tests\NatsRtdTopicGrammarTests.cs`):
 
 | Command | `topicInfo` (1-based) | Kind | Wildcards |

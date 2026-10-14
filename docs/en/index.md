@@ -83,9 +83,8 @@ No NATS server yet? The installer can run one natively on Windows (a single
 ## Documentation
 
 - **Function catalog (frozen):** [PUBLIC-SURFACE.md](../PUBLIC-SURFACE.md)
-- **Architecture and design:** [DESIGN.md](https://github.com/rspadim/NATSExcel/blob/main/DESIGN.md)
 - **Getting started guide:** [Readme.md](https://github.com/rspadim/NATSExcel/blob/main/Readme.md)
-- **Development plan:** [PLAN.md](https://github.com/rspadim/NATSExcel/blob/main/PLAN.md)
+- **Release history:** [CHANGELOG.md](https://github.com/rspadim/NATSExcel/blob/main/CHANGELOG.md)
 - **Tests:** [test/README.md](https://github.com/rspadim/NATSExcel/blob/main/test/README.md)
 
 ## Privacy

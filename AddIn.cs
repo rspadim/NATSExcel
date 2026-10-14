@@ -31,6 +31,25 @@ namespace NATSExcel
                 logger.Warn(ex, "AutoOpen: could not register the exception layout renderer");
             }
 
+            // The log file belongs NEXT TO THE ADD-IN, which is what every document,
+            // the installer's uninstaller and =NatsUDFLogPath() say: NLog resolves the
+            // config's RELATIVE fileName against AppDomain.BaseDirectory, which in
+            // Excel is the OFFICE folder (the log landed in Program Files). Pointing
+            // the target here makes all four agree; an unwritable add-in folder keeps
+            // NLog's default instead of costing the user the log.
+            try
+            {
+                if (!NatsUdf.TryPointLogAt(NatsUdf.NatsUDFLogPath()))
+                {
+                    logger.Warn("AutoOpen: the log file stays at NLog's default location "
+                        + "(the add-in folder is not writable)");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "AutoOpen: could not point the log file at the add-in folder");
+            }
+
             // A same-process reload (Excel re-opening the add-in without a new
             // AppDomain) must not reuse the shut-down runtime.
             try

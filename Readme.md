@@ -19,7 +19,7 @@ Backed by NATS.Net, NLog and Newtonsoft.Json, and targeting .NET Framework 4.8.
 - Contributor/agent guidance: [`AGENTS.md`](AGENTS.md)
 - Release history: [`CHANGELOG.md`](CHANGELOG.md)
 
-> **Status: v0.1.0, first release.** The add-in builds, packs and loads in real
+> **Status: released.** See [`CHANGELOG.md`](CHANGELOG.md) for the current version. The add-in builds, packs and loads in real
 > Excel, exposes **91 `NatsUDF*` worksheet functions + 6 `NatsRTD*` status
 > helpers** and an RTD server with **9 commands** (`SUB`, `KV`, `KVGET`,
 > `KVKEYS`, `REQ`, `JS`, `MSG`, `OBJ`, `RTDCLUSTER`). The installer, the config
@@ -388,13 +388,13 @@ answer. The background check is controlled by the `"UpdateCheck"` key in
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| **`#N/D`** in an `=RTD(...)` cell | The RTD server was not created: the `NatsRtd` COM ProgId is not registered, most often because **Excel is running elevated** — elevated processes ignore per-user COM classes registered under `HKCU`. | Close Excel, load the XLL through the normal (non-elevated) path so `AddIn.AutoOpen` registers `NatsRtd` under `HKCU`, then reopen. On a test machine where Excel must run elevated, register the ProgId under `HKLM\Software\Classes` (admin) pointing at the packed XLL. |
+| **`#N/A`** in an `=RTD(...)` cell (localized Excel may show `#N/D`) | The RTD server was not created: the `NatsRtd` COM ProgId is not registered, most often because **Excel is running elevated** — elevated processes ignore per-user COM classes registered under `HKCU`. | Close Excel, load the XLL through the normal (non-elevated) path so `AddIn.AutoOpen` registers `NatsRtd` under `HKCU`, then reopen. On a test machine where Excel must run elevated, register the ProgId under `HKLM\Software\Classes` (admin) pointing at the packed XLL. |
 | **`#N/A`** in a write cell | That is the **pending** marker of an asynchronous write (`ExcelAsyncUtil.Observe`): the cell shows `#N/A` and later the real value. | No action — it resolves when the write completes. Only investigate if it stays pending and `=NatsUDFConnectionCount()` is `0` (no connection). |
 | **`#CONFIG`** | A formula's host argument is a `Clusters`/`Servers` name that does not resolve — the add-in refuses to fall back to `localhost` silently. | Fix the name in the formula, or add the name to `NATSExcel.json`. Check with `=NatsUDFConfigValidate()`. |
 | **`Error: JetStream is not enabled on this server`** | The server was started **without `-js`**. Core pub/sub still works; every JetStream/KV/Object call fails. | Restart the server with `-js` **and** a durable `--store_dir` (see [§2](#2-no-server-yet-run-one-on-windows)). |
 | **`No Responders`** | A request/reply reached the server, but **nobody is subscribed** to the reply subject. | Make sure a responder subscribes to that subject before you send the request. This is a frozen marker, not a bug. |
 | **`TIMEOUT`** | A responder exists but did not answer within `timeoutMs`. | Raise the `timeoutMs` argument, or check the responder. |
-| **A cell does not update / looks stale** | Two deliberate behaviors: real-time pushes are **coalesced** (`CoalesceRealtimeUpdates` + `ConflationMs`, default **200 ms** — the latest value wins per window), and `SkipRepeatedMessages` **drops a repeated payload** (compared by ordinal text, so `"007"` and `"7"` differ). | Lower `ConflationMs` or set `CoalesceRealtimeUpdates` to `false` for a fast feed; set `SkipRepeatedMessages` to `false` if you need every identical value. Note: **wildcard subjects are never deduplicated**. |
+| **A cell does not update / looks stale** | Two deliberate behaviors: real-time pushes are **coalesced** (`CoalesceRealtimeUpdates` + `ConflationMs` - the shipped sample writes **200 ms**; with the key absent the window is the Excel tick (`ExcelUpdateRateMs`, default 100 ms) — the latest value wins per window), and `SkipRepeatedMessages` **drops a repeated payload** (compared by ordinal text, so `"007"` and `"7"` differ). | Lower `ConflationMs` or set `CoalesceRealtimeUpdates` to `false` for a fast feed; set `SkipRepeatedMessages` to `false` if you need every identical value. Note: **wildcard subjects are never deduplicated**. |
 | **`Error: admin writes are disabled (set "AllowAdminWrites": true)`** | You called a destructive/admin function with the gate closed (the default). | Set `"AllowAdminWrites": true` in `NATSExcel.json` only if you really want recalculation to be able to mutate server state. |
 | **`#VALUE!`** | Excel could not use what the function returned. The add-in renders its own failures as `Error: ...`, `#CONFIG` or `#ERROR: ...`, so a bare `#VALUE!` usually points at Excel's argument coercion rather than at NATS. | First prove the add-in loaded: `=NatsUDFVersion()` (a version string) and `=NatsUDFConfigPath()`. Then re-check the cell's arguments. |
 
@@ -424,7 +424,7 @@ command names and the cell markers/errors (`OK`, `TIMEOUT`, `No Responders`,
 always written with the invariant (dot) decimal separator. A formula must return
 the **same text** regardless of the user's Windows/Office locale: localizing a
 marker would change what `IF(...="OK", ...)` matches, and a locale-dependent
-decimal point would corrupt a value sent to Redis/NATS. So the wizard speaks your
+decimal point would corrupt a value sent to NATS. So the wizard speaks your
 language; the spreadsheet talks one language to the server.
 
 ---
@@ -464,7 +464,7 @@ powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 The E2E script needs Excel, a built XLL and a running server. It uses a
 **copy-based add-in folder** (no installer, no COM registration, nothing to
 click), retries transient COM rejections and prints a `COM retries` summary,
-and writes its workbook to `%TEMP%`. It currently passes **11/11**. Useful
+and writes its workbook to `%TEMP%`. It passes **57 assertions** in the default run (the async-marker journey SKIPs unless the run is given `-AsyncWrites`). Useful
 parameters: `-NatsUrl` (default `nats://127.0.0.1:4222`), `-Xll`,
 `-SkipNodeKill` (auto-skipped for a non-local host), `-SkipMultiWorkbook`,
 `-KeepExcelOpen`, `-Fast`.
@@ -486,7 +486,7 @@ dotnet run --project test\LivenessTests -c Release -- "nats://127.0.0.1:4222"
 > normal. Misleading errors (`InvalidCastException`, COM hangs) usually mean
 > "run it again", not "the add-in is broken". The suites print the active
 > antivirus state. Also remember: elevated Excel ignores the per-user `NatsRtd`
-> COM registration, so `=RTD("NatsRtd", ...)` can show `#N/D` there.
+> COM registration, so `=RTD("NatsRtd", ...)` can show `#N/A` there (localized Excel shows `#N/D`).
 
 ### Build the installer
 

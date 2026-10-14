@@ -22,10 +22,10 @@ published; this file is the working guidance.
 > released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
-> layers are real and pass: unit (366), smoke (168, and 0 skipped on a full local
+> layers are real and pass: unit (372), smoke (168, and 0 skipped on a full local
 > run), Excel E2E (57 assertions in the default run; the async-marker journey
 > SKIPs unless `-AsyncWrites`),
-> load (~204k msg/s) and liveness. The solution file, the CI tag/release flow and
+> load (machine-dependent, ~93k-204k msg/s locally) and liveness. The solution file, the CI tag/release flow and
 > the installer (11 wizard languages) are in place. `PLAN.md` §8/§9 track the few
 > remaining additive items; the `## Layout` section below splits what exists from
 > what is still planned.
@@ -47,8 +47,9 @@ published; this file is the working guidance.
    string — a `Clusters` name, a `Servers` name or a raw `nats://` URL),
    `Servers`, `Clusters` (each with `urls` plus optional `timeout`, `auth`,
    `reconnect`, `jetstream`, `expectCluster`), a shared top-level `Auth` block
-   and a shared top-level `Reconnect` block, `RTD` (delivery tuning only — there
-   is no `UDF` block and no RTD/UDF server split), `JetStream`, plus the flat
+   and a shared top-level `Reconnect` block, `RTD` (delivery tuning only - there
+   is no separate RTD/UDF connection pool: `UDF.cluster` is only a per-section
+   endpoint override), `JetStream`, plus the flat
    toggles `AllowAdminWrites`, `SkipRepeatedMessages`, `CoalesceRealtimeUpdates`,
    `ConflationMs`, `PublishDedupCacheSize`, `SyncWrite`, `AsyncWrites`,
    `UpdateCheck`. A cluster's `auth` merges OVER the shared `Auth` field by
@@ -60,7 +61,7 @@ published; this file is the working guidance.
    POSITIVE, so `-1` and `0` both mean unlimited (there is no "no retry at all").
    (An earlier draft nested the settings under `Default` with a top-level
    `Auth`/`UDF`; `Config.cs` accepts a nested `Default` only as a back-compat
-   fallback and never reads a `UDF` block.)
+   fallback and reads `UDF` only for its `cluster` endpoint override.)
 4. All NATS access goes through `NatsRuntime`
    (`NatsConnectionManager` / `NatsSubscriptionManager`); never create a
    `NatsConnection` anywhere else. This is the only place the process-wide
@@ -389,8 +390,8 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Passes 57 assertions locally (the script asserts 53 times, a few inside retry
-loops; the async-marker journey SKIPs unless the run is given `-AsyncWrites`).
+Passes 57 assertions locally (the script has 59 `Assert` call sites; the two in the
+async-marker journey SKIP unless the run is given `-AsyncWrites`).
 Uses a hidden Excel instance: loads the packed XLL through
 the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
 round trip, the RTD `SUB` push (two updates), the JetStream/KV named-error
@@ -419,7 +420,7 @@ dotnet run --project test\LoadTests -c Release -- raw     "nats://127.0.0.1:4222
 `manager` exercises the subscription broadcast path; `raw` is the plain
 `NATS.Client` baseline. Parameters: url, seconds, publishers, listeners,
 subject/pattern and an optional queue group. Reports throughput and allocated
-bytes per received message. ~204k msg/s measured on a local manager run.
+bytes per received message. Machine-dependent: 93k-204k msg/s observed on local runs.
 Read-only stress runs against real servers are allowed, but pass the url only as
 a command-line argument (never commit it) and keep the runs short.
 
@@ -457,7 +458,7 @@ the cluster harness and the smoke/liveness suites all exist
 2. **Elevated processes ignore per-user COM classes.** The add-in registers
    `NatsRtd` under `HKCU\Software\Classes` in `AutoOpen` (via
    `ComServer.DllRegisterServer`). If Excel runs elevated, `=RTD("NatsRtd", ...)`
-   can show `#N/D`. Workaround for test machines: register under
+   can show `#N/A` (localized Excel shows `#N/D`). Workaround for test machines: register under
    `HKLM\Software\Classes` (admin), pointing at the packed XLL.
 3. **A server restart is destructive to other users** — only stop/restart a
    disposable/local NATS server; the E2E script skips the restart step for
@@ -474,7 +475,7 @@ the cluster harness and the smoke/liveness suites all exist
    method on a null-valued expression" (member enumeration over an array holding a
    null). Compare with `$null -eq $wb` and require `-is [System.__ComObject]`, with
    a small retry loop around the open.
-6. **RTD cells display `#N/D` when the RTD server could not be created** —
+6. **RTD cells display `#N/A` (localized Excel: `#N/D`) when the RTD server could not be created** —
    check COM registration before suspecting the add-in logic.
 7. **NATS-specific:** a server started without `-js` accepts connections and
    Core pub/sub works, but every JetStream call fails - assert the JetStream
