@@ -141,9 +141,17 @@ items from the audit/plan are still open (`PLAN.md` §8/§9).
 | --- | --- |
 | `jetstream.domain` routing | `Cluster.JetStreamDomain` is parsed and surfaced for diagnostics, but no JetStream call is routed by domain yet (PLAN §9.1#8). |
 
-The AV matrix helpers (`test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`,
-`test\Set-Antivirus.ps1`) and the `expectCluster`/ambiguity surfacing in
-`=NatsUDFConfigValidate()` have landed, so they now live under "Exists today".
+The AV matrix helpers (`test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`)
+and the read-only AV banner (`test\TestSupport\Get-AntivirusState.ps1`, which only
+*reads* the state and never disables protection) have landed; the
+`expectCluster`/ambiguity surfacing in `=NatsUDFConfigValidate()` is done too, so
+they now live under "Exists today".
+
+**The wizard is never asked to, and never does, disable or reconfigure antivirus
+software.** No script in this repository touches `Set-MpPreference` or any
+protection toggle: a helper that disables real-time protection is indistinguishable
+from defense-evasion malware to a scanner and would rightly be blocked, so the
+matrix only ever *reads* the AV state for attribution.
 
 When an item lands, move its row up into "Exists today"; `DESIGN.md` §5.1
 and this layout must stay in sync (PLAN S7.4).

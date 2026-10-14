@@ -425,7 +425,7 @@ unbounded-blocking source scan (`V7.3`) are **DONE**. `S7.4` is **DONE** —
 | V8.6 | **Excel E2E**: scaffold + COM retry + AV banner; UDF sheet; RTD sheet; multi-workbook; connection blip; write modes + async pending marker + NonVolatile-once; workbook sanitize; params | `test\Run-ExcelE2E.ps1` | ALL PASS all 4 modes | **DONE** — `test\Run-ExcelE2E.ps1` passes locally (44 assertions) (UDF round trip, RTD push, KV/JS named errors, multi-workbook, node-kill failover, Excel restart); it reuses `New-AddInFolder.ps1` (no installer) and prints the AV banner |
 | V8.8 | **Read-only live-feed run** (D6): point the UDF/RTD read paths at an external endpoint to observe real traffic, never writing. A `-ReadOnly` switch (default ON for any non-local endpoint) (a) skips every write/admin/destructive section, (b) refuses publish-like calls at the harness level, and (c) writes nothing to a local server. Accepts a subject/pattern filter so a `>` firehose can be scoped down before `SubjectLatest`/RTD. | `test\Run-ExcelE2E.ps1`, `test\SmokeTests\Program.cs` (`--read-only`) | feed observed end-to-end; zero writes; endpoint only in argv | **TODO** |
 | V8.9 | **External-endpoint bookkeeping**: the run prints the endpoint **masked**, keeps the workbook in `%TEMP%` (never `test\NATSExcel.Test.xlsx`), and the committed sample keeps `nats://localhost:4222` + `test.natsexcel.*` only. A pre-commit/pre-release grep (golden rule 9) fails on any company name/domain. | `test\Run-ExcelE2E.ps1`, `.github\workflows\build.yml` | `git grep` returns nothing; no private host / company name in tracked files | **PARTIAL** — the E2E keeps its workbook in `%TEMP%` and uses `test.natsexcel.*`; the dedicated grep gate is not in CI |
-| V8.7 | Matrix + compare + AV helpers | `test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`, `test\Set-Antivirus.ps1` | side-by-side table | **TODO** — only the read-only `Get-AntivirusState.ps1` exists (used as a banner) |
+| V8.7 | Matrix + compare + AV banner | `test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1` | side-by-side table | **DONE** — the matrix and compare scripts exist and print a side-by-side table; the AV state is read-only via `Get-AntivirusState.ps1` (it never disables protection) |
 
 ### P9 — Installer (V, native-first)
 
@@ -656,8 +656,9 @@ vs WebSocket wire cost is equal (+0.1%); permessage-deflate is unusable on net48
   public-surface baseline; the conversions also exist as internal `NatsJson`
   helpers.
 - **Culture/JSON/AV matrix helpers** (V8.7: `Run-ExcelE2E-Matrix.ps1`,
-  `Compare-ExcelE2E.ps1`, `Set-Antivirus.ps1`), the **SHA256 pin** (V10.2) and
-  the **release cut** (`CHANGELOG.md` has `v0.1.0`/`v0.1.1`; V10.7) have landed.
+  `Compare-ExcelE2E.ps1`; the AV state is read-only via `Get-AntivirusState.ps1`),
+  the **SHA256 pin** (V10.2) and the **release cut** (`CHANGELOG.md` has
+  `v0.1.0`/`v0.1.1`; V10.7) have landed.
 
 **Next step:** cut the next release tag with its CHANGELOG section, and route
 JetStream by `jetstream.domain` (the one open §9.1 item).
