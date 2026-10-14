@@ -81,6 +81,25 @@ namespace NATSExcel.Tests
             Assert.Contains("$proc.Modules | Where-Object", src);
         }
 
+        /// <summary>
+        /// The helper's STDOUT IS ITS RETURN VALUE: the caller captures it with
+        /// <c>$Xll = powershell -File New-AddInFolder.ps1 ...</c>, so any progress
+        /// line written to stdout lands inside the returned path - and every later
+        /// <c>Test-Path</c>/<c>RegisterXLL</c> fails with a string full of text (a
+        /// run where EVERY cell answered <c>#NAME?</c>). Progress goes to stderr.
+        /// </summary>
+        [Fact]
+        public void TheAddInFolderHelperKeepsItsStdoutForThePathOnly()
+        {
+            string src = Read(Path.Combine("test", "TestSupport", "New-AddInFolder.ps1"));
+
+            Assert.DoesNotContain("Write-Host", src);
+            Assert.DoesNotContain("Write-Output (\"[", src);
+            Assert.Contains("[Console]::Error.WriteLine(", src);
+            // And the one thing it returns is the folder path.
+            Assert.Contains("Write-Output (Join-Path $Path $xllName)", src);
+        }
+
         /// <summary>The cluster teardown never stops a server whose port/conf is not
         /// ours, and says so instead of guessing.</summary>
         [Fact]

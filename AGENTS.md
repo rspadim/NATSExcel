@@ -23,7 +23,7 @@ published; this file is the working guidance.
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
 > layers are real and pass: unit (365), smoke (168, and 0 skipped on a full local
-> run), Excel E2E (56 assertions in the default run; the async-marker journey
+> run), Excel E2E (57 assertions in the default run; the async-marker journey
 > SKIPs unless `-AsyncWrites`),
 > load (~204k msg/s) and liveness. The solution file, the CI tag/release flow and
 > the installer (11 wizard languages) are in place. `PLAN.md` §8/§9 track the few
@@ -386,7 +386,7 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Passes 56 assertions locally (the script asserts 53 times, a few inside retry
+Passes 57 assertions locally (the script asserts 53 times, a few inside retry
 loops; the async-marker journey SKIPs unless the run is given `-AsyncWrites`).
 Uses a hidden Excel instance: loads the packed XLL through
 the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
@@ -464,6 +464,13 @@ the cluster harness and the smoke/liveness suites all exist
 5. **PowerShell + COM quirks:** cast value types explicitly on the same call
    site (`[string]$value` / `[double]$value`); prefer `Range("A1")` addresses
    over `Cells.Item(r, c)`; pass scriptblock variables explicitly when in doubt.
+   And treat a COM call that answers with `$null` or an ARRAY instead of throwing
+   as a failure to retry: `Workbooks.Open` did exactly that under load, and
+   `if (-not $wb)` is the WRONG test for it - a one-element array is truthy, so the
+   code took the success path and the failure surfaced later as "cannot call a
+   method on a null-valued expression" (member enumeration over an array holding a
+   null). Compare with `$null -eq $wb` and require `-is [System.__ComObject]`, with
+   a small retry loop around the open.
 6. **RTD cells display `#N/D` when the RTD server could not be created** —
    check COM registration before suspecting the add-in logic.
 7. **NATS-specific:** a server started without `-js` accepts connections and

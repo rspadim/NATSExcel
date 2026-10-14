@@ -490,12 +490,21 @@ if ($isLocal -and -not $SkipMultiWorkbook) {
     # rejection, a file still being written), and Invoke-Com only retries on an
     # exception - so retry here rather than dereferencing a null workbook.
     $wb2 = $null
-    for ($attempt = 1; $attempt -le 5 -and -not $wb2; $attempt++) {
-        $wb2 = Invoke-Com { $excel2.Workbooks.Open($copy) }
-        if (-not $wb2) { Start-Sleep -Milliseconds 600 }
+    for ($attempt = 1; $attempt -le 5 -and $null -eq $wb2; $attempt++) {
+        $opened = $null
+        try { $opened = $excel2.Workbooks.Open($copy) } catch { $opened = $null }
+        if ($opened -is [System.__ComObject]) {
+            $wb2 = $opened
+        }
+        elseif ($opened) {
+            foreach ($candidate in @($opened)) {
+                if ($candidate -is [System.__ComObject]) { $wb2 = $candidate; break }
+            }
+        }
+        if ($null -eq $wb2) { Start-Sleep -Milliseconds 600 }
     }
 
-    if (-not $wb2) {
+    if ($null -eq $wb2) {
         # Never leave the hidden instance behind (it holds the copy and the XLL, and
         # the NEXT run then fails on a locked file): quit it, then skip with a reason.
         Log "  Excel returned no workbook for the saved copy ($copy); skipping the multi-workbook check"
@@ -506,8 +515,17 @@ if ($isLocal -and -not $SkipMultiWorkbook) {
     }
     else {
         try {
-            $null = Invoke-Com { $wb2.Worksheets.Item(1).Range('A5').Text }   # force a calc
-            Invoke-Com { $wb2.Close($false) } | Out-Null
+            # Drive the workbook DIRECTLY instead of through a scriptblock: a COM
+            # object is not reliably visible inside a nested scriptblock (this
+            # suite's own lesson: pass scriptblock variables explicitly when in
+            # doubt), and the resulting $null surfaced as "cannot call a method on a
+            # null-valued expression" three frames from the real cause.
+            $calcText = $null
+            for ($attempt = 1; $attempt -le 4 -and $null -eq $calcText; $attempt++) {
+                try { $calcText = $wb2.Worksheets.Item(1).Range('A5').Text }
+                catch { Start-Sleep -Milliseconds 300 }
+            }
+            try { $wb2.Close($false) } catch {}
         }
         finally {
             try { $excel2.Quit() } catch {}

@@ -79,7 +79,12 @@ function Clear-StaleAddInHost([string]$xllPath) {
         }
     }
     foreach ($proc in $stale) {
-        Write-Host ("[addin] stopping the stale hidden Excel pid $($proc.Id) that still held $xllPath")
+        # stderr, never stdout: this script's STDOUT IS ITS RETURN VALUE (the caller
+        # runs `$Xll = powershell -File New-AddInFolder.ps1 ...`, so a host-write here
+        # lands inside the returned path and every later Test-Path / RegisterXLL
+        # fails with a string full of progress text). stderr is shown and not
+        # captured.
+        [Console]::Error.WriteLine("[addin] stopping the stale hidden Excel pid $($proc.Id) that still held $xllPath")
         try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop } catch {
             throw ("could not stop the stale hidden Excel pid $($proc.Id): $($_.Exception.Message)")
         }
