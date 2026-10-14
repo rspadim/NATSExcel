@@ -19,15 +19,16 @@ users' spreadsheets depend on). The architecture and planning notes (`DESIGN.md`
 published; this file is the working guidance.
 
 > **Implementation status (read this first).** The add-in is implemented and
-> released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
+> released (latest tag: `v0.1.2`): the packed XLL loads in real Excel and
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
-> layers are real and pass: unit (372), smoke (168, and 0 skipped on a full local
-> run), Excel E2E (57 assertions in the default run; the async-marker journey
-> SKIPs unless `-AsyncWrites`),
+> layers are real and pass (a snapshot: unit 378, smoke 168 with 0 skipped, Excel
+> E2E 57 assertions in the default run - run the layers for the current numbers,
+> and `UnpinnedClaimsTests` keeps the E2E counts honest),
 > load (machine-dependent, ~93k-204k msg/s locally) and liveness. The solution file, the CI tag/release flow and
-> the installer (11 wizard languages) are in place. `PLAN.md` §8/§9 track the few
-> remaining additive items; the `## Layout` section below splits what exists from
+> the installer (11 wizard languages) are in place. The maintainer plan (kept on
+> disk, not published) tracks the few remaining additive items; the `## Layout`
+> section below splits what exists from
 > what is still planned.
 
 ## Golden rules
@@ -107,9 +108,9 @@ published; this file is the working guidance.
 
 ## Layout
 
-**The add-in is implemented and released (`v0.1.0`): it compiles, packs, loads in
+**The add-in is implemented and released (`v0.1.2`): it compiles, packs, loads in
 real Excel, answers the whole UDF catalog, and all five test layers pass.** A few
-items from the audit/plan are still open (`PLAN.md` §8/§9).
+items from the audit/plan are still open (the maintainer plan, not published).
 
 ### Exists today (ground truth)
 
@@ -146,7 +147,7 @@ items from the audit/plan are still open (`PLAN.md` §8/§9).
 | `tools/NatsValidate/` | C# console validator that runs today (see `## Tests`). |
 | `test/` | The unit, load and E2E layers + the cluster harness + the copy-based add-in folder helper (see `## Tests`). |
 
-### Still open (from `PLAN.md`; none of these exist yet)
+### Still open (from the maintainer plan, not published; none of these exist yet)
 
 | Open item | Responsibility (per the plan) |
 | --- | --- |
@@ -390,7 +391,7 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Passes 57 assertions locally (the script has 59 `Assert` call sites; the two in the
+Passes 57 assertions locally (the script has 53 `Assert` call sites; the two in the
 async-marker journey SKIP unless the run is given `-AsyncWrites`).
 Uses a hidden Excel instance: loads the packed XLL through
 the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
@@ -536,7 +537,7 @@ The CI workflow (`.github/workflows/build.yml`) is live: pushing an annotated
 installer and publishes the packed XLLs, `NATSExcel.dll`, `NLog.config`,
 `NATSExcel.json` and the installer (`NATSExcelSetup-<version>.exe`) as release
 assets, using the CHANGELOG section for the tag as the release body. Releases
-`v0.1.0` and `v0.1.1` have been cut. The version embedded in the NATS connection
+`v0.1.0`, `v0.1.1` and `v0.1.2` have been cut. The version embedded in the NATS connection
 `Name` (shown as `dev` for local builds) is the tag read from
 `AssemblyInformationalVersion`; `INFORMATIONALVERSION` defaults to `dev` in
 `NATSExcel.csproj`.

@@ -77,6 +77,19 @@ the release batch itself. No change to the public Excel surface or to the
   the installer README's "token only" wizard description, and the RedisExcel
   sibling prose ("built on NATS" / "sent to Redis/NATS") are corrected.
 
+### Added
+
+- `UnpinnedClaimsTests`: the round-5 audit listed five claims that were TRUE but had
+  nothing keeping them true, and each would have silently become a lie. They are
+  pinned now - the config search order (the profile before `C:\Windows`, every
+  candidate absolute), the NATS client defaults the docs quote (2 s initial wait, 5 s
+  ceiling, 100 ms jitter, unlimited retries) plus the "one configured wait is applied
+  as both bounds" mapping, the installer's 11 languages all carrying the same 63-key
+  set (the manual `languages\messages.ps1` check, automated), the "the releases are
+  not code-signed yet" statement (adding `signtool`/`SignPath`/`jsign` to the
+  pipeline fails the test until `SIGNING.md` and the three pages are updated), and
+  the E2E's assertion count in `AGENTS.md` - the number that had already drifted
+  twice, and was wrong again when the test was written (53 call sites, not 59).
 ## v0.1.2
 
 Four rounds of audit fixes plus the test coverage that pins them. **No change to the
