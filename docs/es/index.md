@@ -4,10 +4,8 @@ description: Complemento de Excel (XLL) que lleva NATS a Excel mediante RTD y fu
 ---
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../assets/logo-dark.svg">
-    <img src="../assets/logo.svg" alt="NATSExcel" width="420">
-  </picture>
+  <img class="nx-logo-light" src="../assets/logo.svg" alt="NATSExcel" width="420">
+  <img class="nx-logo-dark" src="../assets/logo-dark.svg" alt="NATSExcel" width="420">
 </p>
 
 **Complemento de Excel (XLL) que lleva [NATS](https://nats.io/) a Excel** mediante

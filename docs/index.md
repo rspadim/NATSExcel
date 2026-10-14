@@ -4,10 +4,8 @@ description: Add-in do Excel (XLL) que traz o NATS para dentro do Excel via RTD 
 ---
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-    <img src="assets/logo.svg" alt="NATSExcel" width="420">
-  </picture>
+  <img class="nx-logo-light" src="assets/logo.svg" alt="NATSExcel" width="420">
+  <img class="nx-logo-dark" src="assets/logo-dark.svg" alt="NATSExcel" width="420">
 </p>
 
 **Add-in do Excel (XLL) que traz o [NATS](https://nats.io/) para dentro do Excel**
