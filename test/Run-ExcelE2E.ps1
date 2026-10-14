@@ -233,11 +233,22 @@ function Start-SecondServer {
     $exe = Join-Path $root 'natsexcel-cluster\server\nats-server.exe'
     if (-not (Test-Path $exe)) { return $null }
     # Stop a stale second-server from a previous run: only one whose executable
-    # lives under OUR work dir is touched (never a developer's own server).
+    # lives under OUR work dir is touched (never a developer's own server). A
+    # Start-Process'd nats-server exposes an EMPTY .Path, so the path test alone
+    # never matched and the stale server survived; a nats.conf under OUR work dir
+    # that declares this port is the reliable signal.
     $existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($existing) {
         $p0 = Get-Process -Id $existing.OwningProcess -ErrorAction SilentlyContinue
-        if ($p0 -and $p0.Path -and $p0.Path -like "*$work*") {
+        $ours = $false
+        if ($p0 -and $p0.ProcessName -like 'nats-server*') {
+            if ($p0.Path -and $p0.Path -like "*$work*") { $ours = $true }
+            elseif (Test-Path (Join-Path $work 'nats.conf')) {
+                $m = Select-String -Path (Join-Path $work 'nats.conf') -Pattern '^\s*port\s*:\s*(\d+)' -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($m -and [int]$m.Matches[0].Groups[1].Value -eq $Port) { $ours = $true }
+            }
+        }
+        if ($ours) {
             Stop-Process -Id $p0.Id -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 500
         }

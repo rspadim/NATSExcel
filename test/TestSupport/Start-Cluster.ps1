@@ -19,13 +19,22 @@ param(
     [ValidateRange(1, 5)]
     [int]$Nodes = 1,
     [int]$BasePort = 4222,
-    [int]$BaseClusterPort = 6222,
+    # 0 = derive it from BasePort (see below). A fixed default of 6222 would
+    # collide with any OTHER cluster already running on the machine, so a
+    # multi-node cluster on a custom -BasePort failed with a bare "bind: only one
+    # usage of each socket address" from the server. Passing an explicit value
+    # still wins.
+    [int]$BaseClusterPort = 0,
     [string]$WorkDir,
     [string]$ServerExe,
     [string]$Version = '2.15.1',
     [switch]$JetStream = $true,
     [switch]$Force   # kill an existing test cluster first
 )
+
+# Derive the routing port from the client port when not given, so two clusters on
+# different client ports never share a routing port.
+if ($BaseClusterPort -le 0) { $BaseClusterPort = $BasePort + 1000 }
 
 $ErrorActionPreference = 'Stop'
 

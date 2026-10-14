@@ -467,6 +467,18 @@ namespace NATSExcel.SmokeTests
             Check(await WaitUntilAsync(() => subscriptions.SubscriptionCount > 0, 3000).ConfigureAwait(false),
                 "dedup: literal listener registered");
 
+            // The manager's SubscriptionCount proves the STATE exists, not that the
+            // wire SUBSCRIBE reached the server. Core is at-most-once, so publishing
+            // immediately lost every message under load and the check below read 0
+            // ("received 0, expected 2"). Warm the subscription up first, then clear
+            // the observations so the counted payloads are only the dedup ones.
+            Check(await WarmUpAsync(raw, literal, received).ConfigureAwait(false),
+                "dedup: the literal subscription is live on the wire");
+            // Clear only the OBSERVATIONS: the dedup state now holds the warm
+            // payload, so the "dup" publishes below are a genuine change (and the
+            // four repeats are what the check counts).
+            lock (Sync) received.Clear();
+
             for (int i = 0; i < 4; i++)
                 await PublishAsync(raw, literal, "dup").ConfigureAwait(false);
             await PublishAsync(raw, literal, "dup2").ConfigureAwait(false);
