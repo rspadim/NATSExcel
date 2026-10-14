@@ -121,6 +121,29 @@ Dúvidas, relatos de bug e pull requests são bem-vindos em
 Ao abrir um bug, inclua a versão do add-in (`=NatsUDFVersion()`), a arquitetura do
 seu Office e se o servidor tinha JetStream ativado.
 
+Traduções
+---------
+
+Este site está em português (Brasil), inglês e espanhol. **Traduções são muito
+bem-vindas** — é uma das formas mais fáceis de ajudar o projeto, mesmo sem saber
+C#:
+
+1. Abra uma _issue_ em
+   **[github.com/rspadim/NATSExcel/issues](https://github.com/rspadim/NATSExcel/issues)**
+   dizendo qual idioma você quer adicionar, para ninguém fazer o mesmo trabalho
+   em dobro.
+2. Abra um _pull request_ com uma pasta `docs/<idioma>/` nova (por exemplo
+   `docs/de/`), copiando o `docs/en/index.md` e traduzindo o texto.
+3. Adicione o `locale` correspondente na lista `plugins: i18n: languages:` do
+   `mkdocs.yml` (duas ou três linhas).
+
+O **catálogo de funções** e o restante da documentação técnica **não** precisam
+ser traduzidos: são a referência em inglês do add-in.
+
+Outras formas de ajudar: relatar bugs com a versão e a arquitetura do Office,
+melhorar a documentação, testar em versões diferentes do Excel, e sugerir
+exemplos de uso.
+
 
 Licença
 -------

@@ -99,6 +99,26 @@ Questions, bug reports and pull requests are welcome at
 When filing a bug, please include your add-in version (`=NatsUDFVersion()`), your
 Office bitness, and whether the server had JetStream enabled.
 
+## Translations
+
+This site is in Portuguese (Brazil), English and Spanish. **Translations are very
+welcome** — it is one of the easiest ways to help the project, even if you do not
+know C#:
+
+1. Open an _issue_ at
+   **[github.com/rspadim/NATSExcel/issues](https://github.com/rspadim/NATSExcel/issues)**
+   saying which language you want to add, so nobody duplicates the work.
+2. Open a _pull request_ with a new `docs/<locale>/` folder (for example
+   `docs/de/`), copying `docs/en/index.md` and translating the text.
+3. Add the matching `locale` to the `plugins: i18n: languages:` list in
+   `mkdocs.yml` (two or three lines).
+
+The **function catalog** and the rest of the technical documentation do not need
+translating: they are the add-in's English reference.
+
+Other ways to help: report bugs with your add-in version and Office bitness,
+improve the docs, test on different Excel versions, and suggest usage examples.
+
 ## License
 
 NATSExcel is released under the **MIT License** — see

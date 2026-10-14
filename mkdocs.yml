@@ -33,6 +33,7 @@ plugins:
       lang:
         - pt
         - en
+        - es
   - i18n:
       docs_structure: folder
       fallback_to_default: true
@@ -52,6 +53,15 @@ plugins:
             Catálogo de funções: Function catalog
             Privacidade: Privacy
             Licença: License
+        - locale: es
+          name: Español
+          build: true
+          nav_translations:
+            Início: Inicio
+            Requisitos: Requisitos
+            Catálogo de funções: Catálogo de funciones
+            Privacidade: Privacidad
+            Licença: Licencia
 
 nav:
   - Início: index.md
