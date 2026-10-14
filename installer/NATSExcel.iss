@@ -44,13 +44,19 @@
 AppId={{C41A7E52-9D3B-4F2E-8A17-2B6C0E4D9F51}
 AppName={#AppName}
 AppVersion={#AppVersion}
-; The PE's FileVersion: without this the installer's ProductVersion is right (it
+; The PE's FileVersion: without these the installer's ProductVersion is right (it
 ; comes from AppVersion) but Explorer's Details tab shows an EMPTY "File version"
 ; and inventory/AV tooling that keys on FileVersion reads 0.0.0.0. Inno pads the
-; three-part value to 0.1.2.0.
-VersionInfoVersion={#AppVersion}
+; three-part value to 0.1.2.0. VersionInfoVersion and VersionInfoProductVersion must
+; be NUMERIC - Inno rejects "dev" and a "-rc1" suffix - so they come from their own
+; define: the build passes the tag's number when it looks like one and 0.0.0.0
+; otherwise (AppVersion, which may be "dev", still drives ProductVersion below).
+#ifndef AppVersionInfo
+#define AppVersionInfo "0.0.0.0"
+#endif
+VersionInfoVersion={#AppVersionInfo}
+VersionInfoProductVersion={#AppVersionInfo}
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion={#AppVersion}
 VersionInfoDescription={#AppName} Setup
 VersionInfoCompany={#AppPublisher}
 AppPublisher={#AppPublisher}

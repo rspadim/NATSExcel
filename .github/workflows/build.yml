@@ -188,13 +188,19 @@ jobs:
 
       # Build the installer on every run (so a broken .iss is caught here, not
       # only on a release tag). The version is the tag without the leading 'v'
-      # (e.g. v1.0.0 -> NATSExcelSetup-1.0.0.exe), or "dev" on a branch.
+      # (e.g. v1.0.0 -> NATSExcelSetup-1.0.0.exe), or "dev" on a branch. The PE's
+      # version-info fields must be NUMERIC (Inno rejects "dev" and a "-rc1"
+      # suffix), so they get their own define: the tag's number when it looks like
+      # one, 0.0.0.0 otherwise (the ProductVersion of a branch build still says
+      # "dev" through AppVersion).
       - name: Build the installer
         shell: pwsh
         run: |
           $ver = "dev"
           if ("${{ github.ref_type }}" -eq "tag") { $ver = "${{ github.ref_name }}".TrimStart('v') }
-          iscc "/DAppVersion=$ver" "installer\NATSExcel.iss"
+          $verInfo = "0.0.0.0"
+          if ($ver -match '^\d+(\.\d+){1,3}$') { $verInfo = $ver }
+          iscc "/DAppVersion=$ver" "/DAppVersionInfo=$verInfo" "installer\NATSExcel.iss"
           $exe = "installer\output\NATSExcelSetup-$ver.exe"
           if (-not (Test-Path -LiteralPath $exe)) { throw "installer was not produced: $exe" }
           "installer=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append

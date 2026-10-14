@@ -14,9 +14,13 @@ the release batch itself. No change to the public Excel surface or to the
 - **The installer's `FileVersion` was empty**: `installer\NATSExcel.iss` set
   `AppVersion` but no `VersionInfoVersion`, so Explorer's Details tab showed a blank
   "File version" and inventory/AV tooling that keys on it read `0.0.0.0` (the
-  ProductVersion was correct). The version-info directives are now set and the
-  compiled installer reports `FileVersion 0.1.2`. The published `v0.1.2` asset still
-  carries the blank field; the next release ships the fix.
+  ProductVersion was correct). The version-info directives are now set - through a
+  dedicated NUMERIC define, because Inno rejects `VersionInfoVersion`/`ProductVersion`
+  values like `dev` or a `-rc1` suffix, which is exactly what a branch build passes -
+  and the CI hands it the tag's number or `0.0.0.0`. Verified by compiling all three
+  cases with ISCC: a tag build reports `0.1.2`, a branch build `0.0.0.0`, and no
+  defines at all still compiles. The published `v0.1.2` asset still carries the blank
+  field; the next release ships the fix.
 - **`test\TestSupport\Run-Tests.ps1 -WithE2E` silently SKIPPED the failover
   journey**: the runner starts each layer's cluster under its own temp root
   (`%TEMP%\natsexcel-tests`), which the E2E's ownership proof did not recognize, so
