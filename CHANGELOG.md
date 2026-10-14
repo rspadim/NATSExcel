@@ -3,11 +3,13 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
-## Unreleased
+## v0.1.3
 
-Post-`v0.1.2` fixes, found by a read-only review of the PUBLISHED artifacts and of
-the release batch itself. No change to the public Excel surface or to the
-`NATSExcel.json` shape.
+Fixes found by a read-only review of the PUBLISHED `v0.1.2` artifacts and of the
+release batch itself - two of them only visible in the shipped bytes. **No change to
+the public Excel surface** (the same 91 `NatsUDF*` functions and 6 `NatsRTD*`
+helpers) and **no change to the `NATSExcel.json` shape**, so upgrading is a drop-in
+replacement.
 
 ### Fixed
 
