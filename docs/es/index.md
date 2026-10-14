@@ -5,8 +5,8 @@ description: Complemento de Excel (XLL) que lleva NATS a Excel mediante RTD y fu
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../../assets/logo-dark.svg">
-    <img src="../../assets/logo.svg" alt="NATSExcel" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/logo-dark.svg">
+    <img src="../assets/logo.svg" alt="NATSExcel" width="420">
   </picture>
 </p>
 

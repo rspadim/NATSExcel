@@ -1,0 +1,19 @@
+/* NATSExcel site tweaks.
+ *
+ * Material keeps its palette in the data-md-color-scheme attribute, which is
+ * NOT the same thing as the system preference: a visitor can override the
+ * palette with the header toggle while their OS stays on the other scheme.
+ * The hero therefore ships both logo variants and swaps them by attribute.
+ */
+
+.nx-logo-dark {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .nx-logo-light {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .nx-logo-dark {
+  display: inline-block;
+}

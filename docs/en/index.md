@@ -5,8 +5,8 @@ description: Excel add-in (XLL) that brings NATS into Excel through RTD and user
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../../assets/logo-dark.svg">
-    <img src="../../assets/logo.svg" alt="NATSExcel" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/logo-dark.svg">
+    <img src="../assets/logo.svg" alt="NATSExcel" width="420">
   </picture>
 </p>
 

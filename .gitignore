@@ -24,3 +24,6 @@ nats-local.json
 
 # MkDocs build output (the Pages workflow builds it)
 _site/
+
+# A local logo-preview tool (it embeds a machine-specific path)
+assets/_preview.html
