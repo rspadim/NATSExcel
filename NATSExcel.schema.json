@@ -118,6 +118,6 @@
     "PublishDedupCacheSize": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "Capacity of the PublishIfChanged dedup cache (LRU)." },
     "SyncWrite": { "type": "string", "pattern": "^(?:[Ss][Yy][Nn][Cc]|[Ff][Ii][Rr][Ee][Ff][Oo][Rr][Gg][Ee][Tt]|[Ff][Ii][Rr][Ee][Ff][Oo][Rr][Gg][Ee][Tt]-[Aa][Ll][Ll])$", "description": "sync, fireforget or fireforget-all (case-insensitive; ASCII)." },
     "AsyncWrites": { "type": "boolean", "description": "Dispatch writes through Excel-DNA async so the Excel thread never blocks." },
-    "UpdateCheck": { "type": "boolean", "description": "Check GitHub for a newer release in the background." }
+    "UpdateCheck": { "type": "boolean", "description": "Check GitHub for a newer release in the background. false means NO network call at all: =NatsUDFUpdateAvailable() then always answers FALSE." }
   }
 }

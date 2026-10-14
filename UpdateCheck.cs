@@ -61,6 +61,13 @@ namespace NATSExcel
         /// </summary>
         internal static void EnsureFresh(TimeSpan maxAge)
         {
+            // The documented toggle, honoured the same way the sibling RedisExcel
+            // scheme does: a user who sets "UpdateCheck": false must not get a
+            // background call to the GitHub API at all. This used to parse the key
+            // and never read it, so the check ran whatever the file said.
+            if (!AppConfig.Current.UpdateCheck)
+                return;
+
             lock (Sync)
             {
                 if (_inFlight)

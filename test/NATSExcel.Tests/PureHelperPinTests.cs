@@ -41,6 +41,62 @@ namespace NATSExcel.Tests
         }
 
         // ------------------------------------------------------------------
+        // The "UpdateCheck": false toggle
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// With the toggle off, <c>EnsureFresh</c> must not even RECORD an attempt:
+        /// the documented behaviour is "no background call to GitHub at all", and the
+        /// key used to be parsed and never read (the sibling RedisExcel scheme honours
+        /// it). The attempt timestamp is the observable proof - it is set under the
+        /// lock the moment a check is scheduled.
+        /// </summary>
+        [Fact]
+        public void TheUpdateCheckToggleDisablesTheBackgroundCheck()
+        {
+            var field = typeof(UpdateCheck).GetField(
+                "_lastAttemptUtc", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(field);
+
+            var previous = AppConfig.CurrentOverrideForTests;
+            try
+            {
+                var cfg = AppConfig.Sanitize(new AppConfig.Root());
+                cfg.UpdateCheck = false;
+                AppConfig.CurrentOverrideForTests = cfg;
+
+                DateTime before = (DateTime)field.GetValue(null);
+                UpdateCheck.EnsureFresh(TimeSpan.Zero);
+                DateTime after = (DateTime)field.GetValue(null);
+
+                Assert.Equal(before, after);                    // nothing was scheduled
+                Assert.False(UpdateCheck.IsUpdateAvailable());  // and the cell stays FALSE
+            }
+            finally
+            {
+                AppConfig.CurrentOverrideForTests = previous;
+            }
+        }
+
+        /// <summary>And the guard must stay the FIRST thing the method does: a refactor
+        /// that moved it after the scheduling would still "work" while performing the
+        /// network call the toggle forbids.</summary>
+        [Fact]
+        public void TheToggleIsCheckedBeforeAnythingIsScheduled()
+        {
+            string src = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(RepoRoot(), "UpdateCheck.cs"));
+            int method = src.IndexOf("internal static void EnsureFresh(", StringComparison.Ordinal);
+            Assert.True(method > 0, "EnsureFresh is gone");
+
+            int guard = src.IndexOf("if (!AppConfig.Current.UpdateCheck)", method, StringComparison.Ordinal);
+            int schedule = src.IndexOf("Task.Run(", method, StringComparison.Ordinal);
+
+            Assert.True(guard > method, "EnsureFresh no longer reads the UpdateCheck toggle");
+            Assert.True(schedule > guard, "the toggle must be checked BEFORE the check is scheduled");
+        }
+
+        // ------------------------------------------------------------------
         // UpdateCheck: the semver-ish comparison and the "never nag a dev build"
         // rule. The CurrentTagOverrideForTests seam existed for this and had no
         // test using it.
