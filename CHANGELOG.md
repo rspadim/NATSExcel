@@ -3,6 +3,77 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
+## Unreleased
+
+Round-4 audit fixes. No change to the public Excel surface or the `NATSExcel.json` shape.
+
+### Fixed
+
+- **A cluster that declares more than one URL never mapped back to its cluster**, so
+  every per-cluster setting was silently dropped for exactly the clusters that need
+  them most: `auth`, `timeout`, `reconnect`, `jetstream.domain` and the
+  `expectCluster` check. The connection manager receives a cluster's resolved
+  endpoint, which is its comma-joined URL list, and the lookup compared that whole
+  string against a single URL - so it matched nothing and the shared block won
+  (wrong credentials, default JetStream subjects). The lookup is now the exact
+  inverse of the projection that produces it; a single URL keeps its previous
+  behaviour, including the "two clusters share a URL, so do not guess" rule.
+- **`"tlsCert": ""` turned a shared `"tls": true` off** for that cluster, dropping the
+  connection to opportunistic/plaintext. A certificate implies TLS only when it
+  carries one; a present-but-empty token is now no declaration at all.
+- **The RTD cluster cell did not mask what it displayed.** Every `RTDCLUSTER` value is
+  server-supplied (the cluster name, the advertised connect URLs - which embed a
+  userinfo when the server was configured with one - and the raw
+  `$SYS.REQ.SERVER.PING` reply), and all of it bypassed the masking the UDF side
+  applies to the same values. It is masked now, before the dedup comparison, so the
+  deduped value is what was delivered.
+- **A config reload could strand a live timer pair.** `ApplyConfig` re-checked the
+  teardown tombstone only before swapping the RTD timers, and `DisposeTimer` nulls
+  the field before disposing - so a `Teardown` starting in that window disposed
+  nothing and the new pair kept running on an RTD server that was no longer
+  registered, unreachable by any later teardown and rooting the instance. The
+  tombstone is re-read after the pair is started and the pair is unwound.
+- **A losing `NatsUDFSubjectLatest` registrant could delete the winner's value.** Its
+  verdict was re-sampled after the install lock was released, so a removal plus a
+  fresh registrant in between made it delete a LIVE listener's cached value and the
+  cell fell back to `(null)` until the next message. The verdict is now decided
+  under the install lock, and the cached value is dropped only when nothing is
+  registered for that key.
+- **`expectCluster` is now really checked.** `=NatsUDFConfigValidate()` said the
+  assertion was "checked against the live server when a formula connects", but only
+  `tools\NatsValidate` ever compared it. The connection manager logs a bounded,
+  once-per-endpoint warning naming the expected and the announced cluster; a
+  standalone server announcing no cluster is the most likely mismatch and is
+  reported as such.
+
+### Changed
+
+- **The Excel E2E never kills a server it cannot prove it started.** The failover
+  journey stops the node answering the endpoint, and it used to take whatever
+  process held the port - a developer's own long-running `nats-server` would have
+  been killed (a denied kill aborted the run with a raw "Access denied" instead).
+  Ownership is now proven from the command line naming a `nats.conf` under the
+  harness's temp work root; without that proof the journey reports `SKIP` with the
+  reason, a denied kill no longer aborts the run, and a run using somebody else's
+  server says so at the top. The same proof gates the pre-run cleanup, and the
+  pin is `HarnessInvariantTests`.
+- **`New-AddInFolder.ps1` clears the stale hidden Excel a crashed run leaves
+  behind** (the instance that keeps the copied XLL loaded, which made every later
+  run fail on "being used by another process"). It stops such an instance only when
+  it is invisible AND has the destination XLL loaded, and merely reports a VISIBLE
+  Excel - the user's own session. The E2E's multi-workbook step also retries
+  `Workbooks.Open` (which can answer with `$null` instead of throwing) and quits its
+  hidden instance on the failure path.
+
+### Added
+
+- Tests: the multi-URL cluster lookups, the blank/null `tlsCert` cases, the RTD
+  optional-middle positional rule, the RTD cluster masking and timer-sweep
+  invariants, the subject-latest loser path, `TickGate`/`StripedLocks`,
+  `NLog.config` keeping the masking renderer, `UpdateCheck`'s semver and "never nag
+  a dev build" rules, the Excel-DNA revision pin, and the `#CONFIG`/gate-ordering/
+  unsubscribe and Object Store size/binary guards in the smoke layer.
+
 ## v0.1.1
 
 Fixes the first release's installer, CI and runtime bug fixes found by the expanded

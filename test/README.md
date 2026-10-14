@@ -70,7 +70,22 @@ Loads the packed XLL into a hidden Excel, and covers what a user actually does:
 
 Useful parameters: `-RepoRoot`, `-NatsUrl` (default `nats://127.0.0.1:4222`),
 `-SubjectPrefix`, `-SkipNodeKill` (auto-skipped for a non-local host),
-`-KeepExcelOpen`.
+`-KeepExcelOpen`, `-ReadOnly`, `-AllowRemoteWrites`.
+
+> **Start the cluster with `Start-Cluster.ps1` first.** The failover step kills the
+> node answering `-NatsUrl`, and it only does that when it can PROVE the listener
+> is one this repository started (a `nats-server` whose command line names a
+> `nats.conf` under `%TEMP%\natsexcel-cluster`). A server somebody else started -
+> your own long-running instance, for example - is never killed: the journey
+> reports `SKIP` with the reason, and the run prints a warning at the top saying
+> the endpoint was not started by the harness. The same proof gates the pre-run
+> cleanup, so a busy port is left alone instead of being taken over.
+
+A crashed run can leave its hidden Excel alive, holding the copied XLL; the next
+run then fails to overwrite it. `New-AddInFolder.ps1` clears exactly that case -
+it stops a stale instance only when the process is invisible AND has the
+destination XLL loaded, and merely reports a VISIBLE Excel (your own session) -
+so a fresh run needs no manual cleanup.
 
 Excel COM automation is inherently flaky (antivirus/EDR widens the window): the
 script retries transient rejections and prints a `COM retries` summary. A retry

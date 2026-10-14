@@ -160,6 +160,69 @@ namespace NATSExcel.Tests
         }
 
         [Fact]
+        public void ClusterBlankTlsCert_DoesNotTurnTheSharedTlsOff()
+        {
+            // Round-4 finding: `tlsCert` implies TLS only when it carries a
+            // certificate (ReadAuth requires a non-blank value). Treating a
+            // present-but-EMPTY token as declared TLS intent made `"tlsCert": ""`
+            // silently turn a shared `"tls": true` off, dropping the whole
+            // connection back to opportunistic/plaintext. A blank declaration must
+            // be no declaration at all.
+            var root = AppConfig.Sanitize(AppConfig.Parse(@"{
+                ""Default"": ""local"",
+                ""Auth"": { ""tls"": true },
+                ""Clusters"": {
+                    ""local"": {
+                        ""urls"": [""nats://localhost:4222""],
+                        ""auth"": { ""tlsCert"": """" }
+                    }
+                }
+            }"));
+
+            var previous = AppConfig.CurrentOverrideForTests;
+            try
+            {
+                AppConfig.CurrentOverrideForTests = root;
+                var auth = AppConfig.ResolveSettings("local").Auth;
+                Assert.True(auth.Tls, "a blank cluster tlsCert must not clear the shared tls:true");
+                Assert.True(string.IsNullOrEmpty(auth.TlsCert));
+            }
+            finally
+            {
+                AppConfig.CurrentOverrideForTests = previous;
+            }
+        }
+
+        [Fact]
+        public void ClusterNullTlsCert_DoesNotTurnTheSharedTlsOff()
+        {
+            // The explicit null (the documented "not set") must behave like the
+            // blank string: HasAnyAuth already treats an all-null auth block as no
+            // override, and this pins the cert field specifically.
+            var root = AppConfig.Sanitize(AppConfig.Parse(@"{
+                ""Default"": ""local"",
+                ""Auth"": { ""tls"": true },
+                ""Clusters"": {
+                    ""local"": {
+                        ""urls"": [""nats://localhost:4222""],
+                        ""auth"": { ""tlsCert"": null }
+                    }
+                }
+            }"));
+
+            var previous = AppConfig.CurrentOverrideForTests;
+            try
+            {
+                AppConfig.CurrentOverrideForTests = root;
+                Assert.True(AppConfig.ResolveSettings("local").Auth.Tls);
+            }
+            finally
+            {
+                AppConfig.CurrentOverrideForTests = previous;
+            }
+        }
+
+        [Fact]
         public void ClusterExplicitTlsFalse_BeatsAClusterCert()
         {
             // An explicit `tls:false` in the cluster still wins over its own cert:

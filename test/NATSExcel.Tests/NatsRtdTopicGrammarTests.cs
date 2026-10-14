@@ -327,5 +327,104 @@ namespace NATSExcel.Tests
         {
             Assert.Equal(100, NatsRtdTopicSpec.MinEveryMs);
         }
+
+        // ------------------------------------------------------------------
+        // The optional-middle positional rule (ResolveOptionalMiddle). It is the
+        // only place where a token's POSITION can change meaning, and the Excel E2E
+        // never reaches it: every E2E cell fills the slots explicitly, so a
+        // regression here would move a queue group into the endpoint slot (or the
+        // reverse) with no layer noticing.
+        //
+        // Note on the assertions: the parser sizes `slots` to the command's arity
+        // and leaves an unsupplied slot null, while a slot the user left as "" stays
+        // "". Both are blank to the parser (IsBlank is IsNullOrWhiteSpace), so a
+        // "nothing here" assertion is IsNullOrEmpty - not Assert.Null, which would
+        // be pinning an incidental difference between two equivalent topics.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Sub_BlankMiddle_ATokenWithASpaceIsTheQueueGroupNotAnEndpoint()
+        {
+            // LooksLikeEndpoint: no "://" and it carries whitespace, so the trailing
+            // token cannot be an alias - it is the middle (queue group) value.
+            var spec = Parse("SUB", "SUB", "orders", "", "my group");
+
+            Assert.True(spec.IsValid);
+            Assert.Equal("orders", spec.Arg1);
+            Assert.Equal("my group", spec.Arg2);
+            Assert.True(string.IsNullOrEmpty(spec.Arg3), "the endpoint slot must be released");
+            Assert.True(string.IsNullOrEmpty(spec.Endpoint), "a queue group is not an endpoint");
+        }
+
+        [Fact]
+        public void Sub_BlankMiddle_ASingleTokenIsTheEndpointNotTheQueueGroup()
+        {
+            // LooksLikeEndpoint: a single non-blank token with no whitespace is the
+            // config-free stand-in for a Servers alias, so it stays the endpoint.
+            var spec = Parse("SUB", "SUB", "orders", "", "srvB");
+
+            Assert.True(spec.IsValid);
+            Assert.Equal("orders", spec.Arg1);
+            Assert.True(string.IsNullOrEmpty(spec.Arg2), "an alias is not a queue group");
+            Assert.Equal("srvB", spec.Arg3);
+            Assert.Equal("srvB", spec.Endpoint);
+        }
+
+        [Fact]
+        public void Sub_ABlankOrFilledMiddleNeverMovesAToken()
+        {
+            // The rule fires only when the middle is blank AND the endpoint is not:
+            // SUB(subject, "workers") stays a queue group (a two-value call is not
+            // an endpoint argument), and a fully blank tail stays blank.
+            var twoValues = Parse("SUB", "SUB", "orders", "workers");
+            Assert.Equal("workers", twoValues.Arg2);
+            Assert.True(string.IsNullOrEmpty(twoValues.Arg3));
+
+            var blankTail = Parse("SUB", "SUB", "orders", "", "");
+            Assert.True(string.IsNullOrEmpty(blankTail.Arg2));
+            Assert.True(string.IsNullOrEmpty(blankTail.Arg3));
+        }
+
+        [Fact]
+        public void Sub_AUrlTokenIsAlwaysTheEndpoint()
+        {
+            var spec = Parse("SUB", "SUB", "orders", "", "nats://h:4222");
+            Assert.True(string.IsNullOrEmpty(spec.Arg2));
+            Assert.Equal("nats://h:4222", spec.Arg3);
+        }
+
+        [Fact]
+        public void Msg_BlankMiddle_UsesTheSameRule()
+        {
+            // MSG[1]stream [2]filter [3]endpoint: the same helper at (1, 2).
+            var spaced = Parse("MSG", "MSG", "stream", "", "my filter");
+            Assert.Equal("my filter", spaced.Arg2);
+            Assert.True(string.IsNullOrEmpty(spaced.Arg3));
+
+            var alias = Parse("MSG", "MSG", "stream", "", "srvB");
+            Assert.True(string.IsNullOrEmpty(alias.Arg2));
+            Assert.Equal("srvB", alias.Arg3);
+        }
+
+        [Fact]
+        public void Js_BlankMiddle_UsesTheSameRuleAtItsOwnSlots()
+        {
+            // JS[1]stream [2]consumer [3]filter [4]endpoint: the helper runs at
+            // (2, 3), so a blank filter with a spaced token keeps it as the filter.
+            var spaced = Parse("JS", "JS", "stream", "consumer", "", "my filter");
+            Assert.Equal("consumer", spaced.Arg2);
+            Assert.Equal("my filter", spaced.Arg3);
+            Assert.True(string.IsNullOrEmpty(spaced.Arg4));
+
+            var alias = Parse("JS", "JS", "stream", "consumer", "", "srvB");
+            Assert.True(string.IsNullOrEmpty(alias.Arg3));
+            Assert.Equal("srvB", alias.Arg4);
+
+            // A FILLED filter is never moved: JS(stream, consumer, filter) keeps the
+            // filter in position 3 even though a bare token looks like an alias.
+            var filled = Parse("JS", "JS", "stream", "consumer", "orders.>");
+            Assert.Equal("orders.>", filled.Arg3);
+            Assert.True(string.IsNullOrEmpty(filled.Arg4));
+        }
     }
 }

@@ -307,9 +307,16 @@ namespace NATSExcel
                     // declared its TLS intent too - otherwise ApplyAuth drops the
                     // implied Tls=true and the cluster's mTLS becomes an
                     // opportunistic/plaintext connection that presents no cert.
+                    // The cert must be NON-BLANK for that: "" implies nothing in
+                    // ReadAuth, so treating a present-but-empty token as declared
+                    // intent would let `"tlsCert": ""` silently turn a shared
+                    // `"tls": true` OFF for that cluster.
                     var clusterAuth = cj["auth"] as JObject;
+                    var clusterCert = clusterAuth?["tlsCert"];
                     c.AuthDeclaredTls = clusterAuth?["tls"] != null
-                        || clusterAuth?["tlsCert"] != null;
+                        || (clusterCert != null
+                            && clusterCert.Type == JTokenType.String
+                            && !string.IsNullOrWhiteSpace((string)clusterCert));
                     ReadClusterReconnect(cj["reconnect"], c);
                     var urls = cj["urls"] as JArray;
                     if (urls != null)
@@ -626,6 +633,7 @@ namespace NATSExcel
             {
                 if (cluster.AuthOverrides) ApplyAuth(cluster.Auth, settings.Auth, over: true, declaredTls: cluster.AuthDeclaredTls);
                 if (cluster.TimeoutMs.HasValue) settings.TimeoutMs = cluster.TimeoutMs.Value;
+                settings.ExpectCluster = cluster.ExpectCluster;
                 ApplyReconnect(
                     cluster.Reconnect, settings.Reconnect, over: true,
                     declaredMaxAttempts: cluster.ReconnectDeclaredMaxAttempts,
@@ -666,7 +674,34 @@ namespace NATSExcel
                     }
                 }
             }
-            return match;
+            if (match != null)
+                return match;
+
+            // Nothing matched by a single URL. The remaining case is the one that
+            // ClusterUrlMap produces: a cluster resolved to its COMMA-JOINED URL
+            // list (the flat form the pure resolver consumes). This is the inverse
+            // of that projection, and without it a cluster declaring two or more
+            // URLs - the normal multi-node cluster - matches nothing, so every
+            // per-cluster setting (auth, timeout, reconnect, jetstream.domain,
+            // expectCluster) is silently dropped in favour of the shared block:
+            // the cluster connects with the wrong credentials and the JetStream
+            // context loses its domain routing. Running it only after the per-URL
+            // scan above cannot change any reference that already matched, so a
+            // single URL (typed or from a Servers alias) keeps its exact behavior.
+            Cluster byUrlList = null;
+            foreach (var kv in cfg.Clusters)
+            {
+                if (kv.Value == null || kv.Value.Urls.Count == 0)
+                    continue;
+                if (!string.Equals(string.Join(",", kv.Value.Urls), reference, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                // Two clusters with the identical URL list are genuinely ambiguous:
+                // a name is the only way to tell them apart, so do not guess.
+                if (byUrlList != null && !ReferenceEquals(byUrlList, kv.Value))
+                    return null;
+                byUrlList = kv.Value;
+            }
+            return byUrlList;
         }
 
         private static void ApplyAuth(Auth from, Auth to, bool over = false, bool declaredTls = false)
@@ -730,6 +765,14 @@ namespace NATSExcel
             public int TimeoutMs { get; set; } = 1000;
             public Auth Auth { get; set; } = new Auth();
             public Reconnect Reconnect { get; set; } = new Reconnect();
+
+            /// <summary>
+            /// The cluster name this endpoint's cluster asserts the server must
+            /// announce, or null/blank for no assertion. It travels with the
+            /// settings so the connection manager can check it against the live
+            /// server INFO without re-resolving the config.
+            /// </summary>
+            public string ExpectCluster { get; set; }
         }
 
         /// <summary>Exact-name lookup first, then a case-insensitive scan (the

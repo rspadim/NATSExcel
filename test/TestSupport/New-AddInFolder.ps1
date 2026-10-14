@@ -52,10 +52,57 @@ if (-not (Test-Path $xllSource)) {
 
 New-Item -ItemType Directory -Force -Path $Path | Out-Null
 
+# A crashed previous run can leave its HIDDEN Excel instance alive; that instance
+# keeps the copied XLL loaded and every later run then dies on "being used by
+# another process" (a message that names no culprit). The instance is provably
+# this harness's - it is invisible AND it has OUR destination XLL loaded - so it
+# is stopped here, and a VISIBLE Excel (the user's own session, which would not
+# have our temp copy loaded anyway) is only reported, never killed.
+function Clear-StaleAddInHost([string]$xllPath) {
+    $stale = @()
+    foreach ($proc in @(Get-Process EXCEL -ErrorAction SilentlyContinue)) {
+        $loads = $false
+        try {
+            $loads = [bool]($proc.Modules | Where-Object {
+                $_.FileName -and $_.FileName.Equals($xllPath, [System.StringComparison]::OrdinalIgnoreCase)
+            } | Select-Object -First 1)
+        }
+        catch { $loads = $false }   # a process we cannot inspect is not ours to judge
+        if ($loads) { $stale += $proc }
+    }
+    if (-not $stale.Count) { return }
+
+    foreach ($proc in $stale) {
+        if ($proc.MainWindowHandle -ne 0) {
+            throw ("$xllPath is loaded by the VISIBLE Excel pid $($proc.Id); close that workbook " +
+                   "and re-run (it is not this harness's instance, so it is never stopped here).")
+        }
+    }
+    foreach ($proc in $stale) {
+        Write-Host ("[addin] stopping the stale hidden Excel pid $($proc.Id) that still held $xllPath")
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop } catch {
+            throw ("could not stop the stale hidden Excel pid $($proc.Id): $($_.Exception.Message)")
+        }
+    }
+    # Give Windows a moment to release the file lock before the copy below.
+    for ($i = 0; $i -lt 20; $i++) {
+        try {
+            $fs = [System.IO.File]::Open($xllPath, 'Open', 'ReadWrite', 'None')
+            $fs.Close()
+            return
+        }
+        catch { Start-Sleep -Milliseconds 250 }
+    }
+    throw "$xllPath is still locked after stopping the stale instance(s)"
+}
+
+$destXll = Join-Path $Path $xllName
+if (Test-Path $destXll) { Clear-StaleAddInHost $destXll }
+
 # The add-in folder holds the XLL, the managed dll it loads, the log config and
 # the schema. The other packed XLL is deliberately NOT copied, mirroring what
 # the installer keeps for the detected bitness.
-Copy-Item $xllSource (Join-Path $Path $xllName) -Force
+Copy-Item $xllSource $destXll -Force
 foreach ($name in 'NATSExcel.dll', 'NLog.config', 'NATSExcel.schema.json') {
     $src = Join-Path $publish $name
     if (Test-Path $src) { Copy-Item $src (Join-Path $Path $name) -Force }

@@ -114,5 +114,46 @@ namespace NATSExcel.Tests
             dict.Clear();
             Assert.True(pruned, "once the subscribe resolves with no listener, the key is prunable");
         }
+        [Fact]
+        public void TheLoserPathDecidesUnderTheLockAndNeverDropsALiveListenersValue()
+        {
+            // A source scan, because the file IS compiled here but this race has no
+            // deterministic seam (it needs a concurrent unsubscribe to interleave
+            // between the epoch sample and the cache removal). The invariant is
+            // structural: the loser's verdict must be taken under the SAME lock that
+            // makes the install atomic, and the cached value must never be dropped
+            // while a listener for that key is registered.
+            string src = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(PureHelperPinTests.RepoRoot(), "NatsUdfCore.cs"));
+
+            int start = src.IndexOf(
+                "private static void EnsureSubjectListener(", StringComparison.Ordinal);
+            Assert.True(start > 0, "EnsureSubjectListener is gone");
+            int end = src.IndexOf("private static ", start + 10, StringComparison.Ordinal);
+            string method = end > start ? src.Substring(start, end - start) : src.Substring(start);
+
+            // The verdict is recorded inside the install lock...
+            int lockAt = method.IndexOf("lock (LifecycleLock(key))", StringComparison.Ordinal);
+            int verdict = method.IndexOf("removedByEpoch = true;", StringComparison.Ordinal);
+            Assert.True(lockAt > 0 && verdict > lockAt,
+                "the loser's verdict must be decided inside the install lock, not re-sampled after it");
+
+            // ...and the epoch compare happens ONCE: a second compare after the lock
+            // is the bug this pins (it saw a LATER removal and deleted the fresh
+            // winner's value).
+            int compares = 0;
+            for (int i = method.IndexOf("SubjectEpoch(key) != epochBefore", StringComparison.Ordinal);
+                 i >= 0;
+                 i = method.IndexOf("SubjectEpoch(key) != epochBefore", i + 1, StringComparison.Ordinal))
+                compares++;
+            Assert.Equal(1, compares);
+
+            // The removal is gated on "nothing is live for this key".
+            int remove = method.IndexOf("_latestMessages.TryRemove(key", StringComparison.Ordinal);
+            Assert.True(remove > 0, "the loser no longer cleans its cached value");
+            Assert.Contains("!_subjectListeners.ContainsKey(key)", method);
+            Assert.True(method.IndexOf("!_subjectListeners.ContainsKey(key)", StringComparison.Ordinal) < remove,
+                "the live-listener check must gate the removal");
+        }
     }
 }

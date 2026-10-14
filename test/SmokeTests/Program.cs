@@ -137,6 +137,7 @@ namespace NATSExcel.SmokeTests
                 await RunEmptyVsMissingCoreChecksAsync(raw).ConfigureAwait(false);
                 await RunUnreachableChecksAsync().ConfigureAwait(false);
                 await RunSubscriberChurnChecksAsync(raw).ConfigureAwait(false);
+                await RunResolutionAndLifecycleChecksAsync(raw).ConfigureAwait(false);
 
                 if (readOnly)
                 {
@@ -1570,6 +1571,112 @@ namespace NATSExcel.SmokeTests
         }
 
         // ==================================================================
+        // 5e. Endpoint resolution, gate ordering, explicit unsubscribe
+        // ==================================================================
+
+        /// <summary>
+        /// A dangling named reference must show the bare <c>#CONFIG</c> marker and
+        /// never fall back to a hidden default (the defect this add-in was designed
+        /// against); the endpoint must resolve BEFORE the admin gate, so a wrong
+        /// cluster name is not reported as "admin writes are disabled"; and the
+        /// explicit unsubscribe must really remove the live listener.
+        ///
+        /// No server state is touched (a dangling reference never connects, the
+        /// gate never runs, and the unsubscribe layer uses one ephemeral Core
+        /// subject), so this runs under --read-only too.
+        /// </summary>
+        private static async Task RunResolutionAndLifecycleChecksAsync(NatsConnection raw)
+        {
+            var previous = AppConfig.CurrentOverrideForTests;
+            try
+            {
+                AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: false, syncWrite: "sync");
+                NatsRuntime.Shutdown();
+                NatsRuntime.ResetAfterAddInReload();
+
+                const string dangling = "no-such-cluster-in-this-config";
+
+                // Every family must report the SAME bare marker: a per-family
+                // "helpful" fallback is how a formula silently reads the wrong
+                // cluster.
+                var danglingCalls = new List<KeyValuePair<string, object>>
+                {
+                    new KeyValuePair<string, object>("NatsUDFKVGet",
+                        NatsUdfKv.NatsUDFKVGet("anybucket", "anykey", dangling)),
+                    new KeyValuePair<string, object>("NatsUDFObjectGet",
+                        NatsUdfObjectStore.NatsUDFObjectGet("anybucket", "o", dangling)),
+                    new KeyValuePair<string, object>("NatsUDFJSStreamInfo",
+                        NatsUdfJetStream.NatsUDFJSStreamInfo("anystream", dangling)),
+                    new KeyValuePair<string, object>("NatsUDFSubjectLatest",
+                        NatsUdfCore.NatsUDFSubjectLatest("any.subject", null, dangling)),
+                };
+                foreach (var call in danglingCalls)
+                    Check(string.Equals(AsString(call.Value), NatsUdfCommon.ConfigError, StringComparison.Ordinal),
+                        "resolution: a dangling cluster name is the bare " + NatsUdfCommon.ConfigError
+                        + " marker in " + call.Key + " (got '" + AsString(call.Value) + "')");
+
+                // Ordering: resolution wins over the gate. Both directions are
+                // asserted, so this cannot pass by returning the gate text always.
+                string gateText = NatsUdfCommon.RequireAdminWrites(false);
+                object gatedDangling = NatsUdfJetStream.NatsUDFStreamDelete("anystream", dangling);
+                object gatedResolved = NatsUdfJetStream.NatsUDFStreamDelete("anystream", _url);
+                Check(string.Equals(AsString(gatedDangling), NatsUdfCommon.ConfigError, StringComparison.Ordinal),
+                    "resolution: a dangling host beats the admin gate (#CONFIG, got '" + AsString(gatedDangling) + "')");
+                Check(string.Equals(AsString(gatedResolved), gateText, StringComparison.Ordinal),
+                    "resolution: a resolvable host still hits the admin gate (got '" + AsString(gatedResolved) + "')");
+
+                // --- the explicit unsubscribe lifecycle ------------------------
+                AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: false, syncWrite: "sync");
+                string subject = _prefix + ".unsub." + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+                object unwatched = NatsUdfCore.NatsUDFSubjectLatest(subject, null, null);
+                Check(string.Equals(AsString(unwatched), NatsUdfCommon.NullValue, StringComparison.Ordinal),
+                    "unsubscribe: an unseen subject reads as \"" + NatsUdfCommon.NullValue + "\" (got '" + AsString(unwatched) + "')");
+
+                bool live = false;
+                for (int attempt = 0; attempt < 50 && !live; attempt++)
+                {
+                    string payload = "unsub-" + Guid.NewGuid().ToString("N");
+                    await raw.PublishAsync(subject, payload).AsTask().ConfigureAwait(false);
+                    live = await WaitUntilAsync(
+                        () => string.Equals(AsString(NatsUdfCore.NatsUDFSubjectLatest(subject, null, null)), payload, StringComparison.Ordinal),
+                        400).ConfigureAwait(false);
+                }
+                Check(live, "unsubscribe: the subject-latest subscription is live before the removal");
+
+                int listenersBefore = NatsRuntime.Subscriptions.ListenerCount;
+                object removed = NatsUdfCore.NatsUDFSubjectUnsubscribe(subject, null);
+                string removedText = AsString(removed);
+                Check(removedText != null
+                      && removedText.StartsWith("Subject '" + subject + "'", StringComparison.Ordinal)
+                      && removedText.IndexOf("unsubscribed successfully", StringComparison.Ordinal) >= 0,
+                    "unsubscribe: the call reports its own success text (got '" + removedText + "')");
+                Check(await WaitUntilAsync(
+                        () => NatsRuntime.Subscriptions.ListenerCount == listenersBefore - 1, 5000).ConfigureAwait(false),
+                    "unsubscribe: the live listener is removed (before=" + listenersBefore
+                    + ", after=" + NatsRuntime.Subscriptions.ListenerCount + ")");
+
+                // A publish after the removal must not be cached anywhere. Reading
+                // again RE-SUBSCRIBES (the removal dropped the cached value), so this
+                // is the strong form of the check: a leaked listener would still be
+                // live to cache the payload and the read would return it.
+                string afterRemoval = "after-removal-" + Guid.NewGuid().ToString("N");
+                await raw.PublishAsync(subject, afterRemoval).AsTask().ConfigureAwait(false);
+                await Task.Delay(300).ConfigureAwait(false);
+                object reread = NatsUdfCore.NatsUDFSubjectLatest(subject, null, null);
+                Check(!string.Equals(AsString(reread), afterRemoval, StringComparison.Ordinal),
+                    "unsubscribe: nothing cached a message published after the removal (got '" + AsString(reread) + "')");
+
+                // Leave no listener behind for the checks that follow.
+                NatsUdfCore.NatsUDFSubjectUnsubscribe(subject, null);
+            }
+            finally
+            {
+                AppConfig.CurrentOverrideForTests = previous;
+            }
+        }
+
+        // ==================================================================
         // 6. JetStream: publish/ack, durable consumer, replay, purge, missing stream
         // ==================================================================
 
@@ -1810,10 +1917,41 @@ namespace NATSExcel.SmokeTests
                 Check(!string.Equals(AsString(emptyGet), missingText, StringComparison.Ordinal),
                     "object: an empty body and a missing object are DIFFERENT cells ("
                     + AsString(emptyGet) + " vs the named not-found error; fixed bug pinned)");
+
+                // The two guards that keep a payload out of a cell: a body above the
+                // cell limit and a body that is not text. Both must be NAMED errors -
+                // rendering either one would corrupt a 32767-char cell (replacement
+                // characters, or a silent truncation with no marker). The size guard
+                // is checked against the metadata BEFORE the download, so the huge
+                // object is never pulled over the wire.
+                INatsObjStore store = await obj.GetObjectStoreAsync(bucket, CancellationToken.None);
+
+                string bigName = "big-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                await store.PutAsync(bigName, new byte[NatsUdfCommon.MaxObjectCellBytes + 4096], CancellationToken.None)
+                    .ConfigureAwait(false);
+                string bigText = AsString(NatsUdfObjectStore.NatsUDFObjectGet(bucket, bigName, null));
+                string sizeLimit = NatsUdfCommon.MaxObjectCellBytes.ToString(CultureInfo.InvariantCulture);
+                Check(bigText != null
+                      && bigText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                      && bigText.IndexOf("above the " + sizeLimit + "-byte cell limit", StringComparison.Ordinal) >= 0,
+                    "object: a body above the cell limit is a named size error, never a cell (got '" + bigText + "')");
+
+                string binName = "bin-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                await store.PutAsync(binName, new byte[] { 0x41, 0x00, 0x42 }, CancellationToken.None)
+                    .ConfigureAwait(false);
+                string binText = AsString(NatsUdfObjectStore.NatsUDFObjectGet(bucket, binName, null));
+                Check(binText != null
+                      && binText.StartsWith(NatsUdfCommon.ErrorPrefix, StringComparison.Ordinal)
+                      && binText.IndexOf("is binary", StringComparison.Ordinal) >= 0,
+                    "object: a body carrying a NUL byte is the named binary error, not replacement garbage (got '" + binText + "')");
             }
             finally
             {
-                try { obj.DeleteObjectStore(bucket, CancellationToken.None); } catch { }
+                // Best-effort cleanup: the bucket name is not reused and the run is
+                // ending, so the delete is deliberately not awaited (the explicit
+                // discard documents that; the compiler warning would otherwise
+                // suggest a forgotten await masking a failure).
+                try { _ = obj.DeleteObjectStore(bucket, CancellationToken.None); } catch { }
             }
 
             await Task.CompletedTask;

@@ -230,36 +230,66 @@ function Write-Cfg {
     [System.IO.File]::WriteAllText($Path, $text, $utf8)
 }
 
+# Is the nats-server answering $port one of the DISPOSABLE test nodes this
+# repository starts (the cluster harness under %TEMP%\natsexcel-cluster, or this
+# script's own second server), or somebody else's server?
+#
+# This is a SAFETY check, not a convenience. The failover journey KILLS the node
+# it finds on the port, and killing a server this run did not start is destructive
+# to whoever owns it (AGENTS.md lesson 3). .Path cannot answer the question: a
+# Start-Process'd nats-server exposes an EMPTY Path. The reliable evidence is the
+# command line naming a nats.conf under OUR work root - and a server started by
+# another user or from an elevated shell does not expose its command line at all,
+# which is itself the signal that it is not ours.
+function Test-OwnedTestServer([int]$port) {
+    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $conn) { return $false }
+
+    $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+    if (-not $proc -or $proc.ProcessName -notlike 'nats-server*') { return $false }
+
+    $cmd = $null
+    try { $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($proc.Id)" -ErrorAction Stop).CommandLine }
+    catch { return $false }
+    if ([string]::IsNullOrWhiteSpace($cmd)) { return $false }
+
+    $roots = @(
+        (Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-cluster'),
+        (Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e-server2')
+    )
+    foreach ($dir in $roots) {
+        if ($cmd -like "*$dir*") { return $true }
+    }
+    return $false
+}
+
+
+$script:secondServerPid = $null
+
 # Starts a disposable one-node NATS server on $Port (JetStream on) using the
 # cluster harness's own pinned server binary, in its own work dir. Only a server
 # this script started is stopped again; the pid is recorded for that.
-$script:secondServerPid = $null
 function Start-SecondServer {
     param([int]$Port)
     $root = [System.IO.Path]::GetTempPath()
     $work = Join-Path $root 'natsexcel-e2e-server2'
     $exe = Join-Path $root 'natsexcel-cluster\server\nats-server.exe'
     if (-not (Test-Path $exe)) { return $null }
-    # Stop a stale second-server from a previous run: only one whose executable
-    # lives under OUR work dir is touched (never a developer's own server). A
-    # Start-Process'd nats-server exposes an EMPTY .Path, so the path test alone
-    # never matched and the stale server survived; a nats.conf under OUR work dir
-    # that declares this port is the reliable signal.
+    # Stop a stale second-server from a previous run - but only one this repository
+    # started. Test-OwnedTestServer is the proof (the command line names a
+    # nats.conf under OUR temp work root); .Path cannot answer it, because a
+    # Start-Process'd nats-server exposes an EMPTY Path, and a conf file in our
+    # work dir alone would let us kill a stranger that happens to hold that port.
     $existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($existing) {
-        $p0 = Get-Process -Id $existing.OwningProcess -ErrorAction SilentlyContinue
-        $ours = $false
-        if ($p0 -and $p0.ProcessName -like 'nats-server*') {
-            if ($p0.Path -and $p0.Path -like "*$work*") { $ours = $true }
-            elseif (Test-Path (Join-Path $work 'nats.conf')) {
-                $m = Select-String -Path (Join-Path $work 'nats.conf') -Pattern '^\s*port\s*:\s*(\d+)' -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($m -and [int]$m.Matches[0].Groups[1].Value -eq $Port) { $ours = $true }
-            }
-        }
-        if ($ours) {
-            Stop-Process -Id $p0.Id -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Milliseconds 500
-        }
+    if ($existing -and (Test-OwnedTestServer $Port)) {
+        Stop-Process -Id $existing.OwningProcess -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
+    elseif ($existing) {
+        # Somebody else's server holds the port. Leave it alone and fail the start,
+        # so the caller skips this journey instead of killing a server we do not own.
+        Write-Host "  port $Port is already in use by a server this run did not start; leaving it alone"
+        return $null
     }
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $work | Out-Null
@@ -333,6 +363,18 @@ if (-not $isLocal -and -not $AllowRemoteWrites) {
 Log "=== NATSExcel E2E ==="
 Log "xll    : $Xll"
 Log "nats   : $NatsUrl  (local=$isLocal, bound=${BoundMs}ms, readOnly=$readOnly)"
+
+# Is the local endpoint a server THIS repository started (the cluster harness's
+# node under %TEMP%\natsexcel-cluster)? If not, the run is using somebody else's
+# server: the writes below land in their instance and the failover journey must
+# never kill them. Say it out loud instead of finding out from a denied kill.
+$ownsServer = $isLocal -and (Test-OwnedTestServer ([Uri]$NatsUrl).Port)
+if ($isLocal -and -not $ownsServer) {
+    Log ("WARNING: the server on port " + ([Uri]$NatsUrl).Port +
+         " was not started by this repository's harness. The destructive failover journey is skipped; " +
+         "start a disposable cluster with test\TestSupport\Start-Cluster.ps1 for a complete run.")
+}
+
 Log (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'test\TestSupport\Get-AntivirusState.ps1'))
 Assert "XLL exists" (Test-Path $Xll)
 
@@ -434,21 +476,50 @@ Assert "JetStream: the streams call answers with a value, not an error" ($stream
 # ---------------------------------------------------------------------------
 if ($isLocal -and -not $SkipMultiWorkbook) {
     $copy = Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e-copy.xlsx'
+    # A crashed previous run can leave its own copy (and Excel's "~$" lock marker)
+    # behind; opening a file with a stale marker is one of the ways Excel answers
+    # with no workbook at all. Both files are this suite's own temp output.
+    Remove-Item $copy -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path (Split-Path -Parent $copy) ('~$' + (Split-Path -Leaf $copy))) -Force -ErrorAction SilentlyContinue
     Invoke-Com { $wb.SaveCopyAs($copy) } | Out-Null
-    $excel2 = New-HiddenExcel
-    $wb2 = Invoke-Com { $excel2.Workbooks.Open($copy) }
-    $null = Invoke-Com { $wb2.Worksheets.Item(1).Range('A5').Text }   # force a calc
-    Invoke-Com { $wb2.Close($false) } | Out-Null
-    try { $excel2.Quit() } catch {}
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel2) | Out-Null
 
-    # The RTD subject above is dedicated, so a publish cannot be overwritten by a
-    # recalculated volatile cell. Change the NonVolatile publisher's argument.
-    Invoke-Com { $ws.Range('C1').Value2 = 'after-copy' } | Out-Null
-    $afterCopy = Wait-Cell $ws 'A5' { param($t) $t -eq 'after-copy' }
-    Log "  RTD after the copy closed = $afterCopy"
-    Assert "Multi-workbook: the original keeps receiving" ($afterCopy -eq 'after-copy')
-    Remove-Item $copy -ErrorAction SilentlyContinue
+    $excel2 = New-HiddenExcel
+    # Workbooks.Open can answer with $null instead of throwing (a transient COM/AV
+    # rejection, a file still being written), and Invoke-Com only retries on an
+    # exception - so retry here rather than dereferencing a null workbook.
+    $wb2 = $null
+    for ($attempt = 1; $attempt -le 5 -and -not $wb2; $attempt++) {
+        $wb2 = Invoke-Com { $excel2.Workbooks.Open($copy) }
+        if (-not $wb2) { Start-Sleep -Milliseconds 600 }
+    }
+
+    if (-not $wb2) {
+        # Never leave the hidden instance behind (it holds the copy and the XLL, and
+        # the NEXT run then fails on a locked file): quit it, then skip with a reason.
+        Log "  Excel returned no workbook for the saved copy ($copy); skipping the multi-workbook check"
+        try { $excel2.Quit() } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel2) | Out-Null } catch {}
+        Remove-Item $copy -Force -ErrorAction SilentlyContinue
+        Skip "Multi-workbook: the original keeps receiving"
+    }
+    else {
+        try {
+            $null = Invoke-Com { $wb2.Worksheets.Item(1).Range('A5').Text }   # force a calc
+            Invoke-Com { $wb2.Close($false) } | Out-Null
+        }
+        finally {
+            try { $excel2.Quit() } catch {}
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel2) | Out-Null } catch {}
+        }
+
+        # The RTD subject above is dedicated, so a publish cannot be overwritten by a
+        # recalculated volatile cell. Change the NonVolatile publisher's argument.
+        Invoke-Com { $ws.Range('C1').Value2 = 'after-copy' } | Out-Null
+        $afterCopy = Wait-Cell $ws 'A5' { param($t) $t -eq 'after-copy' }
+        Log "  RTD after the copy closed = $afterCopy"
+        Assert "Multi-workbook: the original keeps receiving" ($afterCopy -eq 'after-copy')
+        Remove-Item $copy -Force -ErrorAction SilentlyContinue
+    }
 } else {
     Skip "multi-workbook (non-local host or -SkipMultiWorkbook)"
 }
@@ -1003,7 +1074,16 @@ if ($isLocal -and -not $SkipNodeKill -and -not $readOnly) {
     $ownerPid = if ($conn) { $conn.OwningProcess } else { $null }
     $proc = if ($ownerPid) { Get-Process -Id $ownerPid -ErrorAction SilentlyContinue } else { $null }
 
-    if ($proc -and $proc.ProcessName -eq 'nats-server') {
+    # NEVER kill a server this run did not start: the journey is destructive by
+    # design ("it leaves the URL pointing at a dead node"), and a stranger
+    # answering the port may be a developer's own server - killing it is exactly
+    # what AGENTS.md lesson 3 forbids. Test-OwnedTestServer proves ownership from
+    # the command line naming a nats.conf under OUR temp work root.
+    if ($proc -and $proc.ProcessName -eq 'nats-server' -and -not (Test-OwnedTestServer $port)) {
+        Log "  port $port is answered by pid $ownerPid, which this run did not start (not a disposable test node)"
+        Skip "Failover: data still flows after the node died"
+    }
+    elseif ($proc -and $proc.ProcessName -eq 'nats-server') {
         $excel = New-HiddenExcel
         $wb = $excel.Workbooks.Add(); $ws = $wb.Worksheets.Item(1)
         Invoke-Com { $ws.Range('A1').Formula = '=RTD("NatsRtd",,"SUB","' + $pub + '","","' + $NatsUrl + '")' } | Out-Null
@@ -1012,7 +1092,14 @@ if ($isLocal -and -not $SkipNodeKill -and -not $readOnly) {
         $stateBefore = Wait-Cell $ws 'A2' { param($t) -not [string]::IsNullOrWhiteSpace($t) }
 
         Log "  killing the connected node (pid $ownerPid) to force failover"
-        Stop-Process -Id $ownerPid -Force
+        $killed = $true
+        try { Stop-Process -Id $ownerPid -Force -ErrorAction Stop }
+        catch {
+            # A denied kill (another user, or a hardened/EDR-protected process)
+            # must not abort the whole run: report it and skip the journey.
+            $killed = $false
+            Log ("  could not stop pid " + $ownerPid + ": " + $_.Exception.Message)
+        }
         Start-Sleep -Seconds 3
 
         # Prove that data still flows after the node died: a fresh SUB on a new
@@ -1025,7 +1112,11 @@ if ($isLocal -and -not $SkipNodeKill -and -not $readOnly) {
         Invoke-Com { $ws.Range('A4').Formula = '=RTD("NatsRtd",,"SUB","' + $afterSubject + '","","' + $NatsUrl + '")' } | Out-Null
         $failValue = Wait-Cell $ws 'A4' { param($t) $t -eq 'post-failover' } -TimeoutMs 25000
         Log "  after-kill RTD cell = $failValue"
-        Assert "Failover: data still flows after the node died" ($failValue -eq 'post-failover')
+        if ($killed) {
+            Assert "Failover: data still flows after the node died" ($failValue -eq 'post-failover')
+        } else {
+            Skip "Failover: data still flows after the node died"
+        }
         Close-Excel $excel
     } else {
         Skip "node kill (no local nats-server on port $port)"

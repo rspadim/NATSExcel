@@ -187,6 +187,113 @@ namespace NATSExcel.Tests
         }
 
         [Fact]
+        public void ResolveSettings_MultiUrlCluster_MapsBackFromItsJoinedUrlList()
+        {
+            // The connection manager receives the RESOLVED endpoint, which for a
+            // cluster is its COMMA-JOINED url list (the flat form the pure resolver
+            // consumes). A cluster with two or more urls - the normal multi-node
+            // cluster - must still map back, or every per-cluster setting is
+            // silently dropped in favour of the shared block and the add-in
+            // connects with the wrong credentials.
+            var root = Parse(@"{
+                ""Default"": ""multi"",
+                ""Auth"": { ""user"": ""shared-user"" },
+                ""Clusters"": {
+                    ""multi"": {
+                        ""urls"": [""nats://h1:4222"", ""nats://h2:4222""],
+                        ""timeout"": 4321,
+                        ""auth"": { ""token"": ""cluster-token"" },
+                        ""expectCluster"": ""prod""
+                    }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                string resolved = AppConfig.ResolveUdfEndpoint(null);
+                Assert.Equal("nats://h1:4222,nats://h2:4222", resolved);
+
+                var settings = AppConfig.ResolveSettings(resolved);
+                Assert.Equal("cluster-token", settings.Auth.Token);
+                Assert.Equal(4321, settings.TimeoutMs);
+                Assert.Equal("prod", settings.ExpectCluster);
+
+                // The same holds for the cluster that ClusterUrlMap is the inverse
+                // of, whichever way it is named.
+                Assert.Equal("cluster-token", AppConfig.ResolveSettings("multi").Auth.Token);
+            });
+        }
+
+        [Fact]
+        public void ResolveJetStreamDomain_MultiUrlCluster_KeepsItsDomainRouting()
+        {
+            // The domain must survive the same round trip: the context is created
+            // from the RESOLVED endpoint, so a joined url list that finds no
+            // cluster silently drops the domain and the deployment talks to the
+            // default $JS.API subjects.
+            var root = Parse(@"{
+                ""Default"": ""multi"",
+                ""Clusters"": {
+                    ""multi"": {
+                        ""urls"": [""nats://h1:4222"", ""nats://h2:4222""],
+                        ""jetstream"": { ""domain"": ""WEST"" }
+                    }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                Assert.Equal("WEST", AppConfig.ResolveJetStreamDomain("multi"));
+                Assert.Equal("WEST", AppConfig.ResolveJetStreamDomain("nats://h1:4222,nats://h2:4222"));
+            });
+        }
+
+        [Fact]
+        public void ResolveSettings_URLSharedByTwoClusters_StillRefusesToGuess()
+        {
+            // The pre-existing ambiguity rule must survive the joined-list lookup: a
+            // single URL belonging to two clusters names neither of them.
+            var root = Parse(@"{
+                ""Default"": ""a"",
+                ""Auth"": { ""user"": ""shared-user"" },
+                ""Clusters"": {
+                    ""a"": { ""urls"": [""nats://shared:4222""], ""auth"": { ""token"": ""token-a"" } },
+                    ""b"": { ""urls"": [""nats://shared:4222""], ""auth"": { ""token"": ""token-b"" } }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                var settings = AppConfig.ResolveSettings("nats://shared:4222");
+                Assert.Null(settings.Auth.Token);          // neither cluster's token
+                Assert.Equal("shared-user", settings.Auth.User);
+            });
+        }
+
+        [Fact]
+        public void ResolveSettings_IdenticalUrlListsInTwoClusters_RefuseToGuess()
+        {
+            // Same rule for the joined form: two clusters with identical url lists
+            // are only distinguishable by name.
+            var root = Parse(@"{
+                ""Default"": ""a"",
+                ""Auth"": { ""user"": ""shared-user"" },
+                ""Clusters"": {
+                    ""a"": { ""urls"": [""nats://h1:4222"", ""nats://h2:4222""], ""auth"": { ""token"": ""token-a"" } },
+                    ""b"": { ""urls"": [""nats://h1:4222"", ""nats://h2:4222""], ""auth"": { ""token"": ""token-b"" } }
+                }
+            }");
+
+            WithConfig(root, _ =>
+            {
+                Assert.Null(AppConfig.ResolveSettings("nats://h1:4222,nats://h2:4222").Auth.Token);
+                // By name each cluster still resolves to its own auth.
+                Assert.Equal("token-a", AppConfig.ResolveSettings("a").Auth.Token);
+                Assert.Equal("token-b", AppConfig.ResolveSettings("b").Auth.Token);
+            });
+        }
+
+        [Fact]
         public void ResolveSettings_ClusterAuth_OverridesTheFieldItDeclares()
         {
             var root = Parse(@"{

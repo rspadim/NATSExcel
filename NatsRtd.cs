@@ -336,12 +336,19 @@ namespace NATSExcel
                 try
                 {
                     Topic.UpdateValue(data);
-                    // Intentionally keep the topic dirty: the push may have been
-                    // dropped because Excel-DNA had not activated the topic yet
-                    // (the ConnectData window), and a value arriving in that
-                    // window would then never reach the cell until it changes.
-                    // The next Excel tick re-pushes the CURRENT value once the
-                    // topic is active (UpdateValue is a no-op when unchanged).
+                    // Deliberately keep the topic dirty after an immediate push.
+                    // The push can be dropped because Excel-DNA has not activated
+                    // the topic yet (the ConnectData window), and a value arriving
+                    // in that window would then never reach the cell until it
+                    // changes. The next Excel tick re-pushes the CURRENT value, so
+                    // the insurance is worth one extra push - but be honest about
+                    // its price: Excel-DNA's Topic.UpdateValue does NOT compare (it
+                    // stores the value and posts UpdateNotify unconditionally), so
+                    // while this topic keeps receiving pushes each tick re-sends
+                    // the newest value once. That is one redundant notification per
+                    // tick, not per message, and it is the deliberate cost of never
+                    // showing an empty cell. Never "optimize" this to _dirty = false
+                    // without solving the ConnectData window some other way.
                     _dirty = true;
                     _lastPushTicks = DateTime.UtcNow.Ticks;
                 }
@@ -645,6 +652,23 @@ namespace NATSExcel
                 _excelTimer = CreateTimer(_excelUpdateRateMs, "excel", OnExcelTick);
                 _natsTimer.Start();
                 _excelTimer.Start();
+
+                // The re-check above is not enough on its own: DisposeTimer nulls
+                // the field BEFORE disposing, so a Teardown that started between
+                // the check and the Start() calls would have disposed null and
+                // left this brand-new pair running on an instance that is no
+                // longer in Instances - unreachable by any later teardown, with a
+                // live timer rooting the whole server. Teardown sets the volatile
+                // _terminated flag BEFORE it disposes, so this second read closes
+                // the window: either we see the tombstone here and unwind our own
+                // pair, or Teardown has not read the fields yet and will dispose
+                // the pair we just published.
+                if (_terminated)
+                {
+                    DisposeTimer(ref _natsTimer);
+                    DisposeTimer(ref _excelTimer);
+                    return;
+                }
             }
 
             logger.Info("RefreshFromConfig: endpoint=" + AppConfig.MaskNatsEndpoint(_defaultEndpoint)
@@ -857,9 +881,14 @@ namespace NATSExcel
         private static void DisposeTimer(ref System.Timers.Timer timer)
         {
             // Interlocked.Exchange would be atomic but the `ref` parameter defeats
-            // it; this is called from ApplyConfig/Teardown, which are serialized by
-            // the _terminated guard and the instance lifecycle, so the read-then-null
-            // is safe. Keep the two statements adjacent.
+            // it, so the read-then-null is two statements. That is NOT safe against
+            // a concurrent caller on its own - ApplyConfig (a reload worker) and
+            // Teardown (Excel's ServerTerminate) really do run on different threads.
+            // What makes it safe is the contract around it: Teardown sets the
+            // volatile _terminated tombstone BEFORE it calls this, and ApplyConfig
+            // re-reads that tombstone AFTER it publishes and starts the new pair
+            // and disposes its own pair when it sees it. Keep the two statements
+            // adjacent and keep both sides of that contract.
             var toDispose = timer;
             timer = null;
             if (toDispose == null)
@@ -1918,6 +1947,14 @@ namespace NATSExcel
                         + " leader=" + ClusterLeader(td, connections);
                     break;
             }
+
+            // Every branch above carries SERVER-SUPPLIED text: the cluster name, the
+            // advertised connect URLs (which embed a userinfo when the server was
+            // configured with one) and the raw $SYS ping reply. The UDF side masks
+            // the same values (NatsUdfStatus), so the RTD cell must not be the one
+            // surface that prints a credential. Mask before the dedup comparison so
+            // the deduped value is what was actually delivered.
+            value = AppConfig.MaskNatsEndpoint(value);
 
             if (_skipRepeatedMessages && !td.HasChangedPolledText(value))
                 return;

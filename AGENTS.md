@@ -20,7 +20,8 @@ contract; this file is the working guidance.
 > released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
-> layers are real and pass: unit (266), smoke (122), Excel E2E (44 assertions),
+> layers are real and pass: unit (343), smoke (138), Excel E2E (42 assertions in the
+> default run; the async-marker journey SKIPs unless `-AsyncWrites`),
 > load (~204k msg/s) and liveness. The solution file, the CI tag/release flow and
 > the installer (11 wizard languages) are in place. `PLAN.md` §8/§9 track the few
 > remaining additive items; the `## Layout` section below splits what exists from
@@ -139,13 +140,20 @@ items from the audit/plan are still open (`PLAN.md` §8/§9).
 
 | Open item | Responsibility (per the plan) |
 | --- | --- |
-| V8.8 read-only live-feed run | A `-ReadOnly` switch for a non-local feed endpoint (the endpoint stays a CLI argument, never committed). |
-| V8.10 2-node placement error | Assert the named `no suitable peers for placement` error on a 2-node cluster (the 3-node failover half is covered by the E2E). |
+| V8.10 2-node placement error | Assert the named `no suitable peers for placement` error on a 2-node cluster (the 3-node failover half is covered by the E2E). Not reachable through the add-in surface today: `NatsUDFStreamCreate` exposes no `replicas` argument, so the add-in cannot ask for a 2-replica stream. |
+
+V8.8 (the read-only live-feed run) **landed**: `test\Run-ExcelE2E.ps1` takes `-ReadOnly`
+and `-AllowRemoteWrites`, skips every write below the first when
+`$ReadOnly -or -not $isLocal`, and **refuses a non-local endpoint outright** unless
+`-AllowRemoteWrites` is passed explicitly (the endpoint itself stays a CLI argument
+and is never committed). It now lives under "Exists today".
 
 The AV matrix helpers (`test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`),
 the read-only AV banner (`test\TestSupport\Get-AntivirusState.ps1`, which only
-*reads* the state and never disables protection), the `expectCluster`/ambiguity
-surfacing in `=NatsUDFConfigValidate()` and the `jetstream.domain` routing have
+*reads* the state and never disables protection), the `expectCluster` surfacing in
+`=NatsUDFConfigValidate()` (the *live* comparison is now real too: the connection
+manager logs the mismatch - see `WarnOnClusterMismatch` - and `tools\NatsValidate`
+reports it on demand) and the `jetstream.domain` routing have
 landed, so they now live under "Exists today".
 
 **The wizard is never asked to, and never does, disable or reconfigure antivirus
@@ -316,14 +324,25 @@ failed.
 dotnet test test\NATSExcel.Tests\NATSExcel.Tests.csproj -c Release
 ```
 
-Covers today: `NatsJson` conversions, `AppConfig` load/sanitize/`StripComments`,
-the JSON-Schema per-value drop (via the sample), `MaskNatsEndpoint` and
-`MaskedExceptionRenderer`, the conflation window, the RTD grammar
-(`NatsRtdTopicGrammarTests`), the UDF argument validation/markers/error strings
-(`NatsUdfCommonTests`), and a project-file parity test that keeps the unit
-project's `Compile` list complete. Growth areas (not yet covered): subscription
-identity, connection offline, `WaitBounded`, the async bridge, twin signature
-parity, `UpdateCheck`.
+Covers today: `NatsJson` conversions, `AppConfig` load/sanitize/`StripComments`
+(`StripCommentsTests`, `AppConfigPureHelperTests`, `ConfigLoaderToleranceTests`),
+endpoint/cluster resolution and the per-cluster auth/timeout/reconnect merge
+(`AppConfigResolutionTests`), the JSON-Schema per-value drop (`ConfigSchemaTests`),
+`MaskNatsEndpoint` and `MaskedExceptionRenderer` (plus the `NLog.config` wiring that
+makes the renderer effective), the conflation window, the RTD grammar
+(`NatsRtdTopicGrammarTests`, including the optional-middle positional rule), the
+subscription key, `WaitBounded` (`NatsConnectionWaitTests`), the write modes, the
+frozen public surface (`PublicSurfaceParityTests` vs `PublicSurface.baseline.txt`),
+the source scans that pin what cannot be referenced or driven
+(`RtdInvariantTests` for `NatsRtd.cs`, `NoUnboundedBlockingTests`,
+`SubjectEpochLeakTests` for the subject-latest epoch/loser path), a few pure-helper
+pins (`PureHelperPinTests`: `TickGate`/`StripedLocks`/`UpdateCheck`/the NLog
+renderer) and the packaging/parity tests that keep the `Compile` lists, the `.dna`
+pack list and the Excel-DNA revision honest (`ProjectFileParityTests`,
+`DnaPackagingParityTests`, `ExcelDnaPinTests`).
+Growth areas (not yet covered): connection offline, the async bridge
+(`NatsWriteObservable`), the RTD kinds the E2E does not create (only `SUB` is
+exercised in Excel), `expectCluster` mismatch end to end.
 
 `dotnet test` does not build or pack the add-in; CI builds it separately.
 
@@ -354,7 +373,8 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Passes 44 assertions locally. Uses a hidden Excel instance: loads the packed XLL through
+Passes 42 assertions locally (43 checks: the async-marker journey SKIPs unless the run is
+given `-AsyncWrites`). Uses a hidden Excel instance: loads the packed XLL through
 the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
 round trip, the RTD `SUB` push (two updates), the JetStream/KV named-error
 paths, the multi-workbook case, the node-kill failover, and an Excel
@@ -433,11 +453,34 @@ the cluster harness and the smoke/liveness suites all exist
 6. **RTD cells display `#N/D` when the RTD server could not be created** —
    check COM registration before suspecting the add-in logic.
 7. **NATS-specific:** a server started without `-js` accepts connections and
-   Core pub/sub works, but every JetStream call fails — assert the JetStream
+   Core pub/sub works, but every JetStream call fails - assert the JetStream
    probe up front and print whether `-js` is on, so a "JS disabled" run is
    attributable rather than looking like an add-in bug. The JetStream
    `store_dir` default is a temp path; the CI container and the installer's
    server option must mount a durable directory or a restart drops the streams.
+8. **Never stop a process by PORT alone - prove it is ours.** A run against a
+   localhost URL that some OTHER nats-server already answers used to be treated
+   as "our disposable cluster": the failover journey then killed that server (a
+   denied kill aborted the run with a raw `Access denied`, and a permitted one
+   would have destroyed a developer's instance). `Test-OwnedTestServer` in
+   `test\Run-ExcelE2E.ps1` is the proof - the listener must be a `nats-server`
+   whose command line names a `nats.conf` under OUR temp work root (a process
+   from another user or an elevated shell exposes no command line at all, which
+   is itself the signal that it is not ours). No proof, no kill: the journey
+   SKIPs with the reason. The same rule applies to the pre-run stale cleanup
+   (`Stop-Cluster.ps1` `Test-Ours`, `Start-SecondServer`), and a run that uses a
+   server it does not own says so at the top instead of being discovered from a
+   denied kill. Pin: `HarnessInvariantTests`.
+9. **A crashed run orphans its hidden Excel, which locks the copied XLL.** The
+   next run then dies in `New-AddInFolder.ps1` on "the file is being used by
+   another process" and, worse, the E2E reported it as an obscure
+   "Path is an empty string". The helper now stops a stale host by PROOF (the
+   process is invisible AND has our destination XLL loaded) and only REPORTS a
+   visible Excel (the user's session, which never has that temp copy loaded).
+   Two corollaries for new steps: an `Invoke-Com { ... }` that can answer with
+   `$null` instead of throwing (e.g. `Workbooks.Open`) needs its own retry, and
+   any step that creates a hidden Excel must quit it on the failure path too -
+   `Move-Item`/`Copy-Item` are not the only things a crash leaves behind.
 
 ## Release
 

@@ -116,6 +116,114 @@ namespace NATSExcel.Tests
         }
 
         // ------------------------------------------------------------------
+        // Round-4 pins. The round-4 audit found fixes from earlier rounds that no
+        // layer would notice a regression in, plus two defects in this file (a
+        // credential path that bypassed masking and a teardown/reload race that
+        // could strand a live timer pair). The file still cannot be referenced by
+        // any test project, so these are source scans - weak by construction, and
+        // documented as such above.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The caps must be exact values, not just present identifiers: a scan for
+        /// "MaxRtdKeys" also passes if the cap is raised to int.MaxValue, which
+        /// would remove the protection while keeping the name.
+        /// </summary>
+        [Fact]
+        public void TheRtdCapsAreBoundedToExactValues()
+        {
+            string src = Read("NatsRtd.cs");
+            Assert.Contains("const int MaxTopics = 10000;", src);
+            Assert.Contains("const int MaxRtdKeys = 5000;", src);
+        }
+
+        /// <summary>
+        /// The polled cluster cell carries SERVER-SUPPLIED text in every branch: the
+        /// cluster name, the advertised connect URLs (which embed a userinfo when
+        /// the server was configured with one) and the raw $SYS ping reply. The UDF
+        /// side masks the same values; this cell must not be the one surface that
+        /// prints a credential.
+        /// </summary>
+        [Fact]
+        public void PollClusterMasksTheServerSuppliedText()
+        {
+            string poll = ExtractMethod(Read("NatsRtd.cs"), "private void PollCluster(");
+
+            Assert.Contains("AppConfig.MaskNatsEndpoint(", poll);
+
+            // Before the dedup comparison, so the deduped value is what was delivered.
+            int mask = poll.IndexOf("AppConfig.MaskNatsEndpoint(", StringComparison.Ordinal);
+            int dedup = poll.IndexOf("HasChangedPolledText(", StringComparison.Ordinal);
+            Assert.True(dedup > 0, "the polled cluster dedup is gone");
+            Assert.True(mask < dedup, "the cluster text must be masked BEFORE the dedup compares it");
+        }
+
+        /// <summary>
+        /// A poll error must clear the value markers, so a recovery to the payload
+        /// the cell held before the blip is still pushed instead of being suppressed
+        /// as a repeat. It has to stay AFTER the error's own dedup (or a repeated
+        /// outage would re-push its error every tick) and BEFORE the error is pushed
+        /// (or the next successful read would be deduped against the error text).
+        /// </summary>
+        [Fact]
+        public void ThePollErrorPathClearsTheValueMarkers()
+        {
+            string poll = ExtractMethod(Read("NatsRtd.cs"), "private void PollEndpoint(");
+
+            int dedup = poll.IndexOf("HasChangedPolledText(error)", StringComparison.Ordinal);
+            int invalidate = poll.IndexOf("td.InvalidatePolledMarkers();", StringComparison.Ordinal);
+            int push = poll.IndexOf("PushPolled(td, error", StringComparison.Ordinal);
+
+            Assert.True(dedup > 0, "the poll ERROR dedup is gone");
+            Assert.True(invalidate > 0, "the poll error path no longer clears the value markers");
+            Assert.True(push > 0, "the poll error is no longer pushed");
+            Assert.True(dedup < invalidate, "the error must be deduped BEFORE the markers are cleared");
+            Assert.True(invalidate < push, "the markers must be cleared BEFORE the error is pushed");
+        }
+
+        /// <summary>
+        /// The reload path still re-applies the RTD tuning and still re-checks the
+        /// tombstone from BOTH sides of the timer swap. DisposeTimer nulls the field
+        /// before disposing, so a Teardown starting after the pre-swap check would
+        /// have disposed null and left the brand-new pair running on an instance no
+        /// longer in Instances - a live timer rooting the whole server, unreachable
+        /// by any later teardown.
+        /// </summary>
+        [Fact]
+        public void ApplyConfigReChecksTheTombstoneAfterStartingTheNewTimers()
+        {
+            string src = Read("NatsRtd.cs");
+            Assert.Contains("NatsRuntime.ConfigReloadHook = RefreshFromConfig;", src);
+
+            string apply = ExtractMethod(src, "private void ApplyConfig()");
+            Assert.True(CountOccurrences(apply, "if (_terminated)") >= 3,
+                "ApplyConfig must re-check the tombstone after publishing and starting the new pair, not only before the swap");
+
+            int started = apply.IndexOf("_excelTimer.Start();", StringComparison.Ordinal);
+            Assert.True(started > 0, "ApplyConfig no longer starts the excel timer");
+            int lastGuard = apply.LastIndexOf("if (_terminated)", StringComparison.Ordinal);
+            Assert.True(lastGuard > started, "the final _terminated check must come AFTER the timers are started");
+
+            // And it must unwind its OWN pair, not merely return.
+            string tail = apply.Substring(lastGuard);
+            Assert.Contains("DisposeTimer(ref _natsTimer);", tail);
+            Assert.Contains("DisposeTimer(ref _excelTimer);", tail);
+        }
+
+        /// <summary>
+        /// The RTDCLUSTER vocabulary error is user-visible text that lives in this
+        /// file only (the parser tests cover the grammar, not the runtime reply), so
+        /// nothing else can pin it.
+        /// </summary>
+        [Fact]
+        public void TheClusterVocabularyErrorTextIsFrozen()
+        {
+            Assert.Contains(
+                "RTDCLUSTER expects what to be one of [cluster, nodes, leader, lag]",
+                Read("NatsRtd.cs"));
+        }
+
+        // ------------------------------------------------------------------
 
         private static string ExtractMethod(string source, string signature)
         {

@@ -223,16 +223,18 @@ namespace NATSExcel
                 }
             }
 
-            // A declared expectCluster is an assertion made at connect time: the
-            // validator tool reports the match/mismatch against the live server,
-            // and this cell reports that the assertion is configured (PLAN F1.5e).
+            // A declared expectCluster is an assertion checked against the live
+            // server: the add-in logs a warning when a connection's server
+            // announces a different cluster (NatsConnectionManager), the validator
+            // tool reports the match/mismatch on demand, and this cell reports that
+            // the assertion is configured (PLAN F1.5e).
             if (clusters != null)
             {
                 foreach (var cluster in clusters.Properties())
                 {
                     var expect = (cluster.Value as JObject)?["expectCluster"];
                     if (expect != null && expect.Type == JTokenType.String && !string.IsNullOrWhiteSpace((string)expect))
-                        warnings.Add("cluster '" + cluster.Name + "' asserts expectCluster='" + (string)expect + "' (checked against the live server when a formula connects)");
+                        warnings.Add("cluster '" + cluster.Name + "' asserts expectCluster='" + (string)expect + "' (a mismatch with the live server is logged by the add-in and reported by tools/NatsValidate)");
                 }
             }
         }

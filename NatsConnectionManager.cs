@@ -364,7 +364,63 @@ namespace NATSExcel
         {
             if (_shutdown || !TryGetMaterializedConnection(endpoint, out var connection))
                 return NatsServerSnapshot.Empty;
-            return SnapshotFrom(connection, endpoint);
+            var info = SnapshotFrom(connection, endpoint);
+            WarnOnClusterMismatch(endpoint, info);
+            return info;
+        }
+
+        /// <summary>
+        /// Endpoints/announced-clusters whose <c>expectCluster</c> mismatch has
+        /// already been reported. A polled RTD read calls in every tick and a
+        /// recalculating sheet calls a topology UDF per cell, so an unfiltered
+        /// warning would bury the log.
+        /// </summary>
+        private readonly ConcurrentDictionary<string, byte> _clusterMismatchWarned =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Reports a configured <c>expectCluster</c> the live server does not
+        /// match. The assertion is a guard rail - a formula pointed at the wrong
+        /// cluster connects silently otherwise - so a mismatch is WARNED, never
+        /// thrown, and at most once per endpoint and announced name. Nothing is
+        /// reported when the config asserts nothing or the server INFO has not
+        /// arrived. A standalone server announces no cluster, which IS a mismatch
+        /// for a configured expectation and the most likely misconfiguration.
+        /// </summary>
+        private void WarnOnClusterMismatch(string endpoint, NatsServerSnapshot info)
+        {
+            try
+            {
+                if (!info.HasInfo)
+                    return;
+
+                string expected = AppConfig.ResolveSettings(endpoint).ExpectCluster;
+                if (string.IsNullOrWhiteSpace(expected))
+                    return;
+
+                string actual = info.Cluster ?? string.Empty;
+                if (string.Equals(expected.Trim(), actual.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                // Bounded: keyed by endpoint AND announced name, so a flapping
+                // cluster name cannot grow this without bound.
+                if (_clusterMismatchWarned.Count > 256)
+                    _clusterMismatchWarned.Clear();
+                if (!_clusterMismatchWarned.TryAdd(endpoint + "\u0000" + actual, 0))
+                    return;
+
+                logger.Warn("expectCluster: endpoint=" + MaskedEndpoint(endpoint)
+                    + " asserts cluster '" + AppConfig.MaskNatsEndpoint(expected) + "' but the server announces "
+                    + (string.IsNullOrWhiteSpace(actual)
+                        ? "(no cluster: standalone server)"
+                        : "'" + AppConfig.MaskNatsEndpoint(actual) + "'"));
+            }
+            catch (Exception ex)
+            {
+                // A guard-rail report must never break a caller that only asked for
+                // server INFO.
+                logger.Debug(ex, "expectCluster: the mismatch check failed endpoint=" + MaskedEndpoint(endpoint));
+            }
         }
 
         /// <summary>

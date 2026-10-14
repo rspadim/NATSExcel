@@ -956,28 +956,45 @@ namespace NATSExcel
                     OriginTag);
 
                 bool installed = false;
+                bool removedByEpoch = false;
                 lock (LifecycleLock(key))
                 {
                     // Install only when no unsubscribe/reset raced the
                     // registration: an epoch change means the removal already
                     // completed and this listener must not come back alive.
-                    if (SubjectEpoch(key) == epochBefore && _subjectListeners.TryAdd(key, listener))
+                    // The loser's verdict is decided HERE, under the same lock that
+                    // makes the install atomic: re-sampling the epoch after the lock
+                    // was released let a later removal and a fresh registrant slip
+                    // in between, and the loser then deleted the NEW winner's cached
+                    // value (the cell fell back to the (null) marker until the next
+                    // message).
+                    if (SubjectEpoch(key) != epochBefore)
+                    {
+                        removedByEpoch = true;   // an unsubscribe/reset won
+                    }
+                    else if (_subjectListeners.TryAdd(key, listener))
+                    {
                         installed = true;
+                    }
+                    // else: another registrant won; the key now belongs to ITS live
+                    // listener, and its fresh value must be left alone.
                 }
 
                 if (!installed)
                 {
-                    // Lost a race: either an unsubscribe/reset won (the epoch
-                    // changed) or another registrant won (the epoch is unchanged).
-                    // Only in the FIRST case must the cached value be dropped - it
-                    // was written by a listener the removal already closed. In the
-                    // second case the key now belongs to the WINNER's live
-                    // listener, and its fresh value must be left alone.
-                    bool removedByEpoch = SubjectEpoch(key) != epochBefore;
+                    // Lost a race. Both verdicts are already known, but the cached
+                    // value is dropped only when the removal won AND nothing is
+                    // registered for the key: a registrant cannot install between
+                    // the two steps without this second lock seeing it, and a value
+                    // written by a live listener must never be deleted (that is what
+                    // left a cell showing (null) until the next message).
                     lock (listener.Sync)
                     {
                         listener.Close();
-                        if (removedByEpoch)
+                    }
+                    lock (LifecycleLock(key))
+                    {
+                        if (removedByEpoch && !_subjectListeners.ContainsKey(key))
                             _latestMessages.TryRemove(key, out _);
                     }
                     listener.Token?.Dispose();
