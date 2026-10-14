@@ -3,9 +3,12 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
-## Unreleased
+## v0.1.2
 
-Round-4 audit fixes. No change to the public Excel surface or the `NATSExcel.json` shape.
+Four rounds of audit fixes plus the test coverage that pins them. **No change to the
+public Excel surface** (the same 91 `NatsUDF*` functions and 6 `NatsRTD*` helpers)
+and **no change to the `NATSExcel.json` shape**, so upgrading is a drop-in
+replacement of the XLL/installer.
 
 ### Fixed
 
