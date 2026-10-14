@@ -3,18 +3,25 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
-## Unreleased
+## v0.1.4
+
+One fix, from the question "did we build the same update-check scheme the sibling
+RedisExcel has?". We had - except that `"UpdateCheck": false` was parsed and never
+read, so turning the check off still sent a background request to the GitHub API.
+**No change to the public Excel surface** or to the `NATSExcel.json` shape: the key
+keeps its meaning, it just works now.
 
 ### Fixed
 
-- **"UpdateCheck": false did not disable the update check.** The key was parsed
-  and never read, so a user who turned it off still got a background call to the
-  GitHub API - the same "documented but inert" class the round-5 audit found in
-  MessageCounterThreshold. The sibling RedisExcel scheme honours the toggle, and
-  this one does now: UpdateCheck.EnsureFresh returns before anything is scheduled,
-  so no request is made at all and =NatsUDFUpdateAvailable() always answers FALSE.
-  Pinned by two tests (the attempt timestamp does not move; the guard stays the first
-  thing the method does).
+- **`"UpdateCheck": false` did not disable the update check.** The key was parsed and
+  never read, so a user who turned it off still got a background call to the GitHub
+  API - the same "documented but inert" class the round-5 audit found in
+  `MessageCounterThreshold`. The sibling RedisExcel scheme honours the toggle, and
+  this one does now: `UpdateCheck.EnsureFresh` returns before anything is scheduled,
+  so no request is made at all and `=NatsUDFUpdateAvailable()` always answers FALSE.
+  Pinned by two tests (the attempt timestamp does not move, and the guard stays the
+  first thing the method does).
+
 ## v0.1.3
 
 Fixes found by a read-only review of the PUBLISHED `v0.1.2` artifacts and of the
