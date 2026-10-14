@@ -33,11 +33,12 @@ jobs:
           $names = '[a-zA-Z0-9.-]+\.(local|internal|corp|lan|intranet)([^\w]|$)'
           $pattern = "$ip|$names"
           $hits = & git grep -n -I -E $pattern -- ':!installer/languages' 2>$null
-          if ($LASTEXITCODE -eq 0 -and $hits) {
+          if ($hits) {
             Write-Host $hits
             throw "Private-data gate: a private IP or internal-only host is in a tracked file"
           }
           Write-Host "Private-data gate: clean"
+          exit 0
 
       # Cache the NuGet package graph: every later step then restores from the
       # cache instead of the network. The key hashes the project files, so the
