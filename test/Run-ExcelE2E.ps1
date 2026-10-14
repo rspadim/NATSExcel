@@ -1105,15 +1105,16 @@ if (-not $SkipJourneys -and -not $readOnly) {
 
         # The KV kind is a WATCH: a Core subscription on the entry subject, so it
         # sees revisions published AFTER it goes live (Core is at-most-once, and the
-        # current value is not replayed). Publish until the cell follows, the same
-        # retry idiom the rest of this suite uses. H1 holds the value as TEXT: a
-        # cell that has held a text-valued formula rejects a numeric assignment with
-        # a COM InvalidCastException in this Excel build.
-        Invoke-Com { $sj.Range('E3').Formula = '=RTD(' + $rtdQuoted + '"KV","' + $j6Bucket + '","cfg","' + $NatsUrl + '")' } | Out-Null
+        # current value is not replayed). It watches its OWN key: the JSON round-trip
+        # above uses "cfg" and its volatile put formula can republish at any
+        # recalculation, which would overwrite the value this check is watching for.
+        # H1 holds the value as TEXT: a cell that has held a text-valued formula
+        # rejects a numeric assignment with a COM InvalidCastException in this build.
+        Invoke-Com { $sj.Range('E3').Formula = '=RTD(' + $rtdQuoted + '"KV","' + $j6Bucket + '","watch","' + $NatsUrl + '")' } | Out-Null
         $kvFollow = ''
         for ($attempt = 1; $attempt -le 6 -and $kvFollow -notmatch '^9'; $attempt++) {
             Invoke-Com { $sj.Range('H1').Value2 = ('9' + $attempt) } | Out-Null
-            Invoke-Com { $sj.Range('H2').Formula = '=NatsUDFKVPutNonVolatile("' + $j6Bucket + '","cfg",H1,"' + $NatsUrl + '")' } | Out-Null
+            Invoke-Com { $sj.Range('H2').Formula = '=NatsUDFKVPutNonVolatile("' + $j6Bucket + '","watch",H1,"' + $NatsUrl + '")' } | Out-Null
             $kvFollow = Wait-Cell $sj 'E3' { param($t) $t -match '^9\d$' } -TimeoutMs 4000
         }
         Log "  RTD KV watch cell = '$kvFollow'"
