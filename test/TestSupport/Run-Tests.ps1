@@ -49,6 +49,10 @@ param(
     [switch]$SkipLiveness,
     # Run liveness WITHOUT --quick --skip-restart (the full, destructive run).
     [switch]$LivenessFull,
+    # Add the load layer (a throughput benchmark, not a correctness gate, so it is
+    # opt-in here; the CI always runs it). -LoadSeconds keeps it short.
+    [switch]$WithLoad,
+    [int]$LoadSeconds = 5,
     # Explicit nats-server.exe. Otherwise NATSEXCEL_NATS_SERVER, PATH and the
     # shared %TEMP%\natsexcel-cluster server are tried (Start-Cluster's own
     # fallback downloads once if none is found).
@@ -56,6 +60,7 @@ param(
     [int]$SmokePort = 4322,
     [int]$LivenessPort = 4422,
     [int]$E2EPort = 4222,
+    [int]$LoadPort = 4522,
     [string]$SubjectPrefix = 'test.natsexcel',
     # Run the layers one after another instead of in parallel (slowest, but the
     # least machine pressure for a flaky machine or a debug run).
@@ -315,6 +320,10 @@ if ($WithE2E) {
     $E2EPort = Resolve-LayerPort -Layer 'e2e' -Preferred $E2EPort -AlsoNextFree
     $clusters.e2e = Start-LayerCluster -Layer 'e2e' -Port $E2EPort
 }
+if ($WithLoad) {
+    $LoadPort = Resolve-LayerPort -Layer 'load' -Preferred $LoadPort
+    $clusters.load = Start-LayerCluster -Layer 'load' -Port $LoadPort
+}
 
 # ---------------------------------------------------------------------------
 # 3. Run the independent layers: IN PARALLEL by default (each on its own port
@@ -350,6 +359,16 @@ function Start-E2E {
         '-SubjectPrefix', $SubjectPrefix)
 }
 
+function Start-Load {
+    # `manager` exercises the subscription broadcast path; `raw` is the plain
+    # NATS.Client baseline. A short run keeps the runner quick: the numbers are
+    # informational, and the layer fails only on a crash.
+    Start-Layer -Name 'load' -Exe $script:DotNet -LogDir $logsDir -Arguments @(
+        'run', '--project', 'test\LoadTests', '-c', $Configuration,
+        '--no-build', '--no-restore', '--',
+        'manager', $clusters.load.Url, "$LoadSeconds", '2', '1')
+}
+
 if ($Sequential) {
     # No -Wait on the first layer's launch (it would block before the others
     # start); wait on each one before starting the next.
@@ -357,11 +376,13 @@ if ($Sequential) {
     if (-not $SkipSmoke) { Start-Smoke; Wait-Layer 'smoke' }
     if (-not $SkipLiveness) { Start-Liveness; Wait-Layer 'liveness' }
     if ($WithE2E) { Start-E2E; Wait-Layer 'e2e' }
+    if ($WithLoad) { Start-Load; Wait-Layer 'load' }
 } else {
     Start-Unit
     if (-not $SkipSmoke) { Start-Smoke }
     if (-not $SkipLiveness) { Start-Liveness }
     if ($WithE2E) { Start-E2E }
+    if ($WithLoad) { Start-Load }
     Wait-AllLayers
 }
 
@@ -397,7 +418,7 @@ if ($failed.Count -gt 0) {
 $ran = @($script:running.Values | ForEach-Object { $_.Name })
 $notRun = @()
 if (-not $WithE2E) { $notRun += 'e2e (needs Excel; -WithE2E)' }
-$notRun += 'load (Run-Tests does not run it; see CI)'
+if (-not $WithLoad) { $notRun += 'load (a benchmark, not a gate; -WithLoad)' }
 Write-Host ("ALL STARTED LAYERS PASSED (ran: " + ($ran -join ', ') + ")") -ForegroundColor Green
 Write-Host ("not run: " + ($notRun -join '; '))
 exit 0

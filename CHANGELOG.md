@@ -45,6 +45,21 @@ Round-4 audit fixes. No change to the public Excel surface or the `NATSExcel.jso
   once-per-endpoint warning naming the expected and the announced cluster; a
   standalone server announcing no cluster is the most likely mismatch and is
   reported as such.
+- **The RTD `OBJ` cell could never show an object's metadata.** Its watch subject
+  is `$O.<bucket>.M.<base64url(object name)>`, and the add-in stripped the base64
+  `=` padding while every writer keeps it (NATS.Net's own object context and the
+  `nats` CLI both publish `ZW1wdHktMThjMzUyMWI=` for a 14-character name). The cell
+  therefore subscribed to a subject nothing is ever published to and sat at
+  `(ConnectData)` forever - and it looked correct only for names whose length is a
+  multiple of 3, where base64 has no padding at all. Found by the new end-to-end
+  OBJ cell; pinned by a source scan and by that cell.
+- **The smoke suite's wire-level refcount proof could never run**: it parsed
+  `/connz`'s `subscriptions_list` as a JSON object, while the server sends an ARRAY
+  of subject names, so the probe always answered "no monitoring port" and the check
+  reported `SKIP` even against a server that exposed `/connz`. With the parse fixed
+  (and the harness's monitoring port above) the suite now proves at the wire that
+  two listeners share exactly ONE physical subscription, and that the subscription
+  is dropped when the last listener goes - zero skips in the smoke layer.
 
 ### Changed
 
@@ -64,6 +79,15 @@ Round-4 audit fixes. No change to the public Excel surface or the `NATSExcel.jso
   Excel - the user's own session. The E2E's multi-workbook step also retries
   `Workbooks.Open` (which can answer with `$null` instead of throwing) and quits its
   hidden instance on the failure path.
+- **`reconnect.waitMs` is now the whole wait**, not just its floor: the value is
+  applied as both `ReconnectWaitMin` and `ReconnectWaitMax`, so `"waitMs": 2000`
+  waits 2s per attempt instead of doubling toward the client's own 10s ceiling
+  (`jitterMs` still spreads it). The schema says so.
+- **The test harness exposes a monitoring port per node** (`http_port: <client
+  port>+4000`), so the smoke suite's wire-level refcount proof really runs; it is
+  added only when that port is free. `test\TestSupport\Run-Tests.ps1` also gained
+  `-WithLoad` (the load benchmark is opt-in locally, always run in CI) and the
+  E2E now exercises the RTD kinds beyond `SUB`.
 
 ### Added
 
@@ -71,8 +95,21 @@ Round-4 audit fixes. No change to the public Excel surface or the `NATSExcel.jso
   optional-middle positional rule, the RTD cluster masking and timer-sweep
   invariants, the subject-latest loser path, `TickGate`/`StripedLocks`,
   `NLog.config` keeping the masking renderer, `UpdateCheck`'s semver and "never nag
-  a dev build" rules, the Excel-DNA revision pin, and the `#CONFIG`/gate-ordering/
-  unsubscribe and Object Store size/binary guards in the smoke layer.
+  a dev build" rules, the Excel-DNA revision pin, `HarnessInvariantTests` (the
+  harness safety contracts), the culture-invariance suite (`NatsValueLocaleTests`,
+  on a real de-DE thread) and the async bridge (`NatsWriteObservableTests`: the
+  work never runs on the subscribing thread, a duplicate subscribe never queues the
+  write twice, a throwing write becomes a named error cell, and one endpoint's
+  writes stay FIFO).
+- The **smoke catalog sweep** calls every frozen function that no other layer
+  touched (26 of the 97 had never been invoked anywhere) and requires a usable cell
+  from each, so a broken binding, a wrong default or a throw on the empty case can
+  no longer reach a user unseen.
+- **RTD runtime coverage beyond `SUB`**: the E2E now creates `MSG`, `JS`, `KVGET`,
+  `KVKEYS`, `KV` and `OBJ` cells, asserts the frozen unknown-command and
+  RTDCLUSTER-vocabulary errors, the unresolvable-reference error, the
+  `RTDCLUSTER cluster/nodes` cells, the six `NatsRTD*` helpers and the 255-character
+  runtime bound.
 
 ## v0.1.1
 

@@ -22,8 +22,9 @@ published; this file is the working guidance.
 > released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
-> layers are real and pass: unit (343), smoke (138), Excel E2E (42 assertions in the
-> default run; the async-marker journey SKIPs unless `-AsyncWrites`),
+> layers are real and pass: unit (365), smoke (168, and 0 skipped on a full local
+> run), Excel E2E (60+ assertions in the default run; the async-marker journey
+> SKIPs unless `-AsyncWrites`),
 > load (~204k msg/s) and liveness. The solution file, the CI tag/release flow and
 > the installer (11 wizard languages) are in place. `PLAN.md` §8/§9 track the few
 > remaining additive items; the `## Layout` section below splits what exists from
@@ -51,7 +52,10 @@ published; this file is the working guidance.
    toggles `AllowAdminWrites`, `SkipRepeatedMessages`, `CoalesceRealtimeUpdates`,
    `ConflationMs`, `PublishDedupCacheSize`, `SyncWrite`, `AsyncWrites`,
    `UpdateCheck`. A cluster's `auth` merges OVER the shared `Auth` field by
-   field. (An earlier draft nested the settings under `Default` with a top-level
+   field. `reconnect.waitMs` is applied as BOTH `ReconnectWaitMin` and
+   `ReconnectWaitMax` (the configured number is the wait, not its floor, which
+   would let the client double it toward its own 10 s ceiling); `jitterMs` spreads
+   it. (An earlier draft nested the settings under `Default` with a top-level
    `Auth`/`UDF`; `Config.cs` accepts a nested `Default` only as a back-compat
    fallback and never reads a `UDF` block.)
 4. All NATS access goes through `NatsRuntime`
@@ -355,17 +359,24 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 dotnet run --project test\SmokeTests -c Release -- "nats://127.0.0.1:4222"
 ```
 
-Covers the ref-counted Core subscription behavior (two listeners on one subject,
-last-listener teardown, re-subscription, wildcards, queue groups, duplicate
-suppression, argument validation), request/reply (timeout and `no responders`,
-both markers), JetStream publish/consume (ack, sequence, durable consumer,
-replay, purge), Key/Value (put/get/create/tombstone and a CAS by revision) and
-Object Store (put/get/digest), the admin gate on all eleven gated functions, and
-the JetStream-disabled path. It also runs an **auth matrix** that starts a
-disposable local server per style (no-auth, token, user/password, NKey) and
-proves both the success and the bounded failure, including the `nkeySeed`
-text-or-`.nk`-file contract. A check that cannot run prints a reason and skips.
-`NATSEXCEL_NATS_SERVER` (a path, as the CI sets) tells it where the binary is.
+Covers the ref-counted Core subscription behavior (two listeners on one subject
+share exactly ONE physical subscription - proven on the wire through `/connz`,
+which the harness's per-node `http_port` makes possible - plus last-listener
+teardown, re-subscription, wildcards, queue groups, duplicate suppression,
+argument validation), request/reply (timeout and `no responders`, both markers),
+JetStream publish/consume (ack, sequence, durable consumer, replay, purge),
+Key/Value (put/get/create/tombstone and a CAS by revision), Object Store
+(put/get/digest plus the named size/binary guards), the admin gate on all eleven
+gated functions, the dangling-reference `#CONFIG` and gate-ordering rules, the
+`NatsUDFSubjectUnsubscribe` lifecycle and the JetStream-disabled path. It also
+runs an **auth matrix** that starts a disposable local server per style (no-auth,
+token, user/password, NKey) and proves both the success and the bounded failure,
+including the `nkeySeed` text-or-`.nk`-file contract, and a **catalog sweep** that
+calls every frozen function no other layer touches and requires a usable cell from
+each (26 of the 97 had never been invoked anywhere). A full local run reports
+**0 skipped**; a check that cannot run prints its reason and skips. An optional
+`--read-only` skips every write section. `NATSEXCEL_NATS_SERVER` (a path, as the CI
+sets) tells it where the binary is.
 
 ### 3. Excel end-to-end — real (PLAN V8.6)
 
@@ -375,7 +386,7 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Passes 42 assertions locally (43 checks: the async-marker journey SKIPs unless the run is
+Passes 60+ assertions locally (the async-marker journey SKIPs unless the run is
 given `-AsyncWrites`). Uses a hidden Excel instance: loads the packed XLL through
 the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
 round trip, the RTD `SUB` push (two updates), the JetStream/KV named-error
@@ -483,6 +494,28 @@ the cluster harness and the smoke/liveness suites all exist
    `$null` instead of throwing (e.g. `Workbooks.Open`) needs its own retry, and
    any step that creates a hidden Excel must quit it on the failure path too -
    `Move-Item`/`Copy-Item` are not the only things a crash leaves behind.
+10. **A check that always SKIPs is a check that never ran - treat a permanent
+    SKIP as a defect.** The smoke suite's wire-level refcount proof had reported
+    "no monitoring port" for its whole life, and it was two independent bugs
+    stacked: the harness started no monitoring port AND the probe parsed
+    `/connz`'s `subscriptions_list` as a JSON object while the server sends an
+    ARRAY (`?subs=1`), so `sawList` stayed false and the check could not pass even
+    against a server that exposed `/connz`. Two rules follow: when a suite prints
+    a skip reason, make the reason falsifiable (a skip whose text is always the
+    same is indistinguishable from a broken probe), and when a layer reports
+    `0 skipped` locally, keep it there - new work that needs a skip should say
+    why in the same commit.
+11. **Never run two Excel-automation suites on the same machine at once.** Each
+    suite creates hidden `EXCEL.EXE` instances and quits them when it is done
+    (and the RedisExcel sibling suite does the same), so a concurrent run's quit
+    kills the instance the other one is driving: the symptom is a COM
+    `0x800706BA` "The RPC server is unavailable" in the middle of a journey, plus
+    mystery `EXCEL.EXE` processes that carry a window title but have NOT loaded
+    our XLL. Those strangers are not ours to kill - the ownership proof (invisible
+    AND holding our destination XLL) is what keeps a cleanup from closing the
+    other suite's workbook. Before blaming the add-in for a COM death, check
+    whether another suite (or the user) is running Excel; if it is, re-run later
+    instead of debugging a phantom.
 
 ## Release
 

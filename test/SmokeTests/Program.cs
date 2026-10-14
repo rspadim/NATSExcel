@@ -155,6 +155,7 @@ namespace NATSExcel.SmokeTests
                         await RunJetStreamChecksAsync(raw).ConfigureAwait(false);
                         await RunKvChecksAsync(raw).ConfigureAwait(false);
                         await RunObjectChecksAsync(raw).ConfigureAwait(false);
+                        await RunCatalogSweepAsync(raw).ConfigureAwait(false);
                         // The main server has JetStream, so this layer starts its
                         // own disposable server without -js (or skips, with a
                         // reason, when no nats-server.exe is available).
@@ -1958,6 +1959,147 @@ namespace NATSExcel.SmokeTests
         }
 
         // ==================================================================
+        // 11. Catalog sweep: every function no other section calls
+        // ==================================================================
+
+        /// <summary>
+        /// Calls each frozen function that no other section touches, with valid
+        /// arguments, and asserts that it answers with a usable cell instead of
+        /// throwing or returning a bare marker. The round-4 coverage audit found 26
+        /// of the 97 functions invoked by NO layer at all, so a broken argument
+        /// binding, a wrong default or a throw on the empty case could only ever
+        /// appear in Excel. A named <c>Error: ...</c> answer counts as usable (it is
+        /// a real, diagnosable answer); a bare <c>#...</c> marker or a thrown
+        /// exception does not.
+        /// </summary>
+        private static async Task RunCatalogSweepAsync(NatsConnection raw)
+        {
+            AppConfig.CurrentOverrideForTests = NewRoot(_url, allowAdminWrites: true, syncWrite: "sync");
+            NatsRuntime.Shutdown();
+            NatsRuntime.ResetAfterAddInReload();
+
+            string stream = StreamName();
+            string subject = _prefix + ".sweep.one";
+            string bucket = KvName();
+            string objBucket = ObjName();
+            string objectName = "sweep.txt";
+
+            Check(string.Equals(AsString(NatsUdfJetStream.NatsUDFStreamCreate(stream, _prefix + ".sweep.>", null, null, null)),
+                      NatsUdfCommon.Ok, StringComparison.Ordinal),
+                "sweep: the JetStream stream for the sweep is created");
+            NatsUdfJetStream.NatsUDFJSPublish(subject, "sweep-1", null);
+
+            // The KV bucket comes from the raw client: the UDFs deliberately cannot
+            // create one (an accidental recalculation must not create server state),
+            // and KVCreate is a compare-and-set against revision 0, not a create.
+            INatsJSContext js = NatsRuntime.Connections.GetJetStream(_url);
+            var kv = new NatsKVContext(js);
+            await kv.CreateStoreAsync(bucket, CancellationToken.None).ConfigureAwait(false);
+            Check(string.Equals(AsString(NatsUdfKv.NatsUDFKVPut(bucket, "sweep-key", "sweep-value", null)),
+                      "1", StringComparison.Ordinal),
+                "sweep: the KV bucket for the sweep is created and seeded");
+
+            var obj = new NatsObjContext(js);
+            await obj.CreateObjectStoreAsync(objBucket, CancellationToken.None).ConfigureAwait(false);
+            NatsUdfObjectStore.NatsUDFObjectPut(objBucket, objectName, "sweep-object", null, null);
+
+            var range = new object[,] { { "k1", "v1" }, { "k2", "v2" } };
+            var single = new object[,] { { "value" } };
+            var headers = new object[,] { { "X-Sweep", "yes" } };
+
+            var calls = new List<KeyValuePair<string, object>>
+            {
+                // Tier 1 status/topology: the client's own INFO, no $SYS needed.
+                new KeyValuePair<string, object>("NatsUDFServerInfo", NatsUdfStatus.NatsUDFServerInfo(null)),
+                new KeyValuePair<string, object>("NatsUDFStats", NatsUdfStatus.NatsUDFStats(null)),
+                new KeyValuePair<string, object>("NatsUDFClusterName", NatsUdfStatus.NatsUDFClusterName(null)),
+                new KeyValuePair<string, object>("NatsUDFClusterNodes", NatsUdfStatus.NatsUDFClusterNodes(null)),
+                new KeyValuePair<string, object>("NatsUDFClusterInfo", NatsUdfStatus.NatsUDFClusterInfo(null)),
+                new KeyValuePair<string, object>("NatsUDFClusterHealth", NatsUdfStatus.NatsUDFClusterHealth(null)),
+                new KeyValuePair<string, object>("NatsUDFConnectionCount", NatsUdf.NatsUDFConnectionCount()),
+                new KeyValuePair<string, object>("NatsUDFUpdateAvailable", NatsUdfStatus.NatsUDFUpdateAvailable()),
+                new KeyValuePair<string, object>("NatsUDFLogPath", NatsUdf.NatsUDFLogPath()),
+                new KeyValuePair<string, object>("NatsUDFConfigSchema", NatsUdfStatus.NatsUDFConfigSchema()),
+                new KeyValuePair<string, object>("NatsUDFConfigValidate", NatsUdfStatus.NatsUDFConfigValidate(null)),
+
+                // JetStream introspection (a missing consumer must be the NAMED error).
+                new KeyValuePair<string, object>("NatsUDFJSRaftInfo", NatsUdfStatus.NatsUDFJSRaftInfo(stream, null)),
+                new KeyValuePair<string, object>("NatsUDFJSStreamPlacement", NatsUdfStatus.NatsUDFJSStreamPlacement(stream, null)),
+                new KeyValuePair<string, object>("NatsUDFJSConsumers", NatsUdfJetStream.NatsUDFJSConsumers(stream, null)),
+                new KeyValuePair<string, object>("NatsUDFJSConsumerInfo", NatsUdfJetStream.NatsUDFJSConsumerInfo(stream, "no-such-consumer", null)),
+
+                // KV reads.
+                new KeyValuePair<string, object>("NatsUDFKVKeys", NatsUdfKv.NatsUDFKVKeys(bucket, null, null)),
+                new KeyValuePair<string, object>("NatsUDFKVStatus", NatsUdfKv.NatsUDFKVStatus(bucket, "sweep-key", null)),
+                new KeyValuePair<string, object>("NatsUDFKVGetMultiple",
+                    NatsUdfKv.NatsUDFKVGetMultiple(bucket, new object[,] { { "sweep-key" } }, null, null)),
+
+                // Object Store reads.
+                new KeyValuePair<string, object>("NatsUDFObjectBuckets", NatsUdfObjectStore.NatsUDFObjectBuckets(null)),
+                new KeyValuePair<string, object>("NatsUDFObjectList", NatsUdfObjectStore.NatsUDFObjectList(objBucket, null)),
+                new KeyValuePair<string, object>("NatsUDFObjectWatch", NatsUdfObjectStore.NatsUDFObjectWatch(objBucket, null)),
+
+                // The JSON wrappers (each converts a range and publishes/reads).
+                new KeyValuePair<string, object>("NatsUDFPublishJSON", NatsUdfCore.NatsUDFPublishJSON(subject, range, null)),
+                new KeyValuePair<string, object>("NatsUDFJSPublishJSON", NatsUdfJetStream.NatsUDFJSPublishJSON(subject, range, null)),
+                new KeyValuePair<string, object>("NatsUDFPublishWithHeaders",
+                    NatsUdfCore.NatsUDFPublishWithHeaders(subject, "with-headers", headers, null)),
+                new KeyValuePair<string, object>("NatsUDFRequestJSON", NatsUdfCore.NatsUDFRequestJSON(subject, single, 500, null)),
+                new KeyValuePair<string, object>("NatsUDFSubjectLatestJSON", NatsUdfCore.NatsUDFSubjectLatestJSON(subject, null, null)),
+            };
+
+            foreach (var call in calls)
+                Check(IsUsableCell(call.Value),
+                    "sweep: " + call.Key + " answers a usable cell (got '" + DescribeCell(call.Value) + "')");
+
+            // The sweep registered a listener through SubjectLatestJSON; leave none
+            // behind for the checks that follow.
+            NatsUdfCore.NatsUDFSubjectUnsubscribe(subject, null);
+
+            // Cleanup, best effort: the sweep's own entities never outlive it.
+            try { NatsUdfJetStream.NatsUDFStreamDelete(stream, null); } catch { }
+            try { _ = kv.DeleteStoreAsync(bucket, CancellationToken.None); } catch { }
+            try { _ = obj.DeleteObjectStore(objBucket, CancellationToken.None); } catch { }
+
+            await Task.CompletedTask;
+        }
+
+        /// <summary>A usable cell: a real value, never null and never a bare marker.
+        /// A named <c>Error: ...</c> is a usable answer (the caller asked something
+        /// the server could not do); <c>#VALUE!</c>/<c>#CONFIG</c>/an empty matrix is
+        /// not.</summary>
+        private static bool IsUsableCell(object value)
+        {
+            if (value == null)
+                return false;
+
+            if (value is object[,] matrix)
+            {
+                if (matrix.Length == 0)
+                    return false;
+                return IsUsableCell(matrix.GetValue(0, 0));
+            }
+
+            string text = value as string;
+            if (text != null)
+                return text.Length > 0 && !text.StartsWith("#", StringComparison.Ordinal);
+
+            return true;   // double / bool / DateTime
+        }
+
+        /// <summary>One line for a failure message, whatever the cell shape is.</summary>
+        private static string DescribeCell(object value)
+        {
+            if (value == null)
+                return "(null)";
+            if (value is object[,] matrix)
+                return matrix.Length == 0
+                    ? "(empty matrix)"
+                    : matrix.GetLength(0) + "x" + matrix.GetLength(1) + " " + DescribeCell(matrix.GetValue(0, 0));
+            return AsString(value) ?? "(null)";
+        }
+
+        // ==================================================================
         // 10. The JetStream-disabled path
         // ==================================================================
         //
@@ -2269,13 +2411,19 @@ namespace NATSExcel.SmokeTests
                         bool sawList = false;
                         foreach (JToken connection in root["connections"] ?? new JArray())
                         {
-                            JObject subs = connection["subscriptions_list"] as JObject;
+                            // The server reports subscriptions_list as an ARRAY of
+                            // subject names when ?subs=1 is passed. Parsing it as an
+                            // object (the old shape) made sawList stay false, so the
+                            // probe ALWAYS answered "no monitoring port" and the
+                            // wire-level refcount proof could never run - even on a
+                            // server that exposed /connz.
+                            JArray subs = connection["subscriptions_list"] as JArray;
                             if (subs == null)
                                 continue;
                             sawList = true;
-                            foreach (var property in subs.Properties())
+                            foreach (var entry in subs)
                             {
-                                if (string.Equals((string)property.Value, subject, StringComparison.Ordinal))
+                                if (string.Equals((string)entry, subject, StringComparison.Ordinal))
                                     total++;
                             }
                         }

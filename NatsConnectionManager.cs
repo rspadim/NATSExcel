@@ -668,7 +668,15 @@ namespace NATSExcel
                 if (reconnect.MaxAttempts != 0)
                     options = options with { MaxReconnectRetry = reconnect.MaxAttempts };
                 if (reconnect.WaitMs > 0)
-                    options = options with { ReconnectWaitMin = TimeSpan.FromMilliseconds(reconnect.WaitMs) };
+                {
+                    // Min AND Max: the config exposes ONE wait, so it is the wait.
+                    // Setting only the minimum would let the client double it up to
+                    // its own default ceiling (10s), so a hand-configured "waitMs":
+                    // 2000 would really wait 2, 4, 8, 10, 10 ... - not what the number
+                    // in the file says. Jitter stays available for spread.
+                    var wait = TimeSpan.FromMilliseconds(reconnect.WaitMs);
+                    options = options with { ReconnectWaitMin = wait, ReconnectWaitMax = wait };
+                }
                 if (reconnect.JitterMs > 0)
                     options = options with { ReconnectJitter = TimeSpan.FromMilliseconds(reconnect.JitterMs) };
             }

@@ -223,6 +223,25 @@ namespace NATSExcel.Tests
                 Read("NatsRtd.cs"));
         }
 
+        /// <summary>
+        /// The Object Store metadata subject keeps its base64 PADDING. The writer
+        /// (NATS.Net's object context, and the `nats` CLI) publishes
+        /// <c>$O.&lt;bucket&gt;.M.&lt;base64url(name)&gt;</c> with the <c>=</c> padding kept
+        /// (e.g. <c>ZW1wdHktMThjMzUyMWI=</c> for a 14-character name). Stripping it made
+        /// the OBJ cell subscribe to a subject no object is ever written to - the cell
+        /// stayed at "(ConnectData)" forever - and it only looked correct for names
+        /// whose length is a multiple of 3, where base64 has no padding at all.
+        /// </summary>
+        [Fact]
+        public void TheObjectMetaSubjectKeepsItsBase64Padding()
+        {
+            string encoder = ExtractMethod(Read("NatsRtd.cs"), "private static string Base64UrlEncode(");
+
+            Assert.DoesNotContain("TrimEnd('=')", encoder);
+            Assert.Contains(".Replace('+', '-')", encoder);
+            Assert.Contains(".Replace('/', '_')", encoder);
+        }
+
         // ------------------------------------------------------------------
 
         private static string ExtractMethod(string source, string signature)
@@ -243,8 +262,8 @@ namespace NATSExcel.Tests
                         return source.Substring(open, i - open + 1);
                 }
             }
-            Assert.True(false, "unterminated body for " + signature);
-            return null;
+            Assert.Fail("unterminated body for " + signature);
+            return null;   // unreachable: Assert.Fail throws
         }
 
         private static int CountOccurrences(string text, string needle)

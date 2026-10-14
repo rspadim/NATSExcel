@@ -51,7 +51,7 @@
             "additionalProperties": false,
             "properties": {
               "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647 },
-              "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+              "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Fixed wait between reconnection attempts, in milliseconds. This is the whole wait: it is applied as both the minimum and the maximum, so the delay does not grow past it (jitterMs spreads it)." },
               "jitterMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
             }
           }
@@ -80,7 +80,7 @@
       "description": "Shared reconnection defaults; a cluster may override them.",
       "properties": {
         "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647, "description": "-1 means unlimited." },
-        "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Fixed wait between reconnection attempts, in milliseconds. This is the whole wait: it is applied as both the minimum and the maximum, so the delay does not grow past it (jitterMs spreads it)." },
         "jitterMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
       }
     },

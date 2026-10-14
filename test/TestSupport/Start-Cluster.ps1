@@ -144,6 +144,13 @@ for ($i = 0; $i -lt $Nodes; $i++) {
     if ($JetStream) {
         $lines += @('jetstream {', "  store_dir: $((Join-Path $nodeDir 'data') -replace '\\','/')", '}')
     }
+    # A monitoring port makes the smoke suite's one-wire-SUB proof REAL: it asks
+    # /connz on <client port>+4000 and otherwise SKIPs with a reason. Added only
+    # when that port is free, so a busy port can never keep a node from starting.
+    $monitorPort = $port + 4000
+    if (-not (Get-NetTCPConnection -LocalPort $monitorPort -State Listen -ErrorAction SilentlyContinue)) {
+        $lines += @("http_port: $monitorPort")
+    }
     $conf = Join-Path $nodeDir 'nats.conf'
     # Write without a BOM: the NATS parser rejects a leading byte-order mark.
     [System.IO.File]::WriteAllText($conf, (($lines -join "`r`n") + "`r`n"), $utf8)

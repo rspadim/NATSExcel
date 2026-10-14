@@ -954,15 +954,21 @@ namespace NATSExcel
         }
 
         /// <summary>
-        /// Base64url WITHOUT padding, as the Object Store meta subjects use it.
-        /// Implemented locally because <c>System.Buffers.Text.Base64UrlEncoder</c>
-        /// is not part of the net48 BCL surface.
+        /// Base64url WITH its standard <c>=</c> padding, which is what the Object
+        /// Store meta subjects really carry: the writer (NATS.Net's
+        /// <c>NatsObjContext</c>, and the <c>nats</c> CLI) publishes
+        /// <c>$O.&lt;bucket&gt;.M.&lt;base64url(name)&gt;</c> with the padding kept, e.g.
+        /// <c>ZW1wdHktMThjMzUyMWI=</c> for a 14-character name. Stripping it (as this
+        /// did) made the OBJ cell subscribe to a subject no object is ever written
+        /// to, so the cell stayed at "(ConnectData)" forever - and it looked fine for
+        /// names whose length is a multiple of 3, where base64 has no padding at all.
+        /// Implemented locally because <c>System.Buffers.Text.Base64UrlEncoder</c> is
+        /// not part of the net48 BCL surface.
         /// </summary>
         private static string Base64UrlEncode(string value)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
             return Convert.ToBase64String(bytes)
-                .TrimEnd('=')
                 .Replace('+', '-')
                 .Replace('/', '_');
         }

@@ -345,6 +345,8 @@ function Invoke-NatsCli {
 
 $isLocal = $NatsUrl -match '127\.0\.0\.1|localhost|\[::1\]'
 $pub = "$SubjectPrefix.core"
+# The ProgId is frozen, so every RTD formula in this script builds the same prefix.
+$rtdQuoted = '"NatsRtd",,'    # closing quote for the literal
 
 # This suite PUBLISHES, creates streams/consumers and (in the node-kill step)
 # stops a server. Pointing it at a real feed is therefore a production incident,
@@ -708,6 +710,76 @@ if (-not $SkipExtraChecks -and -not $readOnly) {
     Assert "Bad endpoint: the error is bounded (no Excel-thread hang) [${beMs}ms]" ($beMs -lt 10000)
     Invoke-Com { $wbe.Close($false) } | Out-Null
     Close-Excel $xbe
+
+    # ----------------------------------------------------------------------
+    # The RTD surface BEYOND SUB: the frozen command vocabulary, the errors the
+    # runtime must NAME, the cluster cell, the six status helpers and the 255
+    # bound at runtime. Only SUB was ever created in any layer, so a broken polled
+    # kind, a reworded error or a leaked raw payload would have shipped unseen.
+    # ----------------------------------------------------------------------
+    Log "  --- extra: RTD vocabulary, cluster cell, status helpers, 255 bound ---"
+    $xrt = New-HiddenExcel
+    $wrt = $xrt.Workbooks.Add(); $srt = $wrt.Worksheets.Item(1)
+    # The ProgId is frozen, so every RTD formula builds the same prefix.
+    # (Defined with the other script variables above.)
+
+    # Three frozen texts: an unknown command, the RTDCLUSTER vocabulary, and an
+    # unresolvable reference (which must NEVER silently fall back to a default).
+    Invoke-Com { $srt.Range('A1').Formula = '=RTD(' + $rtdQuoted + '"NOPE","x","' + $NatsUrl + '")' } | Out-Null
+    $unknown = Wait-Cell $srt 'A1' { param($t) $t -match '^#ERROR' }
+    Assert "RTD: an unknown command is the frozen named error" `
+        ($unknown -eq "#ERROR: ConnectData: unknown command 'NOPE', expected one of [SUB, KV, KVGET, KVKEYS, REQ, JS, MSG, OBJ, RTDCLUSTER]")
+
+    Invoke-Com { $srt.Range('A2').Formula = '=RTD(' + $rtdQuoted + '"RTDCLUSTER","bogus","' + $NatsUrl + '")' } | Out-Null
+    $vocab = Wait-Cell $srt 'A2' { param($t) $t -match '^#ERROR' }
+    Assert "RTD: the RTDCLUSTER vocabulary error is the frozen text" `
+        ($vocab -match 'RTDCLUSTER expects what to be one of \[cluster, nodes, leader, lag\]')
+
+    Invoke-Com { $srt.Range('A3').Formula = '=RTD(' + $rtdQuoted + '"SUB","' + $pub + '.rtd","","no-such-reference")' } | Out-Null
+    $dangling = Wait-Cell $srt 'A3' { param($t) $t -match '^#ERROR' }
+    Assert "RTD: an unresolvable reference is a named #ERROR (never a hidden default)" `
+        ($dangling -match 'does not resolve to an endpoint')
+
+    # The two Tier-1 RTDCLUSTER values (no $SYS account needed).
+    Invoke-Com { $srt.Range('A4').Formula = '=RTD(' + $rtdQuoted + '"RTDCLUSTER","cluster","' + $NatsUrl + '")' } | Out-Null
+    $clusterCell = Wait-Cell $srt 'A4' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect' }
+    Assert "RTD: RTDCLUSTER cluster answers (never an #ERROR when INFO is available)" `
+        ($clusterCell -and $clusterCell -notmatch '^#ERROR')
+
+    Invoke-Com { $srt.Range('A5').Formula = '=RTD(' + $rtdQuoted + '"RTDCLUSTER","nodes","' + $NatsUrl + '")' } | Out-Null
+    $nodesCell = Wait-Cell $srt 'A5' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect' }
+    Assert "RTD: RTDCLUSTER nodes answers" ($nodesCell -and $nodesCell -notmatch '^#ERROR')
+
+    # The 255 bound at RUNTIME (the unit source-scan only pins that the call is
+    # there). Excel-DNA truncates at 255 silently, so the marker must come from us.
+    # The SUB cell subscribes asynchronously and Core is at-most-once, so the
+    # publish is retried (with a payload that CHANGES, or SkipRepeatedMessages
+    # would suppress the repeat) until the cell shows the marker.
+    Invoke-Com { $srt.Range('B3').Formula = '=RTD(' + $rtdQuoted + '"SUB","' + $pub + '.rtd255","","' + $NatsUrl + '")' } | Out-Null
+    $bounded = ''
+    for ($attempt = 1; $attempt -le 6 -and $bounded -notmatch '\(truncated \d+ chars\)$'; $attempt++) {
+        Invoke-Com { $srt.Range('B1').Value2 = ('x' * 400) + $attempt } | Out-Null
+        Invoke-Com { $srt.Range('B2').Formula = '=NatsUDFPublishNonVolatile("' + $pub + '.rtd255",B1,"' + $NatsUrl + '")' } | Out-Null
+        $bounded = Wait-Cell $srt 'B3' { param($t) $t -match '\(truncated \d+ chars\)$' } -TimeoutMs 4000
+    }
+    Assert "RTD: an oversized value is bounded at 255 with a visible marker" `
+        ($bounded.Length -le 255 -and $bounded -match '\(truncated \d+ chars\)$')
+
+    # The six status helpers: real numbers/strings for THIS run, never a throw.
+    Invoke-Com { $srt.Range('C1').Formula = '=NatsRTDTopicCount()' } | Out-Null
+    Invoke-Com { $srt.Range('C2').Formula = '=NatsRTDConnectionCount()' } | Out-Null
+    Invoke-Com { $srt.Range('C3').Formula = '=NatsRTDSubscriptionCount()' } | Out-Null
+    Invoke-Com { $srt.Range('C4').Formula = '=NatsRTDSubjectCount()' } | Out-Null
+    Invoke-Com { $srt.Range('C5').Formula = '=NatsRTDDefaultHost()' } | Out-Null
+    Invoke-Com { $srt.Range('C6').Formula = '=NatsRTDCluster()' } | Out-Null
+    $topics = Wait-Cell $srt 'C1' { param($t) $t -match '^\d+$' }
+    $conns = Wait-Cell $srt 'C2' { param($t) $t -match '^\d+$' }
+    $defaultHost = Wait-Cell $srt 'C5' { param($t) -not [string]::IsNullOrWhiteSpace($t) }
+    Assert "RTD status: the topic count is live (this sheet registered topics)" ([int]$topics -ge 1)
+    Assert "RTD status: the connection count is live" ([int]$conns -ge 1)
+    Assert "RTD status: the default host reports the configured endpoint" ($defaultHost -eq $NatsUrl)
+    Invoke-Com { $wrt.Close($false) } | Out-Null
+    Close-Excel $xrt
 } else {
     Skip "extra scenarios (-SkipExtraChecks)"
 }
@@ -910,6 +982,25 @@ if (-not $SkipJourneys -and -not $readOnly) {
         Assert "Journey5: replay by sequence 1 returns the first message" ($seq1 -eq 'm1')
         Assert "Journey5: replay by sequence 3 returns the third message" ($seq3 -eq 'm3')
         Assert "Journey5: last-message returns the latest (m3)" ($last -eq 'm3')
+
+        # The two JetStream RTD kinds on this same stream: MSG polls the last
+        # message matching the filter, JS binds an EXISTING durable consumer (so the
+        # CLI creates one first) and consumes it.
+        $j5Consumer = 'rtde2e'
+        Invoke-NatsCli @('consumer', 'add', $j5Stream, $j5Consumer, '--pull',
+            '--deliver', 'all', '--ack', 'none', '--filter', $j5Subject,
+            '--server', $NatsUrl, '--defaults') | Out-Null
+
+        Invoke-Com { $sj.Range('B1').Formula = '=RTD(' + $rtdQuoted + '"MSG","' + $j5Stream + '","' + $j5Subject + '","' + $NatsUrl + '")' } | Out-Null
+        $msgCell = Wait-Cell $sj 'B1' { param($t) $t -eq 'm3' } -TimeoutMs 20000
+        Log "  RTD MSG cell = '$msgCell'"
+        Assert "Journey5: the RTD MSG cell shows the last message (m3)" ($msgCell -eq 'm3')
+
+        Invoke-Com { $sj.Range('B2').Formula = '=RTD(' + $rtdQuoted + '"JS","' + $j5Stream + '","' + $j5Consumer + '","' + $j5Subject + '","' + $NatsUrl + '")' } | Out-Null
+        $jsCell = Wait-Cell $sj 'B2' { param($t) $t -eq 'm3' } -TimeoutMs 25000
+        Log "  RTD JS cell = '$jsCell'"
+        Assert "Journey5: the RTD JS cell consumed the durable consumer (m3)" ($jsCell -eq 'm3')
+
         Close-Excel $xj
         Invoke-NatsCli @('stream', 'rm', $j5Stream, '--server', $NatsUrl, '--force') | Out-Null
     } else {
@@ -938,7 +1029,16 @@ if (-not $SkipJourneys -and -not $readOnly) {
         Invoke-Com { $sj.Range('A2').Value2 = 30 } | Out-Null
         Invoke-Com { $sj.Range('B2').Value2 = 40 } | Out-Null
         Invoke-Com { $sj.Range('D1').Formula = '=NatsUDFKVPutJSON("' + $j6Bucket + '","cfg",A1:B2,"' + $NatsUrl + '")' } | Out-Null
-        $rev = Wait-Cell $sj 'D1' { param($t) $t -match '^\d+$' }
+        # The revision cell is a write RESULT: re-enter the formula until it comes
+        # back (the first evaluation can still observe the async dispatch in flight).
+        $rev = ''
+        for ($attempt = 1; $attempt -le 4 -and $rev -notmatch '^\d+$'; $attempt++) {
+            $rev = Wait-Cell $sj 'D1' { param($t) $t -match '^\d+$' } -TimeoutMs 4000
+            if ($rev -notmatch '^\d+$') {
+                Start-Sleep -Milliseconds 250
+                Invoke-Com { $sj.Range('D1').Formula = '=NatsUDFKVPutJSON("' + $j6Bucket + '","cfg",A1:B2,"' + $NatsUrl + '")' } | Out-Null
+            }
+        }
         Assert "Journey6: the JSON range was written to KV (a revision came back)" ($rev -match '^\d+$')
         # Expand the stored JSON back into the sheet: JSONToMatrix over the KV
         # read, indexed cell by cell. (A multi-cell FormulaArray registration is
@@ -964,6 +1064,57 @@ if (-not $SkipJourneys -and -not $readOnly) {
         Log "  KV JSON round trip = $($rt -join '|')"
         Assert "Journey6: the JSON range round-tripped through KV and back" `
             (($rt[0] -match '^10') -and ($rt[1] -match '^20') -and ($rt[2] -match '^30') -and ($rt[3] -match '^40'))
+
+        # The three KV RTD kinds on this same bucket: KVGET polls the key, KVKEYS
+        # lists it, KV watches the entry subject and follows a revision.
+        Invoke-Com { $sj.Range('E1').Formula = '=RTD(' + $rtdQuoted + '"KVGET","' + $j6Bucket + '","cfg","' + $NatsUrl + '")' } | Out-Null
+        $kvgetCell = Wait-Cell $sj 'E1' { param($t) $t -match '^\[\[10' } -TimeoutMs 20000
+        Log "  RTD KVGET cell = '$kvgetCell'"
+        Assert "Journey6: the RTD KVGET cell shows the stored JSON" ($kvgetCell -match '^\[\[10')
+
+        Invoke-Com { $sj.Range('E2').Formula = '=RTD(' + $rtdQuoted + '"KVKEYS","' + $j6Bucket + '","' + $NatsUrl + '")' } | Out-Null
+        $kvkeysCell = Wait-Cell $sj 'E2' { param($t) $t -match 'cfg' } -TimeoutMs 20000
+        Log "  RTD KVKEYS cell = '$kvkeysCell'"
+        Assert "Journey6: the RTD KVKEYS cell lists the key" ($kvkeysCell -match 'cfg')
+
+        # The KV kind is a WATCH: a Core subscription on the entry subject, so it
+        # sees revisions published AFTER it goes live (Core is at-most-once, and the
+        # current value is not replayed). Publish until the cell follows, the same
+        # retry idiom the rest of this suite uses. H1 holds the value as TEXT: a
+        # cell that has held a text-valued formula rejects a numeric assignment with
+        # a COM InvalidCastException in this Excel build.
+        Invoke-Com { $sj.Range('E3').Formula = '=RTD(' + $rtdQuoted + '"KV","' + $j6Bucket + '","cfg","' + $NatsUrl + '")' } | Out-Null
+        $kvFollow = ''
+        for ($attempt = 1; $attempt -le 6 -and $kvFollow -notmatch '^9'; $attempt++) {
+            Invoke-Com { $sj.Range('H1').Value2 = ('9' + $attempt) } | Out-Null
+            Invoke-Com { $sj.Range('H2').Formula = '=NatsUDFKVPutNonVolatile("' + $j6Bucket + '","cfg",H1,"' + $NatsUrl + '")' } | Out-Null
+            $kvFollow = Wait-Cell $sj 'E3' { param($t) $t -match '^9\d$' } -TimeoutMs 4000
+        }
+        Log "  RTD KV watch cell = '$kvFollow'"
+        Assert "Journey6: the RTD KV watch follows a revision" ($kvFollow -match '^9\d$')
+
+        # The OBJ kind watches an object's METADATA (never its body), so it has the
+        # same push semantics: create the bucket, register the cell, then put.
+        $j6Obj = ($SubjectPrefix -replace '[^A-Za-z0-9]', '_') + '_J6O'
+        $objFile = Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e-object.txt'
+        try {
+            [System.IO.File]::WriteAllText($objFile, 'e2e-object', [System.Text.Encoding]::ASCII)
+            Invoke-NatsCli @('object', 'del', $j6Obj, '-f', '--server', $NatsUrl) | Out-Null
+            Invoke-NatsCli @('object', 'add', $j6Obj, '--server', $NatsUrl) | Out-Null
+            Invoke-Com { $sj.Range('F1').Formula = '=RTD(' + $rtdQuoted + '"OBJ","' + $j6Obj + '","cfg.txt","' + $NatsUrl + '")' } | Out-Null
+            $objCell = ''
+            for ($attempt = 1; $attempt -le 6 -and $objCell -notmatch 'cfg\.txt'; $attempt++) {
+                Invoke-NatsCli @('object', 'put', $j6Obj, $objFile, '--name', 'cfg.txt', '--server', $NatsUrl) | Out-Null
+                $objCell = Wait-Cell $sj 'F1' { param($t) $t -match 'cfg\.txt' } -TimeoutMs 4000
+            }
+            Log "  RTD OBJ cell = '$objCell'"
+            Assert "Journey6: the RTD OBJ cell shows the object metadata" ($objCell -match 'cfg\.txt')
+            Invoke-NatsCli @('object', 'del', $j6Obj, '-f', '--server', $NatsUrl) | Out-Null
+        } catch {
+            Skip "Journey6 RTD OBJ cell (nats CLI object support unavailable)"
+        }
+        Remove-Item $objFile -Force -ErrorAction SilentlyContinue
+
         Close-Excel $xj
         Invoke-NatsCli @('kv', 'del', $j6Bucket, '--server', $NatsUrl, '--force') | Out-Null
     } else {
@@ -1105,15 +1256,22 @@ if ($isLocal -and -not $SkipNodeKill -and -not $readOnly) {
         # Prove that data still flows after the node died: a fresh SUB on a new
         # subject plus a UDF publish must reach the cell. A cell that merely
         # stops updating would pass a "did not crash" check but fail a user.
+        # The SUB goes on the wire asynchronously and Core is at-most-once (worse
+        # right after a node kill, while the client reconnects), so the publish is
+        # retried with a CHANGING payload (a repeated identical one would be
+        # suppressed by SkipRepeatedMessages) until the cell shows it.
         $afterSubject = "$SubjectPrefix.fail"
         $failReady = Wait-Cell $ws 'A1' { param($t) -not [string]::IsNullOrWhiteSpace($t) } -TimeoutMs 20000
-        Invoke-Com { $ws.Range('A3').Value2 = 'post-failover' } | Out-Null
-        Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublishNonVolatile("' + $afterSubject + '",A3,"' + $NatsUrl + '")' } | Out-Null
-        Invoke-Com { $ws.Range('A4').Formula = '=RTD("NatsRtd",,"SUB","' + $afterSubject + '","","' + $NatsUrl + '")' } | Out-Null
-        $failValue = Wait-Cell $ws 'A4' { param($t) $t -eq 'post-failover' } -TimeoutMs 25000
+        Invoke-Com { $ws.Range('A4').Formula = '=RTD(' + $rtdQuoted + '"SUB","' + $afterSubject + '","","' + $NatsUrl + '")' } | Out-Null
+        $failValue = ''
+        for ($attempt = 1; $attempt -le 8 -and $failValue -notmatch '^post-failover-\d+$'; $attempt++) {
+            Invoke-Com { $ws.Range('A3').Value2 = ('post-failover-' + $attempt) } | Out-Null
+            Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublishNonVolatile("' + $afterSubject + '",A3,"' + $NatsUrl + '")' } | Out-Null
+            $failValue = Wait-Cell $ws 'A4' { param($t) $t -match '^post-failover-\d+$' } -TimeoutMs 6000
+        }
         Log "  after-kill RTD cell = $failValue"
         if ($killed) {
-            Assert "Failover: data still flows after the node died" ($failValue -eq 'post-failover')
+            Assert "Failover: data still flows after the node died" ($failValue -match '^post-failover-\d+$')
         } else {
             Skip "Failover: data still flows after the node died"
         }

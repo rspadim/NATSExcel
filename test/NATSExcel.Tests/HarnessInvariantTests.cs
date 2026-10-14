@@ -91,5 +91,36 @@ namespace NATSExcel.Tests
             Assert.Contains("function Test-Ours(", src);
             Assert.Contains("leaving it alone", src);
         }
+
+        /// <summary>
+        /// The harness must give each node a monitoring port, or the smoke suite's
+        /// wire-level refcount proof (which asks /connz on port+4000) can only ever
+        /// SKIP. The unit test pins the conf line because a "helpful" cleanup there
+        /// would silently downgrade a real proof to a skip again.
+        /// </summary>
+        [Fact]
+        public void TheHarnessExposesAMonitoringPortForConnz()
+        {
+            string src = Read(Path.Combine("test", "TestSupport", "Start-Cluster.ps1"));
+
+            Assert.Contains("http_port: $monitorPort", src);
+            Assert.Contains("$monitorPort = $port + 4000", src);
+        }
+
+        /// <summary>
+        /// The smoke suite parses /connz's <c>subscriptions_list</c> as an ARRAY of
+        /// subject names (?subs=1). It was parsed as a JObject, so the probe always
+        /// answered "no monitoring port" - the check could never pass even against a
+        /// server that exposed /connz, and the wire-level proof of "one physical
+        /// subscription for N listeners" never ran.
+        /// </summary>
+        [Fact]
+        public void TheConnzProbeParsesTheSubscriptionListTheServerSends()
+        {
+            string src = Read(Path.Combine("test", "SmokeTests", "Program.cs"));
+
+            Assert.Contains("connection[\"subscriptions_list\"] as JArray", src);
+            Assert.DoesNotContain("connection[\"subscriptions_list\"] as JObject", src);
+        }
     }
 }
