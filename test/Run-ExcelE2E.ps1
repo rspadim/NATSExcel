@@ -51,6 +51,14 @@ param(
     [switch]$SkipExtraChecks,
     # Skip the user-journey block (journeys 1-8 below) and run the rest.
     [switch]$SkipJourneys,
+    # Observe only: skip every write (publishes, stream/consumer/KV/object
+    # creation) and the destructive node-kill step, keeping the read paths. It is
+    # forced ON for a non-local endpoint (see below): D6 in PLAN.md says a real
+    # server is read-only by default.
+    [switch]$ReadOnly,
+    # Opt IN to writing to a non-local endpoint. Without it the script refuses to
+    # start, because pointing this suite at a real feed would publish to it.
+    [switch]$AllowRemoteWrites,
     # A second, INDEPENDENT endpoint (a different server, not another node of
     # the same cluster) for the multi-cluster journey. On a local host with none
     # given, the script starts a disposable one-node server on <port>+10 itself
@@ -308,9 +316,23 @@ function Invoke-NatsCli {
 $isLocal = $NatsUrl -match '127\.0\.0\.1|localhost|\[::1\]'
 $pub = "$SubjectPrefix.core"
 
+# This suite PUBLISHES, creates streams/consumers and (in the node-kill step)
+# stops a server. Pointing it at a real feed is therefore a production incident,
+# not a test run: a non-local endpoint is refused unless writing to it is an
+# explicit, deliberate choice. D6 in PLAN.md: a real server is read-only by
+# default. -ReadOnly (or a non-local endpoint) also skips every write below and
+# keeps only the read paths, so a feed can be observed without touching it.
+$readOnly = $ReadOnly -or (-not $isLocal)
+if (-not $isLocal -and -not $AllowRemoteWrites) {
+    throw ("refusing to run against the non-local endpoint ${NatsUrl}: this suite writes " +
+           "(publishes, stream/consumer/KV/object creation) and stops a node. If that server " +
+           "really is a disposable sandbox, re-run with -AllowRemoteWrites; to only OBSERVE a " +
+           "feed, pass -ReadOnly.")
+}
+
 Log "=== NATSExcel E2E ==="
 Log "xll    : $Xll"
-Log "nats   : $NatsUrl  (local=$isLocal, bound=${BoundMs}ms)"
+Log "nats   : $NatsUrl  (local=$isLocal, bound=${BoundMs}ms, readOnly=$readOnly)"
 Log (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'test\TestSupport\Get-AntivirusState.ps1'))
 Assert "XLL exists" (Test-Path $Xll)
 
@@ -323,30 +345,43 @@ $ws = $wb.Worksheets.Item(1)
 $ws.Name = 'E2E'
 
 Invoke-Com { $ws.Range('A1').Formula = '=NatsUDFVersion()' } | Out-Null
-Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublish("' + $pub + '","hello","' + $NatsUrl + '")' } | Out-Null
-Invoke-Com { $ws.Range('A3').Formula = '=NatsUDFSubjectLatest("' + $pub + '","","' + $NatsUrl + '")' } | Out-Null
+if (-not $readOnly) {
+    Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublish("' + $pub + '","hello","' + $NatsUrl + '")' } | Out-Null
+    Invoke-Com { $ws.Range('A3').Formula = '=NatsUDFSubjectLatest("' + $pub + '","","' + $NatsUrl + '")' } | Out-Null
+}
 Invoke-Com { $excel.CalculateFullRebuild() } | Out-Null
 
 $version = Wait-Cell $ws 'A1' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^#' }
-$marker = Wait-Cell $ws 'A2' { param($t) $t -match '^(OK|Error|#)' }
-Log "  version=$version publish=$marker"
+Log "  version=$version"
 Assert "UDF: the XLL answers (packing OK)" (-not [string]::IsNullOrWhiteSpace($version) -and $version -notmatch '^#')
-# The publish must return the OK marker, never an error or a pending #N/A: the
-# earlier predicate accepted "Error" and "#", so a broken write could pass.
-Assert "UDF: publish returns the OK marker" ($marker -match '^OK')
 
-# The read is the actual write -> read proof (a bare "returns something" check
-# let the round trip fail silently). The SUB registers asynchronously and Core
-# NATS is at-most-once, so re-publish until the latest-read cell observes the
-# value; a one-shot read could legitimately race the subscription to (null).
-$latest = '(null)'
-for ($attempt = 1; $attempt -le 10; $attempt++) {
-    Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublish("' + $pub + '","hello","' + $NatsUrl + '")' } | Out-Null
-    $latest = Wait-Cell $ws 'A3' { param($t) $t -eq 'hello' } 2500
-    if ($latest -eq 'hello') { break }
+if ($readOnly) {
+    # Observe-only: publishing would touch the endpoint, so the write/read pair is
+    # skipped rather than asserted (the read paths below still run).
+    Log "  (read-only: skipping the publish and the round trip)"
+} else {
+    # Wait for a TERMINAL marker: under AsyncWrites the cell shows the pending
+    # "#N/A" first, and an earlier predicate that accepted "#" stopped there and
+    # then asserted "OK" against it. Only "OK..." or a named "Error:" settles.
+    $marker = Wait-Cell $ws 'A2' { param($t) $t -match '^OK' -or $t -match '^Error' }
+    Log "  publish=$marker"
+    # The publish must return the OK marker, never an error or a pending #N/A: the
+    # earlier predicate accepted "Error" and "#", so a broken write could pass.
+    Assert "UDF: publish returns the OK marker" ($marker -match '^OK')
+
+    # The read is the actual write -> read proof (a bare "returns something" check
+    # let the round trip fail silently). The SUB registers asynchronously and Core
+    # NATS is at-most-once, so re-publish until the latest-read cell observes the
+    # value; a one-shot read could legitimately race the subscription to (null).
+    $latest = '(null)'
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        Invoke-Com { $ws.Range('A2').Formula = '=NatsUDFPublish("' + $pub + '","hello","' + $NatsUrl + '")' } | Out-Null
+        $latest = Wait-Cell $ws 'A3' { param($t) $t -eq 'hello' } 2500
+        if ($latest -eq 'hello') { break }
+    }
+    Log "  latest=$latest"
+    Assert "UDF: the published value is read back (write -> read round trip)" ($latest -eq 'hello')
 }
-Log "  latest=$latest"
-Assert "UDF: the published value is read back (write -> read round trip)" ($latest -eq 'hello')
 
 # RTD SUB: use a DEDICATED subject and a NON-VOLATILE publisher. A volatile
 # publish cell (A2 above) is recalculated on every calculation and republishes,
@@ -360,23 +395,28 @@ Assert "UDF: the published value is read back (write -> read round trip)" ($late
 $rtdSubject = "$SubjectPrefix.rtd"
 Invoke-Com { $ws.Range('A5').Formula = '=RTD("NatsRtd",,"SUB","' + $rtdSubject + '","","' + $NatsUrl + '")' } | Out-Null
 $rtdReady = Wait-Cell $ws 'A5' { param($t) -not [string]::IsNullOrWhiteSpace($t) }
-Invoke-Com { $ws.Range('C1').Value2 = 'rtd-0' } | Out-Null
-Invoke-Com { $ws.Range('A6').Formula = '=NatsUDFPublishNonVolatile("' + $rtdSubject + '",C1,"' + $NatsUrl + '")' } | Out-Null
-$rtdFirst = ''
-for ($attempt = 1; $attempt -le 6; $attempt++) {
-    $try = "rtd-$attempt"
-    Invoke-Com { $ws.Range('C1').Value2 = $try } | Out-Null
-    $rtdFirst = Wait-Cell $ws 'A5' { param($t) $t -eq $try }
-    if ($rtdFirst -eq $try) { break }
-}
-# A later argument change must re-run the write and update the cell.
-$rtdTarget = 'rtd-after'
-Invoke-Com { $ws.Range('C1').Value2 = $rtdTarget } | Out-Null
-$rtdAfter = Wait-Cell $ws 'A5' { param($t) $t -eq $rtdTarget }
-Log "  RTD ready=$rtdReady first=$rtdFirst after=$rtdAfter"
 Assert "RTD: SUB did not error" ($rtdReady -notmatch '#ERROR')
-Assert "RTD: a push reached the cell" ($rtdFirst -match '^rtd-\d+$')
-Assert "RTD: a later push updated the cell" ($rtdAfter -eq $rtdTarget)
+
+if ($readOnly) {
+    Log "  RTD ready=$rtdReady (read-only: skipping the publishes and the push checks)"
+} else {
+    Invoke-Com { $ws.Range('C1').Value2 = 'rtd-0' } | Out-Null
+    Invoke-Com { $ws.Range('A6').Formula = '=NatsUDFPublishNonVolatile("' + $rtdSubject + '",C1,"' + $NatsUrl + '")' } | Out-Null
+    $rtdFirst = ''
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        $try = "rtd-$attempt"
+        Invoke-Com { $ws.Range('C1').Value2 = $try } | Out-Null
+        $rtdFirst = Wait-Cell $ws 'A5' { param($t) $t -eq $try }
+        if ($rtdFirst -eq $try) { break }
+    }
+    # A later argument change must re-run the write and update the cell.
+    $rtdTarget = 'rtd-after'
+    Invoke-Com { $ws.Range('C1').Value2 = $rtdTarget } | Out-Null
+    $rtdAfter = Wait-Cell $ws 'A5' { param($t) $t -eq $rtdTarget }
+    Log "  RTD first=$rtdFirst after=$rtdAfter"
+    Assert "RTD: a push reached the cell" ($rtdFirst -match '^rtd-\d+$')
+    Assert "RTD: a later push updated the cell" ($rtdAfter -eq $rtdTarget)
+}
 
 # JetStream + KV: each must return a value or a NAMED error, never a hang/blank.
 Invoke-Com { $ws.Range('A8').Formula = '=NatsUDFKVGet("NoSuchBucket","k","' + $NatsUrl + '")' } | Out-Null
@@ -423,7 +463,7 @@ Log "  (steps 1-2 done, fails=$fails, comRetries=$comRetries)"
 #    pointing at a dead node, so any later cell on that URL could not reach
 #    the cluster).
 # ---------------------------------------------------------------------------
-if (-not $SkipExtraChecks) {
+if (-not $SkipExtraChecks -and -not $readOnly) {
 
     # ----------------------------------------------------------------------
     # 3a. Two Excel processes at once on the SAME subject. The runtime is
@@ -609,7 +649,7 @@ if (-not $SkipExtraChecks) {
 #    async pending marker. Every wait is condition-based; a scenario that cannot
 #    run prints SKIP, never FAIL.
 # ---------------------------------------------------------------------------
-if (-not $SkipJourneys) {
+if (-not $SkipJourneys -and -not $readOnly) {
 
     # The config file the add-in folder carries; rewriting it only happens when
     # this script built that throwaway copy.
@@ -833,12 +873,22 @@ if (-not $SkipJourneys) {
         # read, indexed cell by cell. (A multi-cell FormulaArray registration is
         # not reliable across Excel builds under COM; INDEX is.)
         $j6Read = 'NatsUDFKVGet("' + $j6Bucket + '","cfg","' + $NatsUrl + '")'
+        # The reads are async and the FIRST one can still observe the key as absent
+        # (returning the "(null)" marker, which JSONToMatrix then rejects with
+        # "invalid JSON: Unexpected character: ("), while the next three read the
+        # value - a run-to-run flake. Re-enter the formulas until the whole range
+        # round-trips, the same retry idiom the rest of this suite uses.
         $rt = @()
-        foreach ($spec in @('D3,1,1', 'E3,1,2', 'D4,2,1', 'E4,2,2')) {
-            $parts = $spec.Split(',')
-            $addr = $parts[0]; $r = $parts[1]; $c = $parts[2]
-            Invoke-Com { $sj.Range($addr).Formula = '=INDEX(NatsUDFJSONToMatrix(' + $j6Read + '),' + $r + ',' + $c + ')' } | Out-Null
-            $rt += (Wait-Cell $sj $addr { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect|^#' })
+        for ($attempt = 1; $attempt -le 4; $attempt++) {
+            $rt = @()
+            foreach ($spec in @('D3,1,1', 'E3,1,2', 'D4,2,1', 'E4,2,2')) {
+                $parts = $spec.Split(',')
+                $addr = $parts[0]; $r = $parts[1]; $c = $parts[2]
+                Invoke-Com { $sj.Range($addr).Formula = '=INDEX(NatsUDFJSONToMatrix(' + $j6Read + '),' + $r + ',' + $c + ')' } | Out-Null
+                $rt += (Wait-Cell $sj $addr { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect|^#' })
+            }
+            if (($rt[0] -match '^10') -and ($rt[1] -match '^20') -and ($rt[2] -match '^30') -and ($rt[3] -match '^40')) { break }
+            Start-Sleep -Milliseconds 250
         }
         Log "  KV JSON round trip = $($rt -join '|')"
         Assert "Journey6: the JSON range round-tripped through KV and back" `
@@ -947,7 +997,7 @@ if (-not $KeepExcelOpen) { Close-Excel $excel } else { $excel.Visible = $true }
 # 6. Cluster failover: kill the node the add-in is on, expect recovery. LAST,
 #    because it is destructive: it leaves the URL pointing at a dead node.
 # ---------------------------------------------------------------------------
-if ($isLocal -and -not $SkipNodeKill) {
+if ($isLocal -and -not $SkipNodeKill -and -not $readOnly) {
     $port = ([Uri]$NatsUrl).Port
     $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     $ownerPid = if ($conn) { $conn.OwningProcess } else { $null }
