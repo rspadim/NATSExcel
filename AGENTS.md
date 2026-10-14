@@ -13,8 +13,10 @@ integrates **NATS** with Excel, sibling to the **RedisExcel** project:
   **JetStream** (streams, consumers, replay, Key/Value, Object Store).
 - Backends: **NATS.Net** (v3), NLog, Newtonsoft.Json.
 
-Read `DESIGN.md` for the architecture and the full function catalog. It is the
-contract; this file is the working guidance.
+Read `docs/PUBLIC-SURFACE.md` for the frozen per-function catalog (the contract
+users' spreadsheets depend on). The architecture and planning notes (`DESIGN.md`,
+`PLAN.md`) are maintainer working copies kept on disk and deliberately not
+published; this file is the working guidance.
 
 > **Implementation status (read this first).** The add-in is implemented and
 > released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
@@ -493,3 +495,11 @@ assets, using the CHANGELOG section for the tag as the release body. Releases
 `Name` (shown as `dev` for local builds) is the tag read from
 `AssemblyInformationalVersion`; `INFORMATIONALVERSION` defaults to `dev` in
 `NATSExcel.csproj`.
+
+The landing page (`docs/`, published to GitHub Pages by
+`.github/workflows/pages.yml`) is a **release-adjacent** artifact, not a per-change
+one: `pages.yml` only runs when `docs/**` or `mkdocs.yml` change, and the page is
+worth revisiting **when the version changes** (the download section and the
+`vX.Y.Z` strings), not after every fix. A push that touches only code and tests
+does not redeploy it, and that is expected - do not go looking for a Pages run to
+verify it.
