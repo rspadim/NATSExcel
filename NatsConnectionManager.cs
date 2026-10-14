@@ -660,8 +660,14 @@ namespace NATSExcel
 
             // Apply the effective reconnect policy. The values were parsed and
             // merged but never reached the client, so the knobs were dead. -1
-            // means unlimited (the client's own convention); a non-positive wait
-            // is clamped away from zero by the client, so only set positives.
+            // means unlimited (the client's own convention) - and so does 0: the
+            // client bounds the retries only when MaxReconnectRetry > 0, so a
+            // declared 0 leaves the unlimited default in place (verified against
+            // NATS.Client.Core 3.3.0: the option documents "-1, unlimited" and the
+            // reconnect loop tests `> 0`). The `!= 0` below therefore means "the
+            // config did not name a positive bound", which is exactly what the
+            // client then applies. A non-positive wait is clamped away from zero by
+            // the client, so only set positives.
             var reconnect = settings.Reconnect;
             if (reconnect != null)
             {
@@ -671,9 +677,11 @@ namespace NATSExcel
                 {
                     // Min AND Max: the config exposes ONE wait, so it is the wait.
                     // Setting only the minimum would let the client double it up to
-                    // its own default ceiling (10s), so a hand-configured "waitMs":
-                    // 2000 would really wait 2, 4, 8, 10, 10 ... - not what the number
-                    // in the file says. Jitter stays available for spread.
+                    // its own default ceiling (5s in NATS.Client.Core 3.3.0, not the
+                    // 10s this comment used to claim), so a hand-configured
+                    // "waitMs": 2000 would really wait 2, 4, 5, 5 ... - not what the
+                    // number in the file says. Jitter stays available for spread
+                    // (it is added after the clamp, so it is never swallowed).
                     var wait = TimeSpan.FromMilliseconds(reconnect.WaitMs);
                     options = options with { ReconnectWaitMin = wait, ReconnectWaitMax = wait };
                 }

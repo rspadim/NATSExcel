@@ -84,7 +84,7 @@ replacement of the XLL/installer.
   hidden instance on the failure path.
 - **`reconnect.waitMs` is now the whole wait**, not just its floor: the value is
   applied as both `ReconnectWaitMin` and `ReconnectWaitMax`, so `"waitMs": 2000`
-  waits 2s per attempt instead of doubling toward the client's own 10s ceiling
+  waits 2s per attempt instead of doubling toward the client's own 5s ceiling
   (`jitterMs` still spreads it). The schema says so.
 - **The test harness exposes a monitoring port per node** (`http_port: <client
   port>+4000`), so the smoke suite's wire-level refcount proof really runs; it is

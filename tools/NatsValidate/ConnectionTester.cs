@@ -41,7 +41,7 @@ namespace NatsExcel.Tools
                 ConnectTimeout = TimeSpan.FromMilliseconds(timeout),
                 AuthOpts = BuildAuth(endpoint.Auth),
                 TlsOpts = BuildTls(endpoint.Auth),
-                MaxReconnectRetry = 0, // a validator must fail fast, not retry forever
+                MaxReconnectRetry = 1, // one retry at most: a validator must fail fast (0 and -1 BOTH mean unlimited to the client, which bounds only when the value is > 0 - verified against NATS.Client.Core 3.3.0)
             };
 
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout + 2000));

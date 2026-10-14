@@ -255,7 +255,12 @@ function Test-OwnedTestServer([int]$port) {
 
     $roots = @(
         (Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-cluster'),
-        (Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e-server2')
+        (Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-e2e-server2'),
+        # The parallel runner starts its layers' clusters under its OWN temp root
+        # (Run-Tests.ps1 -WithE2E), so a run driven by it must recognize them too -
+        # without this the ownership proof failed and the failover journey reported
+        # SKIP in the documented -WithE2E path (a permanent SKIP is a defect).
+        (Join-Path ([System.IO.Path]::GetTempPath()) 'natsexcel-tests')
     )
     foreach ($dir in $roots) {
         if ($cmd -like "*$dir*") { return $true }
@@ -758,15 +763,18 @@ if (-not $SkipExtraChecks -and -not $readOnly) {
     Assert "RTD: an unresolvable reference is a named #ERROR (never a hidden default)" `
         ($dangling -match 'does not resolve to an endpoint')
 
-    # The two Tier-1 RTDCLUSTER values (no $SYS account needed).
+    # The two Tier-1 RTDCLUSTER values (no $SYS account needed). The predicates
+    # reject EVERY '#'-prefixed marker, not just #ERROR: Excel's own #N/D/#VALUE!
+    # (e.g. an RTD server that failed to register, AGENTS lesson 6) must not satisfy
+    # "the cluster cell answers".
     Invoke-Com { $srt.Range('A4').Formula = '=RTD(' + $rtdQuoted + '"RTDCLUSTER","cluster","' + $NatsUrl + '")' } | Out-Null
-    $clusterCell = Wait-Cell $srt 'A4' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect' }
-    Assert "RTD: RTDCLUSTER cluster answers (never an #ERROR when INFO is available)" `
-        ($clusterCell -and $clusterCell -notmatch '^#ERROR')
+    $clusterCell = Wait-Cell $srt 'A4' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect|^#' }
+    Assert "RTD: RTDCLUSTER cluster answers (no error marker)" `
+        ($clusterCell -and $clusterCell -notmatch '^#')
 
     Invoke-Com { $srt.Range('A5').Formula = '=RTD(' + $rtdQuoted + '"RTDCLUSTER","nodes","' + $NatsUrl + '")' } | Out-Null
-    $nodesCell = Wait-Cell $srt 'A5' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect' }
-    Assert "RTD: RTDCLUSTER nodes answers" ($nodesCell -and $nodesCell -notmatch '^#ERROR')
+    $nodesCell = Wait-Cell $srt 'A5' { param($t) -not [string]::IsNullOrWhiteSpace($t) -and $t -notmatch '^\(Connect|^#' }
+    Assert "RTD: RTDCLUSTER nodes answers (no error marker)" ($nodesCell -and $nodesCell -notmatch '^#')
 
     # The 255 bound at RUNTIME (the unit source-scan only pins that the call is
     # there). Excel-DNA truncates at 255 silently, so the marker must come from us.

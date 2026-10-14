@@ -2045,12 +2045,28 @@ namespace NATSExcel.SmokeTests
                 new KeyValuePair<string, object>("NatsUDFPublishWithHeaders",
                     NatsUdfCore.NatsUDFPublishWithHeaders(subject, "with-headers", headers, null)),
                 new KeyValuePair<string, object>("NatsUDFRequestJSON", NatsUdfCore.NatsUDFRequestJSON(subject, single, 500, null)),
-                new KeyValuePair<string, object>("NatsUDFSubjectLatestJSON", NatsUdfCore.NatsUDFSubjectLatestJSON(subject, null, null)),
             };
 
             foreach (var call in calls)
                 Check(IsUsableCell(call.Value),
                     "sweep: " + call.Key + " answers a usable cell (got '" + DescribeCell(call.Value) + "')");
+
+            // SubjectLatestJSON gets a REAL value assertion rather than the generic
+            // "usable cell": it subscribes on first use and Core is at-most-once, so
+            // it is warmed until it reads a payload back. Without this the sweep
+            // passed on the "(null)" marker - a wrong-but-nonempty value is exactly
+            // what IsUsableCell cannot catch.
+            object latestJson = null;
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                NatsUdfCore.NatsUDFPublishJSON(subject, single, null);
+                latestJson = NatsUdfCore.NatsUDFSubjectLatestJSON(subject, null, null);
+                if (!IsNullMarkerCell(latestJson))
+                    break;
+                Thread.Sleep(50);
+            }
+            Check(!IsNullMarkerCell(latestJson),
+                "sweep: NatsUDFSubjectLatestJSON reads a published JSON range back (got '" + DescribeCell(latestJson) + "')");
 
             // The sweep registered a listener through SubjectLatestJSON; leave none
             // behind for the checks that follow.
@@ -2085,6 +2101,18 @@ namespace NATSExcel.SmokeTests
                 return text.Length > 0 && !text.StartsWith("#", StringComparison.Ordinal);
 
             return true;   // double / bool / DateTime
+        }
+
+        /// <summary>TRUE when the cell is the "(null)" marker (a 1x1 matrix holding
+        /// it, or a bare null): the "nothing received yet" answer, which is a wrong
+        /// but non-empty value for a read that is supposed to have warmed up.</summary>
+        private static bool IsNullMarkerCell(object value)
+        {
+            if (value == null)
+                return true;
+            if (value is object[,] matrix && matrix.Length == 1)
+                return string.Equals(matrix.GetValue(0, 0) as string, NatsUdfCommon.NullValue, StringComparison.Ordinal);
+            return false;
         }
 
         /// <summary>One line for a failure message, whatever the cell shape is.</summary>

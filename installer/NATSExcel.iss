@@ -44,6 +44,15 @@
 AppId={{C41A7E52-9D3B-4F2E-8A17-2B6C0E4D9F51}
 AppName={#AppName}
 AppVersion={#AppVersion}
+; The PE's FileVersion: without this the installer's ProductVersion is right (it
+; comes from AppVersion) but Explorer's Details tab shows an EMPTY "File version"
+; and inventory/AV tooling that keys on FileVersion reads 0.0.0.0. Inno pads the
+; three-part value to 0.1.2.0.
+VersionInfoVersion={#AppVersion}
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}
+VersionInfoDescription={#AppName} Setup
+VersionInfoCompany={#AppPublisher}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}/issues

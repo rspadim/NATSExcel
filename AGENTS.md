@@ -54,8 +54,11 @@ published; this file is the working guidance.
    `UpdateCheck`. A cluster's `auth` merges OVER the shared `Auth` field by
    field. `reconnect.waitMs` is applied as BOTH `ReconnectWaitMin` and
    `ReconnectWaitMax` (the configured number is the wait, not its floor, which
-   would let the client double it toward its own 10 s ceiling); `jitterMs` spreads
-   it. (An earlier draft nested the settings under `Default` with a top-level
+   would let the client double it toward its own 5 s ceiling in
+   NATS.Client.Core 3.3.0); `jitterMs` spreads it, and it is added after the clamp
+   so it is never swallowed. `maxAttempts` is bounded by the client only when it is
+   POSITIVE, so `-1` and `0` both mean unlimited (there is no "no retry at all").
+   (An earlier draft nested the settings under `Default` with a top-level
    `Auth`/`UDF`; `Config.cs` accepts a nested `Default` only as a back-compat
    fallback and never reads a `UDF` block.)
 4. All NATS access goes through `NatsRuntime`

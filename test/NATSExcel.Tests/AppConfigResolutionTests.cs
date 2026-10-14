@@ -415,10 +415,14 @@ namespace NATSExcel.Tests
         }
 
         [Fact]
-        public void ResolveSettings_ClusterReconnectZero_DisablesTheSharedRetry()
+        public void ResolveSettings_ClusterReconnectZero_OverridesTheSharedValue()
         {
-            // `0` is a meaningful value (no retry). A declared 0 must override a
-            // shared non-zero, not be read as "not declared".
+            // A declared 0 must override a shared non-zero, not be read as "not
+            // declared" (the merge is about PRESENCE, not about what the value then
+            // means to the client). Note the client's own semantics, verified against
+            // NATS.Client.Core 3.3.0: it bounds retries only when MaxReconnectRetry
+            // is > 0, so 0 and -1 BOTH mean unlimited - there is no way to ask for
+            // "no retry at all" through this option.
             var root = Parse(@"{
                 ""Default"": ""local"",
                 ""Reconnect"": { ""maxAttempts"": 60, ""waitMs"": 2000 },

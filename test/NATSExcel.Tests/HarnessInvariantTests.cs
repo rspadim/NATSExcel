@@ -112,6 +112,20 @@ namespace NATSExcel.Tests
         }
 
         /// <summary>
+        /// The ownership proof must recognize the clusters the PARALLEL RUNNER starts
+        /// (<c>Run-Tests.ps1 -WithE2E</c> puts each layer's cluster under its own temp
+        /// root), or the proof fails there and the failover journey silently SKIPs in
+        /// the documented path - a permanent SKIP is a defect (lesson 10).
+        /// </summary>
+        [Fact]
+        public void TheOwnershipProofCoversTheRunnersWorkRoot()
+        {
+            string src = Read(Path.Combine("test", "Run-ExcelE2E.ps1"));
+
+            Assert.Contains("'natsexcel-tests'", src);
+        }
+
+        /// <summary>
         /// The harness must give each node a monitoring port, or the smoke suite's
         /// wire-level refcount proof (which asks /connz on port+4000) can only ever
         /// SKIP. The unit test pins the conf line because a "helpful" cleanup there

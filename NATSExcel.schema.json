@@ -50,8 +50,8 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647 },
-              "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Fixed wait between reconnection attempts, in milliseconds. This is the whole wait: it is applied as both the minimum and the maximum, so the delay does not grow past it (jitterMs spreads it)." },
+              "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647, "description": "Reconnect attempts. -1 (or 0) means unlimited: the NATS client bounds the retries only for a positive value, so there is no way to ask for \"no retry at all\" through this key." },
+              "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Fixed wait between reconnection attempts, in milliseconds. This is the whole wait: it is applied as both the minimum and the maximum, so the delay does not grow past it (jitterMs spreads it). 0 leaves the client's own schedule: 2 s doubling to its 5 s ceiling." },
               "jitterMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
             }
           }
@@ -79,8 +79,8 @@
       "additionalProperties": false,
       "description": "Shared reconnection defaults; a cluster may override them.",
       "properties": {
-        "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647, "description": "-1 means unlimited." },
-        "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Fixed wait between reconnection attempts, in milliseconds. This is the whole wait: it is applied as both the minimum and the maximum, so the delay does not grow past it (jitterMs spreads it)." },
+        "maxAttempts": { "type": "integer", "minimum": -1, "maximum": 2147483647, "description": "Reconnect attempts. -1 (or 0) means unlimited: the NATS client bounds the retries only for a positive value, so there is no way to ask for \"no retry at all\" through this key." },
+        "waitMs": { "type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Fixed wait between reconnection attempts, in milliseconds. This is the whole wait: it is applied as both the minimum and the maximum, so the delay does not grow past it (jitterMs spreads it). 0 leaves the client's own schedule: 2 s doubling to its 5 s ceiling." },
         "jitterMs": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
       }
     },
