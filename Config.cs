@@ -302,7 +302,14 @@ namespace NATSExcel
                     // A cluster's auth/reconnect merge OVER the shared ones.
                     c.AuthOverrides = HasAnyAuth(cj["auth"]);
                     if (c.AuthOverrides) ReadAuth(cj["auth"], c.Auth);
-                    c.AuthDeclaredTls = (cj["auth"] as JObject)?["tls"] != null;
+                    // `tls` is implied by a client certificate (see ReadAuth), so a
+                    // cluster that declares only `tlsCert` must be treated as having
+                    // declared its TLS intent too - otherwise ApplyAuth drops the
+                    // implied Tls=true and the cluster's mTLS becomes an
+                    // opportunistic/plaintext connection that presents no cert.
+                    var clusterAuth = cj["auth"] as JObject;
+                    c.AuthDeclaredTls = clusterAuth?["tls"] != null
+                        || clusterAuth?["tlsCert"] != null;
                     ReadClusterReconnect(cj["reconnect"], c);
                     var urls = cj["urls"] as JArray;
                     if (urls != null)
@@ -427,13 +434,30 @@ namespace NATSExcel
         {
             if (string.IsNullOrEmpty(text))
                 return text;
-            string masked = UriUserInfo.Replace(text, "****@");
+            // QuotedSecretFile FIRST: the client phrases a credential-file failure
+            // as "Error loading creds file 'C:\...\user.creds'", a shape the
+            // key=value passes below never match, so the store's path would reach a
+            // cell/log unmasked.
+            string masked = QuotedSecretFile.Replace(text, "$1****$3$4");
+            masked = UriUserInfo.Replace(masked, "****@");
             masked = CredentialPairQuoted.Replace(masked, "$1$2=****");
             masked = CredentialPairPath.Replace(masked, "$1$2=****");
             masked = CredentialPairToken.Replace(masked, "$1$2=****");
             masked = JwtToken.Replace(masked, "****");
             masked = NkeySeedToken.Replace(masked, "****");
-            return masked;        }
+            return masked;
+        }
+
+        // The CLIENT's own phrasing for a credential store, e.g.
+        //   Error loading creds file 'C:\certs\user.creds'
+        //   The process cannot access the file 'C:\certs\user.nk' ...
+        //   The file 'C:\certs\client.pfx' is not a valid PFX
+        // A quoted Windows/UNC/POSIX path whose extension is a credential store
+        // (.creds/.nk/.pfx/.pem/.crt/.key) is redacted. The EXTENSION is kept
+        // (group 3) so the message still names the KIND of file, not its path.
+        private static readonly Regex QuotedSecretFile = new Regex(
+            @"(')((?:[A-Za-z]:[\\/]|\\\\[^']*?[\\/]|/)[^']*?)(\.(?:creds|nk|pfx|pem|crt|key))(')",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         // nats://user:SECRET@host / nats://:SECRET@host / nats://user@host:
         // whatever sits between '//' and '@' is URL userinfo and must be redacted.

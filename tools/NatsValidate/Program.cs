@@ -141,7 +141,10 @@ namespace NatsExcel.Tools
             if (auth == null)
                 return "none";
             if (!string.IsNullOrEmpty(auth.CredsFile)) return "creds file";
-            if (!string.IsNullOrEmpty(auth.Jwt)) return "jwt + nkey seed";
+            if (!string.IsNullOrEmpty(auth.Jwt))
+                return string.IsNullOrEmpty(auth.NkeySeed)
+                    ? "jwt WITHOUT nkey seed (operator mode needs both)"
+                    : "jwt + nkey seed";
             if (!string.IsNullOrEmpty(auth.NkeySeed)) return "nkey seed";
             if (!string.IsNullOrEmpty(auth.Token)) return "token";
             if (!string.IsNullOrEmpty(auth.User)) return "user/password";

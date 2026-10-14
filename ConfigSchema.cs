@@ -173,6 +173,7 @@ namespace NATSExcel
 
                 var issues = new List<ConfigIssue>();
                 Clean(root, issues);
+                CollectAuthCombinationIssues(root, issues);
 
                 // Cross-section checks the schema cannot express. A name present
                 // in BOTH `Clusters` and `Servers` resolves to the cluster (the
@@ -526,6 +527,38 @@ namespace NATSExcel
             {
                 return true; // a broken pattern must not drop a user value
             }
+        }
+
+        /// <summary>
+        /// Auth combinations the schema cannot express but the NATS client
+        /// rejects: a JWT needs its NKey seed (operator mode), and a password
+        /// needs a user. DESIGN §8 promises these surface as a config error, not
+        /// as a raw server "Authorization Violation" at connect time. Checks both
+        /// the shared <c>Auth</c> block and every cluster's <c>auth</c>.
+        /// </summary>
+        private static void CollectAuthCombinationIssues(JObject root, IList<ConfigIssue> issues)
+        {
+            CheckAuthCombination(root["Auth"] as JObject, "/Auth", issues);
+            var clusters = root["Clusters"] as JObject;
+            if (clusters == null)
+                return;
+            foreach (var cluster in clusters.Properties())
+                CheckAuthCombination((cluster.Value as JObject)?["auth"] as JObject,
+                    "/Clusters/" + cluster.Name + "/auth", issues);
+        }
+
+        private static void CheckAuthCombination(JObject auth, string path, IList<ConfigIssue> issues)
+        {
+            if (auth == null)
+                return;
+            bool jwt = !string.IsNullOrWhiteSpace((string)auth["jwt"]);
+            bool seed = !string.IsNullOrWhiteSpace((string)auth["nkeySeed"]);
+            bool user = !string.IsNullOrWhiteSpace((string)auth["user"]);
+            bool password = !string.IsNullOrWhiteSpace((string)auth["password"]);
+            if (jwt && !seed)
+                issues.Add(new ConfigIssue(path + "/nkeySeed", "a jwt needs nkeySeed (operator mode uses both)"));
+            if (password && !user)
+                issues.Add(new ConfigIssue(path + "/user", "a password needs user"));
         }
 
         /// <summary>The first existing config candidate (the file the loader read,

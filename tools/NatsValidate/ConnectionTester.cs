@@ -110,15 +110,49 @@ namespace NatsExcel.Tools
             // mirror the precedence documented in DESIGN.md §8.
             if (!string.IsNullOrEmpty(auth.CredsFile))
                 return new NatsAuthOpts { CredsFile = auth.CredsFile };
-            if (!string.IsNullOrEmpty(auth.Jwt) && !string.IsNullOrEmpty(auth.NkeySeed))
-                return new NatsAuthOpts { Jwt = auth.Jwt, Seed = ReadSeed(auth.NkeySeed) };
+            // A JWT is used WITH a seed (operator mode). Fire on the JWT alone so a
+            // jwt-without-seed is not silently downgraded to an anonymous connect -
+            // the previous `&&` guard fell through to NatsAuthOpts.Default and the
+            // tool then reported "OK - connected as jwt + nkey seed" for a
+            // connection that sent no credentials at all (a false green).
+            if (!string.IsNullOrEmpty(auth.Jwt))
+                return new NatsAuthOpts
+                {
+                    Jwt = auth.Jwt,
+                    Seed = string.IsNullOrEmpty(auth.NkeySeed) ? null : ReadSeed(auth.NkeySeed),
+                    NKey = string.IsNullOrEmpty(auth.NkeySeed) ? null : DerivePublicKey(ReadSeed(auth.NkeySeed)),
+                };
             if (!string.IsNullOrEmpty(auth.NkeySeed))
-                return new NatsAuthOpts { Seed = ReadSeed(auth.NkeySeed) };
+            {
+                string seed = ReadSeed(auth.NkeySeed);
+                // Seed alone is NOT enough: the client signs the nonce but only
+                // emits the "nkey" field when NKey is ALSO set, so an
+                // NKey-authenticated server rejects it with Authorization
+                // Violation. Mirror NatsConnectionManager.BuildAuth.
+                return new NatsAuthOpts { Seed = seed, NKey = DerivePublicKey(seed) };
+            }
             if (!string.IsNullOrEmpty(auth.Token))
                 return new NatsAuthOpts { Token = auth.Token };
             if (!string.IsNullOrEmpty(auth.User))
                 return new NatsAuthOpts { Username = auth.User, Password = auth.Password };
             return NatsAuthOpts.Default;
+        }
+
+        /// <summary>The public NKey derived from a seed, or null when the seed is
+        /// malformed (the connect then fails with the client's own clear error).</summary>
+        private static string DerivePublicKey(string seed)
+        {
+            if (string.IsNullOrEmpty(seed))
+                return null;
+            try
+            {
+                using (var keyPair = NATS.NKeys.KeyPair.FromSeed(seed.AsSpan()))
+                    return keyPair.GetPublicKey();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

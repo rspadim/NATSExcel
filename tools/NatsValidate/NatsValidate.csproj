@@ -17,6 +17,11 @@
   <ItemGroup>
     <PackageReference Include="NATS.Client.Core" Version="3.3.0" />
     <PackageReference Include="NATS.Client.JetStream" Version="3.3.0" />
+    <!-- No NATS.NKeys reference: KeyPair comes in transitively through
+         NATS.Client.Core (same as the add-in), so the validator derives the
+         public NKey from the seed the same way the add-in does - Seed alone is
+         not enough (the CONNECT then carries a signature and no public key, and
+         an NKey server rejects it). -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
