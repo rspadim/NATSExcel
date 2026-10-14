@@ -470,9 +470,10 @@ namespace NATSExcel
         /// the Excel thread unbounded.
         /// </summary>
         /// <remarks>
-        /// PLAN §1.4 gives the UDF section its own timeout, but <c>Config.cs</c>
-        /// does not expose it yet (F1.4); both pools therefore read
-        /// <c>Default.timeout</c> until that field lands.
+        /// The response budget is <c>Default.timeout</c> plus a fixed margin,
+        /// clamped to a floor and a ceiling. A single connection per endpoint
+        /// multiplexes every family on NATS (DESIGN.md §3), so the pool argument
+        /// only selects the budget today; all pools read the same value.
         /// </remarks>
         internal static int ResponseTimeoutMs(NatsPool pool)
         {
