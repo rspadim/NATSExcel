@@ -16,14 +16,15 @@ integrates **NATS** with Excel, sibling to the **RedisExcel** project:
 Read `DESIGN.md` for the architecture and the full function catalog. It is the
 contract; this file is the working guidance.
 
-> **Implementation status (read this first).** The add-in is now largely
-> implemented: the packed XLL loads in real Excel and answers UDFs (the P0 gate
-> passed), the full `NatsUDF*` catalog (**91** functions) plus the six `NatsRTD*`
-> status helpers exist, the RTD server runs, the Excel E2E passes 11/11 and a
-> load test measures ~204k msg/s. The unit, load and E2E test layers are real;
-> the smoke and liveness layers, the solution file and the release cut are still
-> open (see `PLAN.md` §8 and §9). The `## Layout` section below splits what
-> exists from what is still planned.
+> **Implementation status (read this first).** The add-in is implemented and
+> released (`v0.1.0`, `v0.1.1` tags): the packed XLL loads in real Excel and
+> answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
+> `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
+> layers are real and pass: unit (266), smoke (122), Excel E2E (44 assertions),
+> load (~204k msg/s) and liveness. The solution file, the CI tag/release flow and
+> the installer (11 wizard languages) are in place. `PLAN.md` §8/§9 track the few
+> remaining additive items; the `## Layout` section below splits what exists from
+> what is still planned.
 
 ## Golden rules
 
@@ -127,7 +128,7 @@ items from the audit/plan are still open (`PLAN.md` §8/§9).
 | `UpdateCheck.cs` | Non-blocking GitHub release check (background task). |
 | `IsExternalInit.cs` | C# 9 shim so net48 accepts init-only setters. |
 | `NATSExcel.csproj` | Add-in project: net48, `LangVersion 9.0`, packs the XLLs, copies `NATSExcel.dll` into `publish\`. |
-| `NATSExcel.dna` | Excel-DNA packing manifest (29 dependency DLLs); its **file name** sets the packed XLL name. |
+| `NATSExcel.dna` | Excel-DNA packing manifest (31 dependency DLLs); its **file name** sets the packed XLL name. |
 | `NATSExcel.json` / `NATSExcel.schema.json` | Sample config + embedded JSON Schema (validated by `ConfigSchema.cs` and `NatsUDFConfigValidate`). |
 | `NLog.config` | Logging to `NATSExcel.log`, rolling at 100 MB, 5 archives; uses `${maskedException:format=toString}` (not `${exception:...}`). |
 | `installer/` | Inno Setup script (`NATSExcel.iss`) + helper PowerShell + README: per-user, native-first installer. |
@@ -138,8 +139,11 @@ items from the audit/plan are still open (`PLAN.md` §8/§9).
 
 | Open item | Responsibility (per the plan) |
 | --- | --- |
-| `test\Run-ExcelE2E-Matrix.ps1` / `Compare-ExcelE2E.ps1` / `Set-Antivirus.ps1` | The AV matrix/compare helpers (PLAN V8.7); only read-only `TestSupport\Get-AntivirusState.ps1` exists today. |
-| `jetstream.domain` / `expectCluster` surfacing | `Cluster.JetStreamDomain` is parsed but unused; `expectCluster` is enforced by `tools\NatsValidate` only, not by `=NatsUDFConfigValidate()` (PLAN §9.1). |
+| `jetstream.domain` routing | `Cluster.JetStreamDomain` is parsed and surfaced for diagnostics, but no JetStream call is routed by domain yet (PLAN §9.1#8). |
+
+The AV matrix helpers (`test\Run-ExcelE2E-Matrix.ps1`, `test\Compare-ExcelE2E.ps1`,
+`test\Set-Antivirus.ps1`) and the `expectCluster`/ambiguity surfacing in
+`=NatsUDFConfigValidate()` have landed, so they now live under "Exists today".
 
 When an item lands, move its row up into "Exists today"; `DESIGN.md` §5.1
 and this layout must stay in sync (PLAN S7.4).
@@ -205,7 +209,8 @@ and this layout must stay in sync (PLAN S7.4).
   `NatsUDFConfigReload` re-reads it without a restart. `Config.cs`
   `CandidatePaths` searches: add-in folder, user profile (`%USERPROFILE%`),
   `C:\Windows` (first existing wins). `DESIGN.md` also lists an **Excel folder**
-  between the profile and `C:\Windows`; it is designed but not implemented.
+  between the profile and `C:\Windows`; it **is** implemented (the running
+  process's main-module directory).
   Comments are accepted (string-aware `StripComments`). A wrong-typed value is
   dropped individually by `ConfigSchema.cs` (the schema walk), so the rest of the
   file is kept; only a structural (not-JSON) failure falls back to defaults.
@@ -325,7 +330,7 @@ last-listener teardown, re-subscription, wildcards, queue groups, duplicate
 suppression, argument validation), request/reply (timeout and `no responders`,
 both markers), JetStream publish/consume (ack, sequence, durable consumer,
 replay, purge), Key/Value (put/get/create/tombstone and a CAS by revision) and
-Object Store (put/get/digest), the admin gate on all eight gated functions, and
+Object Store (put/get/digest), the admin gate on all eleven gated functions, and
 the JetStream-disabled path. It also runs an **auth matrix** that starts a
 disposable local server per style (no-auth, token, user/password, NKey) and
 proves both the success and the bounded failure, including the `nkeySeed`
@@ -340,7 +345,7 @@ powershell -ExecutionPolicy Bypass -File test\TestSupport\Start-Cluster.ps1
 powershell -ExecutionPolicy Bypass -File test\Run-ExcelE2E.ps1
 ```
 
-Passes 11/11 locally. Uses a hidden Excel instance: loads the packed XLL through
+Passes 44 assertions locally. Uses a hidden Excel instance: loads the packed XLL through
 the copy helper (no installer), builds UDF/RTD test sheets, and covers the UDF
 round trip, the RTD `SUB` push (two updates), the JetStream/KV named-error
 paths, the multi-workbook case, the node-kill failover, and an Excel
@@ -426,11 +431,12 @@ the cluster harness and the smoke/liveness suites all exist
 
 ## Release
 
-The CI workflow exists (`.github/workflows/build.yml`); `CHANGELOG.md` exists
-but still holds only an `Unreleased` placeholder — no release has been cut. The
-flow: push an annotated `v*` tag; CI builds and publishes the packed XLLs,
-`NATSExcel.dll`, `NLog.config`, `NATSExcel.json` and the installer
-(`NATSExcelSetup-<version>.exe`) as release assets, using the CHANGELOG section
-for the tag as the release body. The version embedded in the NATS connection
-`Name` (shown as `dev` for local builds) is the tag. `INFORMATIONALVERSION`
-defaults to `dev` in `NATSExcel.csproj`.
+The CI workflow (`.github/workflows/build.yml`) is live: pushing an annotated
+`v*` tag builds the solution, runs the unit/smoke/liveness layers, builds the
+installer and publishes the packed XLLs, `NATSExcel.dll`, `NLog.config`,
+`NATSExcel.json` and the installer (`NATSExcelSetup-<version>.exe`) as release
+assets, using the CHANGELOG section for the tag as the release body. Releases
+`v0.1.0` and `v0.1.1` have been cut. The version embedded in the NATS connection
+`Name` (shown as `dev` for local builds) is the tag read from
+`AssemblyInformationalVersion`; `INFORMATIONALVERSION` defaults to `dev` in
+`NATSExcel.csproj`.

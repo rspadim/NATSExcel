@@ -31,9 +31,13 @@ from `test\TestSupport\ProductionSources.props`) instead of a
 `ProjectReference`, so the Excel-DNA packing step does not run on every test.
 A parity test fails when a root production file is missing from that list.
 
-Current coverage is thin (config constants, the shipped sample shape, the
-project parity). The catalog is large; the unit layer is the cheapest place to
-grow it (argument validation, twin parity, masking, the RTD grammar).
+Coverage is broad: 22+ test files / 266 tests cover the config constants, the
+shipped sample shape, the JSON-schema per-value drop, `StripComments`, the
+masking renderer, conflation, the JSON ⇄ matrix conversions, the RTD grammar,
+the UDF argument vocabulary and markers, the range helpers, the write modes, the
+connection-wait bounds, the subscription identity, and the DNA/public-surface
+parity. Growth areas: subscription epochs under a live server, the async bridge,
+and `UpdateCheck`.
 
 ## 2. Cluster and server harness (no Excel)
 

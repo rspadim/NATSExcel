@@ -505,6 +505,5 @@ parameters (`/URL`, `/AUTH=`, `/TOKEN=`, `/SERVER=`, `/OPENEXCEL=`, ...) and
 ## 8. License
 
 - **NATS.Net** (the client library) is licensed under **Apache-2.0**.
-- **NATSExcel's own license is not finalized yet.** There is no `LICENSE` file in
-  the repository at this point, so do not assume a grant of rights beyond what
-  the repository itself states.
+- **NATSExcel** is released under the **MIT License**; the full text is in the
+  repository's [`LICENSE`](LICENSE) file.

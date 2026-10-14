@@ -148,7 +148,7 @@ default for a name that does not resolve (see §8.1).
 | `NatsUdfCore.cs` | Core NATS UDFs: publish, request/reply, subject-latest, unsubscribe. |
 | `NatsUdfJetStream.cs` | JetStream UDFs: publish-with-ack, get/fetch, stream/consumer info, admin. |
 | `NatsUdfKv.cs` | Key/Value UDFs: get/put/create/update/delete/keys/history/watch. |
-| `NatsUdfObjectStore.cs` | Object Store UDFs: put/get/list/watch/links. |
+| `NatsUdfObjectStore.cs` | Object Store UDFs: put/get/info/list/watch/buckets/delete. |
 | `NatsUdf.cs` | The seed diagnostics (`NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`, `NatsUDFLogPath`). |
 | `NatsUdfStatus.cs` | Status, diagnostics and cluster/server topology (`NatsUDFServerInfo`, `NatsUDFStats`, `NatsUDFRtt`, `NatsUDFCluster*`, config functions, ...). |
 | `NatsUdfCommon.cs` | Shared UDF primitives: argument validation (incl. wildcard rejection on publish), endpoint resolution, `Fail`/`VerboseError`/`ErrorHint` and the marker constants. |
@@ -174,7 +174,7 @@ lean; the set is pinned in `NATSExcel.csproj` (all at `3.3.0`):
 - `NATS.Client.ObjectStore` — object buckets.
 - (transitive, packed into the XLL: `NATS.Client.Abstractions`, `NATS.NKeys`,
   `Microsoft.Extensions.Logging.Abstractions`, `Microsoft.Bcl.AsyncInterfaces`,
-  and the rest of the 29-DLL set enumerated in `NATSExcel.dna`.)
+  and the rest of the 31-DLL set enumerated in `NATSExcel.dna`.)
 
 Serialization: the add-in uses **Newtonsoft.Json** for its own matrix ⇄ JSON and
 KV/object metadata; the NATS.Net packages pull `System.Text.Json` transitively
@@ -452,8 +452,8 @@ split; those numbers were wrong and are superseded by the figures above.
 ## 8. Configuration
 
 File name: **`NATSExcel.json`**. Search order (first existing wins): add-in
-folder → `%USERPROFILE%` → `C:\Windows`; the designed **Excel folder** step
-between the profile and `C:\Windows` is not implemented yet (`AppConfig.CandidatePaths`).
+folder → `%USERPROFILE%` → the Excel folder (the running process's main-module
+directory) → `C:\Windows` (`AppConfig.CandidatePaths`).
 Comments (`//`, `/* */`) accepted; validated against an embedded JSON Schema;
 a wrong-typed value is dropped individually, the rest of the file is kept.
 
@@ -842,10 +842,10 @@ script; `tools/NatsValidate` is the standalone config/connection checker.
 CI (`.github/workflows/build.yml`) runs on `windows-latest`: it builds the
 packed XLL, runs the unit layer, provisions `nats-server -js` (a single binary;
 no package manager needed, unlike the Redis Memurai step) with a JetStream
-probe, and builds the installer on every run. The smoke and liveness steps are
-present but **guarded to skip while those projects do not exist yet**
-(`test\SmokeTests` / `test\LivenessTests`); a `v*` tag adds the CHANGELOG check,
-the release-asset assertion and the GitHub release.
+probe, and builds the installer on every run. The smoke and liveness steps each
+start their own server and run for real (`test\SmokeTests` / `test\LivenessTests`);
+a `v*` tag adds the CHANGELOG check, the release-asset assertion and the GitHub
+release.
 
 ## 11. Installer and CI
 
@@ -946,7 +946,7 @@ silently.
    runtime, so `net48` stays.
 
 Reviewer note (do not lose this): the `.dna` `<Reference>` list shipped complete
-(29 dependencies, each `Pack="true"`); see decision 6.
+(31 dependencies, each `Pack="true"`); see decision 6.
 2. **Config key names — DECIDED.** Use NATS-neutral names:
    `RTD.NatsUpdateRateMs` and `RTD.NatsUpdateStyle` (not `RedisUpdateRateMs` /
    `ExcelUpdateStyle`). The connection target is named by the top-level `Default`
@@ -964,7 +964,7 @@ Reviewer note (do not lose this): the `.dna` `<Reference>` list shipped complete
    destructive functions return the exact gate error until it is set true.
 6. **Packed dependency set — RESOLVED (the P0 gate passed).** The `net48` build
    against `NATS.Client.*` 3.3.0 (Core + JetStream + KeyValueStore +
-   ObjectStore) restores exactly the set enumerated in `NATSExcel.dna` (29 DLLs,
+   ObjectStore) restores exactly the set enumerated in `NATSExcel.dna` (31 DLLs,
    each `Pack="true"`): `NATS.Client.Abstractions`, `NATS.NKeys`,
    `Microsoft.Bcl.AsyncInterfaces`, `Microsoft.Bcl.Memory`,
    `Microsoft.Extensions.Logging.Abstractions`, `Microsoft.Extensions.Primitives`,
