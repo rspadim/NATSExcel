@@ -108,7 +108,7 @@ published; this file is the working guidance.
 
 ## Layout
 
-**The add-in is implemented and released (`v0.1.2`): it compiles, packs, loads in
+**The add-in is implemented and released (`v0.2.0`): it compiles, packs, loads in
 real Excel, answers the whole UDF catalog, and all five test layers pass.** A few
 items from the audit/plan are still open (the maintainer plan, not published).
 

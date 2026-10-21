@@ -1152,7 +1152,7 @@ namespace NATSExcel
     /// in <c>AssemblyInformationalVersion</c> (msbuild
     /// <c>/p:InformationalVersion=&lt;tag&gt;</c>) and a local build keeps the
     /// project default <c>"dev"</c>. <see cref="Version"/> is the readable form a
-    /// cell shows ("0.1.5"), <see cref="Tag"/> is the raw attribute ("v0.1.5").
+    /// cell shows ("0.2.0"), <see cref="Tag"/> is the raw attribute ("v0.2.0").
     /// </summary>
     internal static class BuildInfo
     {
@@ -1163,7 +1163,7 @@ namespace NATSExcel
         public static string Tag { get; } = ResolveTag();
 
         /// <summary>
-        /// Human-readable version for a cell ("0.1.5"), derived from
+        /// Human-readable version for a cell ("0.2.0"), derived from
         /// <see cref="Tag"/>: the leading "v" and any "+build"/"-pre" suffix are
         /// dropped. A local build (no tag) reports "dev".
         /// </summary>

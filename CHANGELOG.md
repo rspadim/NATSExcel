@@ -3,19 +3,19 @@
 All notable changes to this project are documented in this file. The format follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/), and the project uses annotated `v*` tags.
 
-## Unreleased
+## v0.2.0
 
-Four improvements ported from the sibling RedisExcel `v1.6.4`. **The public Excel
-surface is unchanged** in name, arguments and volatility: `=NatsUDFVersion()` keeps
-its name and its volatility, and only its returned text grew. **No change to
-the `NATSExcel.json` shape**, so upgrading is a drop-in replacement.
+Four improvements ported from the sibling RedisExcel. **The public Excel surface
+is unchanged** in name, arguments and volatility: `=NatsUDFVersion()` keeps its
+name and its volatility, and only its returned text grew. **No change to the
+`NATSExcel.json` shape**, so upgrading is a drop-in replacement.
 
 ### Added
 
 - **`=NatsUDFVersion()` reports where it was loaded from.** It used to answer the
   bare version string; it now returns one line with everything a support case
   needs - for example
-  `NATSExcel 0.1.5 | xll=C:\NATSExcel\NATSExcel64-packed.xll | config=C:\NATSExcel\NATSExcel.json | connections=0`.
+  `NATSExcel 0.2.0 | xll=C:\NATSExcel\NATSExcel64-packed.xll | config=C:\NATSExcel\NATSExcel.json | connections=0`.
   The **XLL path** is the point: a **second installed copy** (an upgrade into
   another folder, or one registered by hand) reports its own path, so two copies
   are visible from a cell - and usually a different config, one of them showing
@@ -25,21 +25,25 @@ the `NATSExcel.json` shape**, so upgrading is a drop-in replacement.
   the three fields, `connections=0` with no server).
 - **A "Test connection" button on the installer's connection page.** Nobody
   should have to walk through the whole wizard (or finish an install) to learn
-  that the address is wrong: the button speaks the NATS handshake against what is
-  in the field at that moment - with the credential style picked on the next
-  pages (token and user/password really exercised) - and shows the result **above
-  the button**, green or red, without leaving the page or writing
-  `NATSExcel.json`. It says the wait is bounded ("waits up to 5 seconds") and
-  names the reason on failure (unknown host, timeout, connection refused,
-  rejected credentials, unexpected reply, or "this style needs the full client
-  check") instead of a bare "failed". Localized in all 11 wizard languages.
+  that the address is wrong: the button runs `tools\NatsValidate --test` against
+  a draft of the configuration the wizard would write and shows the result next
+  to the button, green or red, without leaving the page or writing
+  `NATSExcel.json`. It says the wait is bounded ("waits up to 5 seconds").
+  Using the shipped validator - the **same NATS.Net client the add-in uses** -
+  is what makes this cover **all six credential styles**: an NKey seed, a JWT +
+  seed, a creds file and mTLS require SIGNING the server nonce, which a
+  wire-level handshake cannot do. The validator is shipped both installed
+  (`tools\`) and as a `{tmp}` copy, because the button can run before anything
+  is installed; the end-of-install check reuses it, so it cannot disagree with
+  the button or with what the service does at startup. Localized in all 11
+  wizard languages.
 - **An ASCII console header** (`installer\banner.ps1`) printed by
-  `install-server.ps1`, `verify-connection.ps1`, `validate-config.ps1` and
-  `test-connection.ps1`: a 5-row wordmark plus the installed version (from the
-  DLL's `ProductVersion`) and the project URL. ASCII only on purpose - the
-  console renders in an OEM codepage - and it degrades to a compact one-line
-  header in a narrow window or when the output is redirected. Dot-sourced through
-  a try/catch, so a missing file never breaks a helper.
+  `install-server.ps1`, `verify-connection.ps1` and `validate-config.ps1`: a
+  5-row wordmark plus the installed version (from the DLL's `ProductVersion`) and
+  the project URL. ASCII only on purpose - the console renders in an OEM codepage
+  - and it degrades to a compact one-line header in a narrow window or when the
+  output is redirected. Dot-sourced through a try/catch, so a missing file never
+  breaks a helper.
 
 ### Fixed
 
@@ -53,20 +57,25 @@ the `NATSExcel.json` shape**, so upgrading is a drop-in replacement.
   Manager" labels left by a renamed or moved copy (the second, dead `NATSExcel`
   line in File > Options > Add-ins). Other add-ins in the same registry key are
   never touched, and this install's own entry is written before the cleanup, so
-  it survives. Pinned by `UnpinnedClaimsTests`.
-- **`test-connection.ps1` no longer reports every failure as `1`.** The exit
-  codes are now a stable contract the wizard can turn into its own message:
-  `0` PONG, `2` unknown host (classified from `SocketError.HostNotFound`/`NoData`,
-  never from the localized message text), `3` timeout, `4` refused or other socket
-  error, `5` credentials rejected, `6` unexpected reply, `7` the credential style
-  cannot be proven by a wire-level probe (NKey, JWT + seed, a creds file, mTLS -
-  the server nonce must be signed, which needs the client library; the message
-  names `tools\NatsValidate --test`). Its TCP connect is bounded to 5 s (the old
-  `Connect` waited for the OS SYN timeout), a password can come from
-  `-PasswordFile` instead of the command line, and `-Quiet` suppresses the
-  banner for the wizard's redirected call.
+  it survives. Verified against the live registry: a fabricated stale install was
+  removed while a RedisExcel entry in the same key was left untouched. Pinned by
+  `UnpinnedClaimsTests`.
+- **The unit suite no longer fails intermittently.** `PureHelperPinTests` swaps
+  `AppConfig.CurrentOverrideForTests` (process-wide) to prove the UpdateCheck
+  toggle is honoured, but it was not in the `config-seam` collection, so it ran
+  in parallel with the classes that share that fixture and each could observe the
+  other's value. It now joins the collection. Measured: 2 failures in 4 runs
+  before, 0 in 8 after.
+
+### Removed
+
+- **`installer\test-connection.ps1`** (the wire-level handshake) and the wizard
+  messages only it used. It answered "cannot be proven" for four of the six
+  credential styles; the C# validator exercises all of them. A password no longer
+  needs to reach a PowerShell process at all.
 
 ## v0.1.4
+
 
 One fix, from the question "did we build the same update-check scheme the sibling
 RedisExcel has?". We had - except that `"UpdateCheck": false` was parsed and never
