@@ -106,7 +106,7 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
-; All user-visible text. 11 languages, every one with the SAME 63 keys
+; All user-visible text. 11 languages, every one with the SAME 71 keys
 ; (english is the source of truth; installer\languages\messages.ps1 reports a
 ; missing or extra key for a tag).
 [CustomMessages]
@@ -1225,6 +1225,16 @@ function ConfigJson(): String; forward;
 // file, mTLS). A wire-level probe cannot do that: the seed-based styles require
 // SIGNING the server nonce. Using the shipped validator also means the probe can
 // never disagree with what the add-in will actually do at startup.
+//
+// THE PROBE IS READ-ONLY, and that is a rule, not an accident: the address the
+// user typed is very often somebody else's server. "--test" CONNECTS (the
+// server's INFO banner) and sends a PING - nothing else. It never publishes a
+// message, never creates a stream, consumer or KV bucket and never writes a
+// subject. The verdict is "connected AND authenticated": per-command
+// authorization is NOT this probe's business - a user who typed a restricted
+// user/password owns that restriction, and a probe that demanded a publish
+// permission would reject a perfectly usable read-only server.
+// Pinned by UnpinnedClaimsTests.TheInstallerProbeIsReadOnlyOnSomeoneElsesServer.
 
 // Exit codes of tools\NatsValidate (see tools/NatsValidate/Program.cs).
 const
@@ -1866,7 +1876,15 @@ begin
 
   if OpenExcelChecked() then
   begin
+    // The end-of-install check reuses the validator against the file that was
+    // actually written, so it exercises the credentials the add-in will use and
+    // cannot disagree with the button. verify-connection.ps1 asks the validator
+    // itself (read-only: connect + PING, never a publish); -Config points it at
+    // the installed file, -Token is only a fallback for the draft it builds when
+    // that file is missing.
     Args := '-AddInDir "' + ExpandConstant('{app}') + '" -ServerHost "' + HostPort + '" -OpenExcel -Quiet';
+    if FileExists(DraftPath) then
+      Args := Args + ' -Config "' + DraftPath + '"';
     if AuthStyle() = AuthIdxToken then
       Args := Args + ' -Token "' + Cred(2) + '"';
     RunScript('verify-connection.ps1', Args);

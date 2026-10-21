@@ -47,6 +47,29 @@ name and its volatility, and only its returned text grew. **No change to the
 
 ### Fixed
 
+- **The installer's end-of-install check no longer speaks the wire protocol by
+  hand, and the probe is pinned READ-ONLY.** `verify-connection.ps1` used to open
+  its own socket and hand-write `INFO`/`PING`/`PONG` (with a token only, and a
+  private `CONNECT` frame); it now runs the **same validator as the wizard's
+  "Test connection" button** (`tools\NatsValidate.exe --test` against the
+  configuration that was actually written), so every credential style is
+  exercised and the end-of-install result can never disagree with the button.
+  The rule it enforces is the one the sibling RedisExcel taught: **the server the
+  user typed in is usually not ours**, so the probe only CONNECTs and PINGs - it
+  never publishes a message, never creates a stream/consumer/KV bucket and never
+  writes a subject. The verdict is "connected **and** authenticated";
+  per-command authorization is the user's own business, and a probe that demanded
+  a publish permission would reject a perfectly usable read-only server.
+  Pinned two ways: a source scan (`UnpinnedClaimsTests`) and a behavioural test
+  that drives the real `ConnectionTester` against a fake NATS server and asserts
+  on the bytes it puts on the wire (`InstallerProbeReadOnlyTests` - a
+  reintroduced publish shows up as `PUB <subject>` and fails).
+- **The sample workbook stays on this project's reserved subject.** It subscribed
+  to `test.>`, a generic namespace someone else may already own; it now uses
+  `test.natsexcel.>`, the same prefix the test layers reserve. The sheet only
+  reads (`=NatsUDFServerInfo`, `=NatsUDFClusterName`) plus that one `SUB` cell.
+  Two labels were also left in Portuguese in an English sheet; both are English
+  now.
 - **The installer now removes an older NATSExcel from Excel.** Upgrading into a
   different folder (or a copy registered by hand) left the previous `OPEN` value
   in place, so Excel loaded **two** add-ins: every NATSExcel function appeared

@@ -23,7 +23,7 @@ service registration, which is isolated in `nats-service.ps1`.
    of them showing `#CONFIG`).
    The wizard is localized in **11 languages** (简体中文, English, 繁體中文,
    Português, Español, Русский, Français, 한국어, Deutsch, 日本語 and Português
-   (Brasil)), every one with the same 74 wizard strings. The Excel-facing
+   (Brasil)), every one with the same 71 wizard strings. The Excel-facing
    function names and cell markers stay in **English** on purpose (see the main
    README "Languages" section): a formula must return the same text whatever the
    user's locale.
@@ -33,11 +33,19 @@ service registration, which is isolated in `nats-service.ps1`.
    needs. Any of them can be edited in `NATSExcel.json` afterwards. The page has
    a **Test connection** button: it probes what is in the fields at that moment
    (no page change, no file written), says up front that it waits **up to 5
-   seconds**, and shows the result above the button in green or red with the
-   reason named (unknown host, timeout, refused, rejected credentials,
-   unexpected reply) instead of a bare "failed". The message comes from the
-   helper's **stable exit codes**, never from its console text — a `cmd.exe`
-   redirect re-encodes that into the OEM codepage and would mangle accents.
+   seconds**, and shows the result above the button in green or red. The reason
+   is the **validator's own report**, appended after the localized sentence (the
+   probe runs `tools\NatsValidate.exe --test`; its exit code picks the sentence:
+   config invalid, connection/credentials refused, or unexpected failure). A
+   `cmd.exe` redirect re-encodes the console text into the OEM codepage, so the
+   **localized sentence never comes from that text** — only the appended detail
+   does, and it is ASCII on purpose.
+   **The probe is read-only**: it connects and pings (the real NATS.Net client),
+   and it never publishes a message, creates a stream/consumer/KV bucket or
+   writes a subject. The address the user typed is often somebody else's
+   server, so a probe that mutated it would be a defect. The verdict is
+   "connected **and** authenticated" — per-command authorization is the user's
+   own business, not the probe's.
 4. **Optional: installs a server.** NATS runs natively on Windows, so the
    default is *download one small `nats-server.exe`* and start it with JetStream
    on. Docker is offered as an alternative. The native path writes a starter
@@ -45,9 +53,12 @@ service registration, which is isolated in `nats-service.ps1`.
    default is a temp path).
 5. **Optional: registers NATS as a Windows service** (needs admin; skipped with
    a clear message if the wizard is not elevated).
-6. **End-of-install check.** It speaks the NATS protocol (`INFO` + `PING` →
-   `PONG`) and, if you ticked the box, opens a visible Excel workbook (XLL
-   loaded) with a live `SUB` cell.
+6. **End-of-install check.** It runs the same `tools\NatsValidate.exe --test`
+   against the configuration that was just written (read-only: connect + PING,
+   never a publish) and, if you ticked the box, opens a visible Excel workbook
+   (XLL loaded) that only **reads** (`=NatsUDFServerInfo`,
+   `=NatsUDFClusterName`) plus one `SUB` cell on this project's own reserved
+   subject (`test.natsexcel.>`).
 7. The uninstaller asks whether to keep your `NATSExcel.json` and offers to
    remove a NATS server it created (nothing is removed unless you tick it).
 
@@ -80,17 +91,22 @@ The installer ships these under `C:\NATSExcel\` (all usable on their own):
   `-NoJetStream` starts without `-js`; `-Image nats:2-alpine` pins a tag.
 - `scripts\nats-service.ps1 -Action Install|Start|Stop|Remove|Status -Dir ...`
   - the Windows service (the only admin step).
-- `scripts\test-connection.ps1 -ServerHost localhost:4222 [-Token ...|-User ... -PasswordFile ...]`
-  - speaks the NATS protocol (`INFO` + `PING` → `PONG`). Exit codes are a
-  **stable contract** the wizard turns into its own localized message: `0` OK,
-  `2` unknown host (DNS), `3` timeout/unreachable, `4` refused or other socket
-  error, `5` credentials rejected, `6` unexpected reply, `7` the credential
-  style needs the full client check (NKey/JWT/creds/mTLS; use
-  `tools\NatsValidate --test`). `-Quiet` suppresses the banner (the wizard
-  redirects the output to a file and reads only the exit code). The TCP connect
-  is bounded to 5 s.
-- `scripts\verify-connection.ps1 -AddInDir "C:\NATSExcel" -ServerHost localhost:4222 -OpenExcel`
-  - tests and opens the sample sheet.
+- `tools\NatsValidate.exe "C:\NATSExcel\NATSExcel.json" --test` - the connection
+  check the wizard's button and the end-of-install step run: the **same
+  NATS.Net client the add-in uses**, so every credential style (token,
+  user/password, NKey seed, JWT + seed, creds file, mTLS) is exercised for real.
+  `--test` only **connects and pings** - it never publishes, creates a stream or
+  writes a subject, and it does not test per-command permissions (the verdict is
+  "connected + authenticated"). Exit codes: `0` OK, `1` config problems, `2`
+  unreadable, `3` dangling cluster/server reference, `4` connection failed.
+  Without `--test` it validates the file and needs no server.
+- `scripts\verify-connection.ps1 -AddInDir "C:\NATSExcel" -ServerHost localhost:4222 [-Config <json>] [-OpenExcel]`
+  - runs the same read-only `NatsValidate --test` check against `-Config` (or
+  `<AddInDir>\NATSExcel.json`, or a draft it builds in a temp file) and, with
+  `-OpenExcel`, opens the sample sheet, which only reads
+  (`=NatsUDFServerInfo`, `=NatsUDFClusterName`) plus one `SUB` cell on the
+  project's own `test.natsexcel.>` prefix. Exit `0` = answered, `1` = no answer
+  (or the validator could not be run).
 - `scripts\validate-config.ps1` (or double-click `Validate-Config.cmd`) - checks
   `NATSExcel.json` against the shipped `NATSExcel.schema.json` (the same schema
   the add-in embeds) and prints an OK/FAIL report.

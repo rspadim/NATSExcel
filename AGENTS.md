@@ -269,24 +269,33 @@ and this layout must stay in sync (PLAN S7.4).
     shows `#CONFIG`). Other add-ins' entries are never touched, and this
     install's own path is excluded by comparison. Pinned by
     `UnpinnedClaimsTests`.
-  - **The connection page has a "Test connection" button.** It runs the same
-    `test-connection.ps1` against the values **in the fields**, without leaving
-    the page and without writing `NATSExcel.json`; the result is drawn ABOVE the
-    button spanning the page width (green/red), the "testing" line says the wait
-    is bounded (5 s), and a password goes through a private temp file
-    (`ProbeArgs`/`CleanupProbe`) rather than the command line. The message is
-    built from the helper's **stable exit codes** (0 ok, 2 unknown host, 3
-    timeout, 4 refused, 5 auth, 6 unexpected, 7 "needs the full client check"),
-    never from its console text - a `cmd.exe` redirect re-encodes that into the
-    OEM codepage and would mangle accents.
+  - **The connection page has a "Test connection" button.** It runs
+    `tools\NatsValidate.exe --test` against a **draft** of the configuration the
+    wizard would write (in `{tmp}`), without leaving the page and without
+    writing `NATSExcel.json`; the result is drawn ABOVE the button spanning the
+    page width (green/red) and the "testing" line says the wait is bounded
+    (5 s). The message is the wizard's own **localized** sentence chosen by the
+    validator's **exit code** (0 ok, 1/2/3 config, 4 connection); the
+    validator's ASCII `RESULT:` line is only **appended** as detail - a
+    `cmd.exe` redirect re-encodes that console text into the OEM codepage, so
+    it can never carry the localized part.
+  - **The probe is READ-ONLY.** `--test` connects (the server's INFO banner)
+    and pings; it never publishes a message, never creates a stream, consumer,
+    KV bucket or object store and never writes a subject. The endpoint the user
+    typed is very often **somebody else's server**, so a probe that mutated it
+    would be a defect. The verdict is **connected AND authenticated**:
+    per-command authorization is the user's own business (a restricted user who
+    typed their own password owns that restriction), never the installer's.
+    This mirrors the RedisExcel lesson where a `PING`-only probe misjudged a
+    read-only server and a diagnostic had done a `SET` on production. Pinned by
+    `UnpinnedClaimsTests` (it scans the probe sources for a write verb).
   - **The helpers print an ASCII banner** (`installer/banner.ps1`, dot-sourced
-    through a try/catch by `install-server.ps1`, `verify-connection.ps1`,
-    `validate-config.ps1` and `test-connection.ps1`) so a visible console window
-    identifies itself. ASCII only (OEM console codepages); it degrades to one
-    compact line in a window narrower than 70 columns or when the output is
-    redirected. Both the `{app}\scripts` copy and the `{tmp}` `dontcopy` copy
-    (plus the matching `ExtractTemporaryFile`) must exist, or the wizard's helper
-    runs without it.
+    through a try/catch by `install-server.ps1`, `verify-connection.ps1` and
+    `validate-config.ps1`) so a visible console window identifies itself. ASCII
+    only (OEM console codepages); it degrades to one compact line in a window
+    narrower than 70 columns or when the output is redirected. Both the
+    `{app}\scripts` copy and the `{tmp}` `dontcopy` copy (plus the matching
+    `ExtractTemporaryFile`) must exist, or the wizard's helper runs without it.
 
 ## Build
 
@@ -355,13 +364,14 @@ click. Prefer it over the installer for a test iteration.
 recommended way to check a `NATSExcel.json` and, with `--test`, to prove the
 connection: it uses the **same NATS.Net client the add-in uses**
 (`NATS.Client.Core` 3.3.0), so every credential style is really exercised
-(token, user/password, NKey seed, JWT + seed, creds file, mTLS). The PowerShell
-helpers in `installer/` (`validate-config.ps1`, `test-connection.ps1`) only
-speak the wire protocol by hand and cover token and user-password; the C# tool
-is the complete check. `test-connection.ps1` exits with a **stable contract** the
-wizard turns into its own localized message (`0` ok, `2` unknown host, `3`
-timeout, `4` refused/other, `5` credentials rejected, `6` unexpected reply, `7`
-the style needs the full client check); `-Quiet` suppresses its banner.
+(token, user/password, NKey seed, JWT + seed, creds file, mTLS). It is the ONLY
+connection probe the installer has: the wizard's "Test connection" button and
+the end-of-install check both run it (the old PowerShell wire-level handshake,
+`installer/test-connection.ps1`, was deleted). `--test` is **read-only** -
+connect + `PING`, never a publish and never a stream/consumer/KV creation - and
+its verdict is "connected + authenticated"; per-command authorization is not
+its business. `installer/validate-config.ps1` remains the schema-only check and
+needs no server.
 
 ```powershell
 # Schema/structural check only (no server needed)

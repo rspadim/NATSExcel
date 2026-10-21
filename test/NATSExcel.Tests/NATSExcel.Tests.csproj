@@ -32,6 +32,21 @@
   </ItemGroup>
 
   <!--
+    The connection-probe test drives the SHIPPED validator sources
+    (tools\NatsValidate\ConnectionTester.cs + ConfigLoader.cs), not a copy of
+    them: the whole point is to pin what the validator's "test" mode (the
+    installer's probe) really puts on the wire. Linked, not a ProjectReference -
+    the validator is a console app whose generated binding redirects conflict
+    with this project's App.config, and this is the same "compile the production
+    sources directly" pattern the suite already uses through
+    ProductionSources.props.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\NatsValidate\ConnectionTester.cs" Link="Validator\ConnectionTester.cs" />
+    <Compile Include="..\..\tools\NatsValidate\ConfigLoader.cs" Link="Validator\ConfigLoader.cs" />
+  </ItemGroup>
+
+  <!--
     The single production-source list (PLAN D1). Importing it here links every
     top-level production *.cs except NatsRtd.cs (PLAN D2) plus the embedded
     NATSExcel.schema.json. Do NOT hand-list production files in this csproj; add

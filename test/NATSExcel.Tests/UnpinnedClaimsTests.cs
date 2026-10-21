@@ -272,6 +272,108 @@ namespace NATSExcel.Tests
                 "the PowerShell wire-level probe was replaced by the C# validator");
         }
 
+        /// <summary>
+        /// The installer must never write to, or publish into, a server it does not
+        /// own. The user types the address of a server that is very often somebody
+        /// else's, so the connection probe has to be strictly READ-ONLY: connect
+        /// (the server's INFO banner) and PING prove "reached + authenticated", and
+        /// that is the whole verdict. Per-command authorization is the user's own
+        /// business - a probe that demanded a publish permission would reject a
+        /// perfectly usable read-only server, which is exactly the sibling-repo
+        /// defect this pins (a diagnostic did a SET on production, and a PING-only
+        /// probe misjudged a Redis with <c>stop-writes-on-bgsave-error</c>).
+        ///
+        /// <para>
+        /// The check is a SOURCE SCAN, because the probe is the shipped C# validator
+        /// plus two installer scripts and there is no NATS server in the unit layer
+        /// to drive them against. It pins shape, not behaviour - but the alternative
+        /// is that a future edit could quietly add a "publish to prove the
+        /// subscription works" step and no layer would notice. The scan is
+        /// therefore paired with a positive assertion: the read-only probe (connect
+        /// + ping) must still be there, so deleting the probe cannot make this pass.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TheInstallerProbeIsReadOnlyOnSomeoneElsesServer()
+        {
+            // 1. The C# validator that --test runs: it must connect and ping, and
+            //    contain no publish and no JetStream/KV/object-store creation. A
+            //    JetStream check that created a stream would be the same violation
+            //    as a publish, so it is scanned for too.
+            string tester = Read(Path.Combine("tools", "NatsValidate", "ConnectionTester.cs"));
+            Assert.Contains("await connection.ConnectAsync()", tester, StringComparison.Ordinal);
+            Assert.Contains("await connection.PingAsync()", tester, StringComparison.Ordinal);
+            Assert.DoesNotContain("PublishAsync", tester, StringComparison.Ordinal);
+            Assert.DoesNotContain("RequestAsync", tester, StringComparison.Ordinal);
+            Assert.DoesNotContain("CreateJetStreamContext", tester, StringComparison.Ordinal);
+
+            string program = Read(Path.Combine("tools", "NatsValidate", "Program.cs"));
+            foreach (string write in new[]
+            {
+                "PublishAsync", "RequestAsync", "CreateStream", "AddStream", "UpdateStream",
+                "DeleteStream", "CreateConsumer", "CreateKeyValue", "CreateObjectStore",
+                "CreateJetStreamContext", "CreateJetStream", "Purge"
+            })
+            {
+                Assert.DoesNotContain(write, program, StringComparison.Ordinal);
+            }
+
+            // 2. The end-of-install helper. It delegates to the same validator, so
+            //    the only thing to rule out is a hand-rolled wire write: the NATS
+            //    protocol's PUB/HPUB verbs. verify-connection.ps1 used to write its
+            //    own "PUB <subject>" here.
+            string verify = Read(Path.Combine("installer", "verify-connection.ps1"));
+            Assert.DoesNotContain("\"PUB ", verify, StringComparison.Ordinal);
+            Assert.DoesNotContain("'PUB ", verify, StringComparison.Ordinal);
+            Assert.DoesNotContain("PublishAsync", verify, StringComparison.Ordinal);
+            Assert.DoesNotContain("NatsUDFSubjectPublish", verify, StringComparison.Ordinal);
+            Assert.DoesNotContain("NatsUDFJSPublish", verify, StringComparison.Ordinal);
+            // ...and it really runs the read-only validator (so the assertions above
+            // cannot be satisfied by deleting the probe).
+            Assert.Contains("NatsValidate.exe", verify, StringComparison.Ordinal);
+            Assert.Contains("--test", verify, StringComparison.Ordinal);
+
+            // 3. The wizard itself never speaks the protocol; its probe is the
+            //    validator invocation in [Code]. Scan only executable Code lines
+            //    (a ';' comment or the message blocks may legitimately say "PUB").
+            string iss = Read(Path.Combine("installer", "NATSExcel.iss"));
+            int codeAt = iss.IndexOf("[Code]", StringComparison.Ordinal);
+            Assert.True(codeAt > 0);
+            foreach (string line in iss.Substring(codeAt)
+                         .Replace("\r\n", "\n").Split('\n'))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.Length == 0 || trimmed.StartsWith(";", StringComparison.Ordinal)
+                    || trimmed.StartsWith("//", StringComparison.Ordinal))
+                    continue;
+                Assert.DoesNotContain("\"PUB ", trimmed, StringComparison.Ordinal);
+                Assert.DoesNotContain("NatsUDFSubjectPublish", trimmed, StringComparison.Ordinal);
+            }
+
+            // 4. The sample workbook is the USER'S OWN sheet, so a write there would
+            //    be allowed by the rule - but it must stay on this project's reserved
+            //    prefix, and today it only reads. Pin that: the two status cells are
+            //    reads, and the single SUB cell points at test.natsexcel.>, not at the
+            //    generic test.> (which is a subject someone else may already own).
+            Assert.Contains("=NatsUDFServerInfo()", verify, StringComparison.Ordinal);
+            Assert.Contains("=NatsUDFClusterName()", verify, StringComparison.Ordinal);
+            Assert.Contains("test.natsexcel.>", verify, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"SUB\",\"test.>\"", verify, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"SUB\",\"test.hello\"", verify, StringComparison.Ordinal);
+
+            // 5. install-server.ps1 and nats-service.ps1 are OK-BY-DESIGN for writes
+            //    (they create the server the installer owns), but they must not
+            //    publish into a SUBJECT either: the only protocol traffic there is
+            //    the INFO/PING handshake and the server's own config file.
+            foreach (string script in new[] { "install-server.ps1", "nats-service.ps1", "validate-config.ps1" })
+            {
+                string text = Read(Path.Combine("installer", script));
+                Assert.DoesNotContain("\"PUB ", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("PublishAsync", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("JetStreamContext", text, StringComparison.Ordinal);
+            }
+        }
+
         [Fact]
         public void TheInstallerUnregistersOnlyOlderNatsExcelCopies()
         {

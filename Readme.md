@@ -348,9 +348,12 @@ cluster/server reference, `4` connection failed.
 The installer also ships a lighter, schema-only checker: double-click
 **`Validate-Config.cmd`** (in `C:\NATSExcel\`) or run
 `scripts\validate-config.ps1`. It validates the file against the same
-`NATSExcel.schema.json` the add-in embeds. Its optional wire-level connection
-test (`scripts\test-connection.ps1`) only covers token and user/password — use
-`tools/NatsValidate` for the rest (NKey, JWT + seed, creds file, mTLS).
+`NATSExcel.schema.json` the add-in embeds and needs no server at all. For the
+connection there is one check, `tools\NatsValidate --test` (the one the wizard
+runs): the real NATS.Net client, so it covers every credential style — token,
+user/password, NKey, JWT + seed, creds file and mTLS. It only **connects and
+pings**: no publish, no stream, no subject written to a server that may not be
+yours.
 
 The helpers print a small ASCII header with the product, the installed version
 and the project URL, so a console window that appears during an install
@@ -368,8 +371,11 @@ Inside Excel you can also check the config directly:
 
 The installer's last page has **"Open a sample NATSExcel workbook at the end"**
 (also `/OPENEXCEL=1` in silent mode). It launches a visible workbook with the XLL
-registered, a status check and a live `SUB` cell so you can see data arrive. You
-can reproduce it later from the installer's helpers:
+registered, a status check and a live `SUB` cell so you can see data arrive. The
+sheet only reads (`=NatsUDFServerInfo`, `=NatsUDFClusterName`) and subscribes on
+this project's own reserved prefix (`test.natsexcel.>`), so it never publishes
+into a namespace it does not own. You can reproduce it later from the installer's
+helpers:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\NATSExcel\scripts\verify-connection.ps1 -AddInDir C:\NATSExcel -ServerHost localhost:4222 -OpenExcel
@@ -378,13 +384,17 @@ powershell -ExecutionPolicy Bypass -File C:\NATSExcel\scripts\verify-connection.
 ### Test the connection before installing
 
 The wizard's **connection page** has a **Test connection** button. It probes the
-address that is in the field *at that moment* (with the credential style chosen
-on the next pages: token or user/password are really exercised; NKey, JWT + seed,
-creds file and mTLS are reported as needing the full client check) and shows the
-answer above the button, green or red — without leaving the page and without
-writing `NATSExcel.json`. The probe waits **up to 5 seconds** and names the
-reason on failure (unknown host, timeout, connection refused, rejected
-credentials, unexpected reply) instead of a bare "failed".
+address that is in the field *at that moment* with the credentials chosen on the
+next pages, using the same `tools\NatsValidate --test` check the add-in's client
+is built on — so **every** credential style is really exercised (token,
+user/password, NKey, JWT + seed, creds file and mTLS). It shows the answer above
+the button, green or red — without leaving the page and without writing
+`NATSExcel.json`. The probe waits **up to 5 seconds**.
+
+It is **read-only**: it connects and pings, and never publishes a message,
+creates a stream/consumer/KV bucket or writes a subject — the server you type in
+is often somebody else's. The verdict is "connected **and** authenticated";
+whether that user may publish is the user's own responsibility, not the probe's.
 
 ### Update check
 
