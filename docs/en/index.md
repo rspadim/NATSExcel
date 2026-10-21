@@ -70,6 +70,25 @@ click **More info > Run anyway**.
 No NATS server yet? The installer can run one natively on Windows (a single
 `nats-server.exe`, JetStream included). Docker is optional, never required.
 
+### The installer tests the connection before installing
+
+The wizard has a **Test connection** button on the host page: it runs
+`NatsValidate --test`, which uses the **same NATS.Net client the add-in uses**, so
+it covers every credential style for real — token, user/password, NKey seed, JWT
++ seed, `.creds` file and mTLS (the ones that require signing the server nonce can
+only be verified by the client). It answers on the spot, without leaving the page
+and without writing anything.
+
+When something is wrong it names the reason: no answer (with the timeout),
+credentials refused, unknown host or an invalid configuration — in all 11 wizard
+languages.
+
+> **Two copies of the add-in?** The installer removes a previous install's entry,
+> because two copies make Excel load the add-in twice (duplicated functions, and
+> each copy reading a different `NATSExcel.json`). To check at any time, put
+> `=NatsUDFVersion()` in a cell: it shows the version and the path of the XLL that
+> is really loaded.
+
 ## See it work
 
 ```excel

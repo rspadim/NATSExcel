@@ -75,6 +75,25 @@ de SmartScreen — en **Más información**, haz clic en **Ejecutar de todas for
 Windows (un único `nats-server.exe`, con JetStream incluido). Docker es opcional,
 nunca obligatorio.
 
+### El instalador prueba la conexión antes de instalar
+
+El asistente tiene un botón **Probar conexión** en la página del host: ejecuta
+`NatsValidate --test`, que usa el **mismo cliente NATS.Net que el complemento**,
+así que cubre todos los estilos de credencial de verdad — token, usuario/contraseña,
+semilla NKey, JWT + semilla, archivo `.creds` y mTLS (las que exigen firmar el
+desafío del servidor solo el cliente puede verificarlas). Responde al momento, sin
+salir de la página y sin escribir nada.
+
+Cuando algo falla dice el motivo: sin respuesta (con el tiempo de espera),
+credenciales rechazadas, host desconocido o configuración inválida — en los 11
+idiomas del asistente.
+
+> **¿Dos copias del complemento?** El instalador elimina la entrada de una
+> instalación anterior, porque dos copias hacen que Excel cargue el complemento
+> dos veces (funciones duplicadas, y cada copia leyendo un `NATSExcel.json`
+> distinto). Para comprobarlo en cualquier momento, usa `=NatsUDFVersion()` en una
+> celda: muestra la versión y la ruta del XLL realmente cargado.
+
 ## Verlo funcionar
 
 ```excel

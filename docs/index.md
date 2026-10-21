@@ -82,6 +82,25 @@ Ainda não tem servidor NATS? O instalador consegue rodar um nativamente no Wind
 (um único `nats-server.exe`, com JetStream incluído). Docker é opcional, nunca
 obrigatório.
 
+### O instalador testa a conexão antes de instalar
+
+O assistente tem um botão **Testar conexão** na página do host: ele roda o
+`NatsValidate --test`, que usa o **mesmo cliente NATS.Net do add-in**, então
+cobre todos os estilos de credencial de verdade — token, usuário/senha, semente
+NKey, JWT + semente, arquivo `.creds` e mTLS (as que exigem assinar o desafio do
+servidor só o cliente consegue verificar). Responde na hora, sem sair da página e
+sem gravar nada.
+
+Quando algo está errado ele diz o motivo: sem resposta (com o tempo de espera),
+credenciais recusadas, host desconhecido ou configuração inválida — nos 11
+idiomas do assistente.
+
+> **Duas cópias do add-in?** O instalador remove a entrada de uma instalação
+> anterior, porque duas cópias fazem o Excel carregar o add-in duas vezes
+> (funções duplicadas, e cada cópia lendo um `NATSExcel.json` diferente). Para
+> conferir a qualquer momento, use `=NatsUDFVersion()` numa célula: ela mostra a
+> versão e o caminho do XLL realmente carregado.
+
 
 Veja funcionando
 ----------------
