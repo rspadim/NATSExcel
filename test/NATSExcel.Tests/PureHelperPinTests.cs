@@ -9,7 +9,17 @@ namespace NATSExcel.Tests
     /// Pins the small pure helpers whose exact behavior no other test asserted, so
     /// a silent edit of the line would not fail the suite. (Round-4 coverage audit:
     /// these three had zero coverage.)
+    ///
+    /// <para>
+    /// In the "config-seam" collection because one test here swaps
+    /// <c>AppConfig.CurrentOverrideForTests</c> to prove the UpdateCheck toggle is
+    /// honoured. That seam is PROCESS-WIDE, so a test outside the collection that
+    /// reads <c>AppConfig.Current</c> could observe the swapped value (and this
+    /// test could observe the fixture's) - the intermittent failures this class
+    /// caused before it joined the collection.
+    /// </para>
     /// </summary>
+    [Collection("config-seam")]
     public class PureHelperPinTests
     {
         // ------------------------------------------------------------------
