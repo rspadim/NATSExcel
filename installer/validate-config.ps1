@@ -28,9 +28,23 @@ $ErrorActionPreference = 'Stop'
 
 function Line([string]$m = '') { Write-Host $m }
 
-Line '======================================================================'
-Line ' NATSExcel - config validator'
-Line '======================================================================'
+# Console header (see banner.ps1). Replaces the plain rule below so every helper
+# identifies itself the same way; a missing banner.ps1 must not break the
+# validator (the rule is the fallback).
+$script:BannerShown = $false
+try {
+  $bannerPath = Join-Path $PSScriptRoot 'banner.ps1'
+  if (Test-Path -LiteralPath $bannerPath) {
+    . $bannerPath
+    Write-NatsExcelBanner -Action 'Checking NATSExcel.json'
+    $script:BannerShown = $true
+  }
+} catch { $script:BannerShown = $false }
+if (-not $script:BannerShown) {
+  Line '======================================================================'
+  Line ' NATSExcel - config validator'
+  Line '======================================================================'
+}
 
 # ---- Locate the files ------------------------------------------------------
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path

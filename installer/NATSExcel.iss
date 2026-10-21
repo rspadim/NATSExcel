@@ -165,6 +165,17 @@ english.SummaryIntro=These values will be saved to NATSExcel.json in the install
 english.SummaryLabel=Connection
 english.SummaryAuth=Authentication
 english.SummaryServer=Server setup
+english.TestButton=Test connection
+english.TestButtonTesting=Testing... (waits up to 5 seconds for an answer)
+english.TestButtonOk=Connected - NATS answered at %1.
+english.TestButtonFailed=Could not connect to %1.
+english.TestReasonUnknownHost=The host name could not be resolved; check the URL.
+english.TestReasonTimeout=No answer within 5 seconds; check the address, the port and the firewall.
+english.TestReasonAuth=The server rejected the credentials.
+english.TestReasonUnexpected=Something answered, but not with a NATS PONG.
+english.TestReasonRefused=The connection was refused; is the server running on that port?
+english.TestReasonUnprovable=This credential style needs the NATS client to sign a challenge; check it with tools\NatsValidate --test.
+english.TestCouldNotRun=Could not run the connection test (the helper script did not start).
 
 spanish.ServerPageTitle=Servidor NATS
 spanish.ServerPageSubtitle=¿Desea instalar ahora un servidor NATS?
@@ -229,6 +240,17 @@ spanish.SummaryIntro=Estos valores se guardarán en NATSExcel.json en la carpeta
 spanish.SummaryLabel=Conexión
 spanish.SummaryAuth=Autenticación
 spanish.SummaryServer=Servidor
+spanish.TestButton=Probar conexión
+spanish.TestButtonTesting=Probando... (espera hasta 5 segundos la respuesta)
+spanish.TestButtonOk=Conectado: NATS respondió en %1.
+spanish.TestButtonFailed=No se pudo conectar a %1.
+spanish.TestReasonUnknownHost=No se pudo resolver el nombre del host; revise la URL.
+spanish.TestReasonTimeout=Sin respuesta en 5 segundos; revise la dirección, el puerto y el firewall.
+spanish.TestReasonAuth=El servidor rechazó las credenciales.
+spanish.TestReasonUnexpected=Algo respondió, pero no con un PONG de NATS.
+spanish.TestReasonRefused=Se rechazó la conexión; ¿el servidor está ejecutándose en ese puerto?
+spanish.TestReasonUnprovable=Este estilo de credencial requiere que el cliente NATS firme un desafío; compruébelo con tools\NatsValidate --test.
+spanish.TestCouldNotRun=No se pudo ejecutar la prueba de conexión (el script auxiliar no arrancó).
 
 brazilianportuguese.ServerPageTitle=Servidor NATS
 brazilianportuguese.ServerPageSubtitle=Deseja instalar agora um servidor NATS?
@@ -293,6 +315,17 @@ brazilianportuguese.SummaryIntro=Estes valores serao salvos no NATSExcel.json na
 brazilianportuguese.SummaryLabel=Conexao
 brazilianportuguese.SummaryAuth=Autenticacao
 brazilianportuguese.SummaryServer=Servidor
+brazilianportuguese.TestButton=Testar conexão
+brazilianportuguese.TestButtonTesting=Testando... (aguarda até 5 segundos pela resposta)
+brazilianportuguese.TestButtonOk=Conectado - o NATS respondeu em %1.
+brazilianportuguese.TestButtonFailed=Não foi possível conectar em %1.
+brazilianportuguese.TestReasonUnknownHost=Não foi possível resolver o nome do host; confira a URL.
+brazilianportuguese.TestReasonTimeout=Sem resposta em 5 segundos; confira o endereço, a porta e o firewall.
+brazilianportuguese.TestReasonAuth=O servidor recusou as credenciais.
+brazilianportuguese.TestReasonUnexpected=Algo respondeu, mas não com um PONG do NATS.
+brazilianportuguese.TestReasonRefused=A conexão foi recusada; o servidor está rodando nessa porta?
+brazilianportuguese.TestReasonUnprovable=Este estilo de credencial exige que o cliente NATS assine um desafio; use tools\NatsValidate --test.
+brazilianportuguese.TestCouldNotRun=Não foi possível executar o teste de conexão (o script auxiliar não iniciou).
 
 german.ServerPageTitle=NATS-Server
 german.ServerPageSubtitle=Möchten Sie jetzt einen NATS-Server installieren?
@@ -357,6 +390,17 @@ german.SummaryIntro=Diese Werte werden in NATSExcel.json im Installationsordner 
 german.SummaryLabel=Verbindung
 german.SummaryAuth=Authentifizierung
 german.SummaryServer=Server-Einrichtung
+german.TestButton=Verbindung testen
+german.TestButtonTesting=Wird getestet... (wartet bis zu 5 Sekunden auf eine Antwort)
+german.TestButtonOk=Verbunden - NATS hat unter %1 geantwortet.
+german.TestButtonFailed=Verbindung zu %1 nicht möglich.
+german.TestReasonUnknownHost=Der Hostname konnte nicht aufgelöst werden; prüfen Sie die URL.
+german.TestReasonTimeout=Keine Antwort innerhalb von 5 Sekunden; prüfen Sie Adresse, Port und Firewall.
+german.TestReasonAuth=Der Server hat die Zugangsdaten abgelehnt.
+german.TestReasonUnexpected=Etwas hat geantwortet, aber nicht mit einem NATS-PONG.
+german.TestReasonRefused=Die Verbindung wurde abgelehnt; läuft der Server auf diesem Port?
+german.TestReasonUnprovable=Dieser Anmeldestil erfordert eine Signatur durch den NATS-Client; prüfen Sie ihn mit tools\NatsValidate --test.
+german.TestCouldNotRun=Der Verbindungstest konnte nicht ausgeführt werden (das Hilfsskript startete nicht).
 
 french.ServerPageTitle=Serveur NATS
 french.ServerPageSubtitle=Voulez-vous installer un serveur NATS maintenant ?
@@ -421,6 +465,17 @@ french.SummaryIntro=Ces valeurs seront enregistrées dans NATSExcel.json dans le
 french.SummaryLabel=Connexion
 french.SummaryAuth=Authentification
 french.SummaryServer=Installation du serveur
+french.TestButton=Tester la connexion
+french.TestButtonTesting=Test en cours... (attente de la réponse : jusqu'à 5 secondes)
+french.TestButtonOk=Connecté - NATS a répondu à %1.
+french.TestButtonFailed=Impossible de se connecter à %1.
+french.TestReasonUnknownHost=Le nom d'hôte n'a pas pu être résolu ; vérifiez l'URL.
+french.TestReasonTimeout=Aucune réponse en 5 secondes ; vérifiez l'adresse, le port et le pare-feu.
+french.TestReasonAuth=Le serveur a refusé les identifiants.
+french.TestReasonUnexpected=Quelque chose a répondu, mais pas par un PONG NATS.
+french.TestReasonRefused=La connexion a été refusée ; le serveur tourne-t-il sur ce port ?
+french.TestReasonUnprovable=Ce mode d'authentification exige une signature du client NATS ; vérifiez-le avec tools\NatsValidate --test.
+french.TestCouldNotRun=Impossible d'exécuter le test de connexion (le script auxiliaire n'a pas démarré).
 
 portuguese.ServerPageTitle=Servidor NATS
 portuguese.ServerPageSubtitle=Pretende instalar agora um servidor NATS?
@@ -485,6 +540,17 @@ portuguese.SummaryIntro=Estes valores serão guardados no NATSExcel.json na past
 portuguese.SummaryLabel=Ligação
 portuguese.SummaryAuth=Autenticação
 portuguese.SummaryServer=Configuração do servidor
+portuguese.TestButton=Testar ligação
+portuguese.TestButtonTesting=A testar... (aguarda até 5 segundos por uma resposta)
+portuguese.TestButtonOk=Ligado - o NATS respondeu em %1.
+portuguese.TestButtonFailed=Não foi possível ligar a %1.
+portuguese.TestReasonUnknownHost=Não foi possível resolver o nome do anfitrião; verifique o URL.
+portuguese.TestReasonTimeout=Sem resposta em 5 segundos; verifique o endereço, a porta e a firewall.
+portuguese.TestReasonAuth=O servidor rejeitou as credenciais.
+portuguese.TestReasonUnexpected=Algo respondeu, mas não com um PONG do NATS.
+portuguese.TestReasonRefused=A ligação foi recusada; o servidor está a correr nessa porta?
+portuguese.TestReasonUnprovable=Este estilo de credencial exige que o cliente NATS assine um desafio; verifique com tools\NatsValidate --test.
+portuguese.TestCouldNotRun=Não foi possível executar o teste de ligação (o script auxiliar não arrancou).
 
 russian.ServerPageTitle=Сервер NATS
 russian.ServerPageSubtitle=Установить сервер NATS сейчас?
@@ -549,6 +615,17 @@ russian.SummaryIntro=Эти значения будут сохранены в NA
 russian.SummaryLabel=Подключение
 russian.SummaryAuth=Аутентификация
 russian.SummaryServer=Настройка сервера
+russian.TestButton=Проверить подключение
+russian.TestButtonTesting=Проверка... (ответ ожидается до 5 секунд)
+russian.TestButtonOk=Подключено - NATS ответил по адресу %1.
+russian.TestButtonFailed=Не удалось подключиться к %1.
+russian.TestReasonUnknownHost=Имя хоста не разрешается; проверьте URL.
+russian.TestReasonTimeout=Нет ответа в течение 5 секунд; проверьте адрес, порт и брандмауэр.
+russian.TestReasonAuth=Сервер отклонил учётные данные.
+russian.TestReasonUnexpected=Что-то ответило, но не PONG от NATS.
+russian.TestReasonRefused=В подключении отказано; запущен ли сервер на этом порту?
+russian.TestReasonUnprovable=Этот способ аутентификации требует подписи клиентом NATS; проверьте через tools\NatsValidate --test.
+russian.TestCouldNotRun=Не удалось запустить проверку подключения (вспомогательный скрипт не стартовал).
 
 korean.ServerPageTitle=NATS 서버
 korean.ServerPageSubtitle=지금 NATS 서버를 설치하시겠습니까?
@@ -613,6 +690,17 @@ korean.SummaryIntro=이 값은 설치 폴더의 NATSExcel.json에 저장됩니�
 korean.SummaryLabel=연결
 korean.SummaryAuth=인증
 korean.SummaryServer=서버 설정
+korean.TestButton=연결 테스트
+korean.TestButtonTesting=테스트 중... (응답을 최대 5초 기다립니다)
+korean.TestButtonOk=연결됨 - %1의 NATS가 응답했습니다.
+korean.TestButtonFailed=%1에 연결할 수 없습니다.
+korean.TestReasonUnknownHost=호스트 이름을 확인할 수 없습니다. URL을 확인하세요.
+korean.TestReasonTimeout=5초 안에 응답이 없습니다. 주소, 포트, 방화벽을 확인하세요.
+korean.TestReasonAuth=서버가 자격 증명을 거부했습니다.
+korean.TestReasonUnexpected=무언가 응답했지만 NATS PONG이 아닙니다.
+korean.TestReasonRefused=연결이 거부되었습니다. 해당 포트에서 서버가 실행 중입니까?
+korean.TestReasonUnprovable=이 인증 방식은 NATS 클라이언트의 서명이 필요합니다. tools\NatsValidate --test로 확인하세요.
+korean.TestCouldNotRun=연결 테스트를 실행할 수 없습니다(도우미 스크립트가 시작되지 않았습니다).
 
 japanese.ServerPageTitle=NATS サーバー
 japanese.ServerPageSubtitle=今すぐ NATS サーバーをインストールしますか?
@@ -677,6 +765,17 @@ japanese.SummaryIntro=これらの値はインストール フォルダーの NA
 japanese.SummaryLabel=接続
 japanese.SummaryAuth=認証
 japanese.SummaryServer=サーバー セットアップ
+japanese.TestButton=接続をテスト
+japanese.TestButtonTesting=テスト中...（最大 5 秒待機します）
+japanese.TestButtonOk=接続済み - %1 の NATS が応答しました。
+japanese.TestButtonFailed=%1 に接続できませんでした。
+japanese.TestReasonUnknownHost=ホスト名を解決できませんでした。URL を確認してください。
+japanese.TestReasonTimeout=5 秒以内に応答がありません。アドレス、ポート、ファイアウォールを確認してください。
+japanese.TestReasonAuth=サーバーが資格情報を拒否しました。
+japanese.TestReasonUnexpected=何かが応答しましたが、NATS の PONG ではありません。
+japanese.TestReasonRefused=接続が拒否されました。そのポートでサーバーが動作していますか?
+japanese.TestReasonUnprovable=この認証方式は NATS クライアントによる署名が必要です。tools\NatsValidate --test で確認してください。
+japanese.TestCouldNotRun=接続テストを実行できませんでした（ヘルパー スクリプトが起動しませんでした）。
 
 chinesesimplified.ServerPageTitle=NATS 服务器
 chinesesimplified.ServerPageSubtitle=现在安装 NATS 服务器吗?
@@ -741,6 +840,17 @@ chinesesimplified.SummaryIntro=这些值将保存到安装文件夹中的 NATSEx
 chinesesimplified.SummaryLabel=连接
 chinesesimplified.SummaryAuth=身份验证
 chinesesimplified.SummaryServer=服务器设置
+chinesesimplified.TestButton=测试连接
+chinesesimplified.TestButtonTesting=正在测试...（最多等待 5 秒）
+chinesesimplified.TestButtonOk=已连接 - %1 的 NATS 已响应。
+chinesesimplified.TestButtonFailed=无法连接到 %1。
+chinesesimplified.TestReasonUnknownHost=无法解析主机名；请检查 URL。
+chinesesimplified.TestReasonTimeout=5 秒内无响应；请检查地址、端口和防火墙。
+chinesesimplified.TestReasonAuth=服务器拒绝了凭据。
+chinesesimplified.TestReasonUnexpected=有响应，但不是 NATS 的 PONG。
+chinesesimplified.TestReasonRefused=连接被拒绝；服务器是否在该端口上运行？
+chinesesimplified.TestReasonUnprovable=此凭据方式需要 NATS 客户端签名；请用 tools\NatsValidate --test 检查。
+chinesesimplified.TestCouldNotRun=无法运行连接测试（辅助脚本未启动）。
 
 chinesetraditional.ServerPageTitle=NATS 伺服器
 chinesetraditional.ServerPageSubtitle=現在安裝 NATS 伺服器嗎?
@@ -805,6 +915,17 @@ chinesetraditional.SummaryIntro=這些值將儲存到安裝資料夾中的 NATSE
 chinesetraditional.SummaryLabel=連線
 chinesetraditional.SummaryAuth=驗證
 chinesetraditional.SummaryServer=伺服器設定
+chinesetraditional.TestButton=測試連線
+chinesetraditional.TestButtonTesting=正在測試...（最多等待 5 秒）
+chinesetraditional.TestButtonOk=已連線 - %1 的 NATS 已回應。
+chinesetraditional.TestButtonFailed=無法連線到 %1。
+chinesetraditional.TestReasonUnknownHost=無法解析主機名稱；請檢查 URL。
+chinesetraditional.TestReasonTimeout=5 秒內沒有回應；請檢查位址、連接埠和防火牆。
+chinesetraditional.TestReasonAuth=伺服器拒絕了認證資料。
+chinesetraditional.TestReasonUnexpected=有回應，但不是 NATS 的 PONG。
+chinesetraditional.TestReasonRefused=連線被拒絕；伺服器是否在該連接埠上執行？
+chinesetraditional.TestReasonUnprovable=此認證方式需要 NATS 用戶端簽章；請用 tools\NatsValidate --test 檢查。
+chinesetraditional.TestCouldNotRun=無法執行連線測試（輔助指令碼未啟動）。
 
 [Tasks]
 Name: "addinconfig"; Description: "{cm:TaskConfigDesc}"; GroupDescription: "{cm:GroupConfig}"
@@ -826,11 +947,19 @@ Source: "{#RepoRoot}\installer\verify-connection.ps1"; DestDir: "{app}\scripts";
 Source: "{#RepoRoot}\installer\detect-servers.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\uninstall-server.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\validate-config.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+; The console header (ASCII art) printed by the helpers above. Dot-sourced with
+; a try/catch, so its absence degrades to a plain header instead of failing.
+Source: "{#RepoRoot}\installer\banner.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\NATSExcel.schema.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\Validate-Config.cmd"; DestDir: "{app}"; Flags: ignoreversion
-; A temporary copy, so the server can be installed BEFORE the files are extracted.
+; A temporary copy, so the server can be installed BEFORE the files are extracted,
+; and the connection probe, so the wizard's "Test connection" button can run it
+; before anything is installed. banner.ps1 comes along because the helpers
+; dot-source it from their own folder ({tmp} here).
 Source: "{#RepoRoot}\installer\install-server.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "{#RepoRoot}\installer\nats-service.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "{#RepoRoot}\installer\test-connection.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "{#RepoRoot}\installer\banner.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [UninstallDelete]
 Type: files; Name: "{app}\NATSExcel.log"
@@ -855,9 +984,13 @@ var
   ServerPage: TInputOptionWizardPage;
   OptionsPage: TInputOptionWizardPage;
   SummaryPage: TOutputMsgMemoWizardPage;
+  TestButton: TNewButton;
+  TestResultLabel: TNewStaticText;
   ServerInstallCode: Integer;
   TestOk: Boolean;
   InstallCompleted: Boolean;
+  StaleEntriesRemoved: Integer;
+  ProbePasswordFile: String;
   UninstallServersPage: TInputOptionWizardPage;
   ServerKinds: TArrayOfString;
   ServerLabels: TArrayOfString;
@@ -970,6 +1103,119 @@ begin
   end;
 end;
 
+// ---- Remove the auto-load entry of a PREVIOUS NATSExcel install -----------
+// An upgrade into another folder (or a copy registered by hand) leaves its own
+// OPEN value behind, so Excel loads TWO copies of the add-in: every NATSExcel
+// function is then duplicated in the function list, and each copy reads its own
+// folder's NATSExcel.json - one of them usually shows #CONFIG or answers from
+// the wrong server. Only entries that point at a NATSExcel XLL and are NOT the
+// one being installed are removed; other add-ins in the key are left alone.
+function XllNameIsNatsExcel(const Value: String): Boolean;
+var
+  FileName: String;
+begin
+  FileName := ExtractFileName(RemoveQuotes(Trim(Value)));
+  Result := (CompareText(FileName, 'NATSExcel64-packed.xll') = 0)
+    or (CompareText(FileName, 'NATSExcel-packed.xll') = 0)
+    or (CompareText(FileName, 'NATSExcel64.xll') = 0)
+    or (CompareText(FileName, 'NATSExcel.xll') = 0)
+    // The fallback name Excel-DNA produces when NATSExcel.dna is missing. A
+    // copy built that way is still OUR add-in, and two of them duplicate every
+    // function just the same.
+    or (CompareText(FileName, 'NATSExcel-AddIn-packed.xll') = 0);
+end;
+
+// TRUE when the value names a NATSExcel add-in other than KeepPath.
+function IsStaleNatsExcelEntry(const Value, KeepPath: String): Boolean;
+var
+  Target: String;
+begin
+  Result := False;
+  if (Trim(Value) = '') or (not XllNameIsNatsExcel(Value)) then Exit;
+  Target := RemoveQuotes(Trim(Value));
+  if Pos('\', Target) = 0 then
+    // A bare file name: keep it only when it is this install's own XLL.
+    Result := CompareText(Target, ExtractFileName(KeepPath)) <> 0
+  else
+    Result := CompareText(Target, KeepPath) <> 0;
+end;
+
+// Removes OPEN / OPEN1..OPENn values that would load ANOTHER NATSExcel copy.
+// Returns how many entries were removed (logged by the caller).
+function RemoveStaleExcelEntries(const KeepPath: String): Integer;
+var
+  Keys: TArrayOfString;
+  I, N: Integer;
+  BaseKey, ValName, Cur: String;
+begin
+  Result := 0;
+  Keys := OfficeExcelKeys();
+  for I := 0 to GetArrayLength(Keys) - 1 do
+  begin
+    BaseKey := 'SOFTWARE\Microsoft\Office\' + Keys[I] + '\Excel\Options';
+    if RegQueryStringValue(HKCU, BaseKey, 'OPEN', Cur) and
+       IsStaleNatsExcelEntry(Cur, KeepPath) then
+    begin
+      if RegDeleteValue(HKCU, BaseKey, 'OPEN') then
+      begin
+        Result := Result + 1;
+        Log('Stale add-in removed: ' + Keys[I] + '\Excel\Options\OPEN = ' + Cur);
+      end;
+    end;
+    N := 1;
+    while N < 100 do
+    begin
+      ValName := 'OPEN' + IntToStr(N);
+      if RegQueryStringValue(HKCU, BaseKey, ValName, Cur) and
+         IsStaleNatsExcelEntry(Cur, KeepPath) then
+      begin
+        if RegDeleteValue(HKCU, BaseKey, ValName) then
+        begin
+          Result := Result + 1;
+          Log('Stale add-in removed: ' + Keys[I] + '\Excel\Options\' + ValName + ' = ' + Cur);
+        end;
+      end;
+      N := N + 1;
+    end;
+  end;
+end;
+
+// ---- Remove a stale "Add-in Manager" entry --------------------------------
+// Excel still lists add-ins registered through the LEGACY dialog: the value NAME
+// is the label the user sees and the data is the path. A renamed or moved old
+// copy leaves a label pointing at a file that no longer exists, which shows up
+// as a second, dead "NATSExcel" line in File > Options > Add-ins.
+// Only values whose path is a NATSExcel XLL that no longer exists are removed.
+function RemoveStaleAddInManagerEntries(const KeepPath: String): Integer;
+var
+  Keys: TArrayOfString;
+  Names: TArrayOfString;
+  I, J: Integer;
+  BaseKey, Cur, Target: String;
+begin
+  Result := 0;
+  Keys := OfficeExcelKeys();
+  for I := 0 to GetArrayLength(Keys) - 1 do
+  begin
+    BaseKey := 'SOFTWARE\Microsoft\Office\' + Keys[I] + '\Excel\Add-in Manager';
+    if RegGetValueNames(HKCU, BaseKey, Names) then
+      for J := 0 to GetArrayLength(Names) - 1 do
+        if RegQueryStringValue(HKCU, BaseKey, Names[J], Cur) then
+        begin
+          Target := RemoveQuotes(Trim(Cur));
+          if XllNameIsNatsExcel(Cur) and (not FileExists(Target)) and
+             (CompareText(Target, KeepPath) <> 0) then
+          begin
+            if RegDeleteValue(HKCU, BaseKey, Names[J]) then
+            begin
+              Result := Result + 1;
+              Log('Stale Add-in Manager entry removed: ' + Names[J] + ' = ' + Cur);
+            end;
+          end;
+        end;
+  end;
+end;
+
 // ---- Wizard pages ---------------------------------------------------------
 function ParamOr(Param, Default: String): String;
 begin
@@ -980,6 +1226,149 @@ end;
 function AuthStyleFromParam(): Integer; forward;
 function AuthStyle(): Integer; forward;
 function Cred(Field: Integer): String; forward;
+function FirstHostPort(): String; forward;
+function CurrentXllPath(): String; forward;
+function ProbeArgs(const HostPort: String): String; forward;
+procedure CleanupProbe(); forward;
+procedure TestButtonClick(Sender: TObject); forward;
+function TestCurrentConnection(): Boolean; forward;
+
+// ---- "Test connection" button (connection page) ---------------------------
+// PINGs the address currently in the fields, WITHOUT leaving the page and
+// without touching NATSExcel.json: nobody should have to walk through the whole
+// wizard just to learn that the address is wrong. The wizard already ships
+// test-connection.ps1, so the same handshake is reused by this button and by the
+// end-of-install check; the credential is passed from what was typed on the
+// Credentials page.
+//
+// A password/secret travels through a PRIVATE TEMP FILE, not the command line:
+// a value containing a quote or a space cannot be passed as one argument safely,
+// and a process command line is readable by other local users.
+function ProbeArgs(const HostPort: String): String;
+var
+  Args, Pw: String;
+  Idx: Integer;
+begin
+  Args := '-ServerHost "' + HostPort + '"';
+  Idx := AuthStyle();
+  if Idx = AuthIdxToken then
+    Args := Args + ' -Token "' + Cred(2) + '"'
+  else if Idx = AuthIdxUserPass then
+  begin
+    Args := Args + ' -User "' + Cred(0) + '"';
+    Pw := Cred(1);
+    if Pw <> '' then
+    begin
+      ProbePasswordFile := ExpandConstant('{tmp}\natsexcel-probe-pw.txt');
+      if SaveStringToFile(ProbePasswordFile, Pw, False) then
+        Args := Args + ' -PasswordFile "' + ProbePasswordFile + '"'
+      else
+      begin
+        // Never fall back to "-Password <value>": a process command line is
+        // readable by other local users, so that would leak the secret the
+        // temp file exists to protect. Without a file the probe simply runs
+        // unauthenticated, which reports the honest "rejected" answer.
+        ProbePasswordFile := '';
+      end;
+    end;
+  end
+  else if Idx = AuthIdxNKey then
+    // A seed must SIGN the server nonce; only the client library can do that.
+    Args := Args + ' -Unprovable'
+  else if Idx = AuthIdxJwt then
+    // Same, plus the JWT itself: outside the client, unprovable.
+    Args := Args + ' -Unprovable'
+  else if Idx = AuthIdxCreds then
+    // A .creds file carries a JWT and a seed; same reason.
+    Args := Args + ' -Unprovable'
+  else if Idx = AuthIdxMtls then
+    // A certificate implies TLS; a plain-text handshake cannot prove it.
+    Args := Args + ' -Unprovable';
+  Result := Args;
+end;
+
+// Removes the private temp file written by ProbeArgs, if any.
+procedure CleanupProbe();
+begin
+  if ProbePasswordFile <> '' then
+  begin
+    DeleteFile(ProbePasswordFile);
+    ProbePasswordFile := '';
+  end;
+end;
+
+// Only the helper's STABLE exit code is used for the message: its own text
+// comes through a console redirect in the OEM codepage, so accented characters
+// would arrive mangled in a label.
+function TestCurrentConnection(): Boolean;
+var
+  Script, OutFile, Args, HostPort, Reason: String;
+  Code: Integer;
+begin
+  Result := False;
+  HostPort := FirstHostPort();
+
+  ExtractTemporaryFile('test-connection.ps1');
+  // The helper dot-sources banner.ps1 from its own folder ({tmp} here); extract
+  // it too so the copy never sits next to a missing include.
+  ExtractTemporaryFile('banner.ps1');
+  Script := ExpandConstant('{tmp}\test-connection.ps1');
+  OutFile := ExpandConstant('{tmp}\natsexcel-test.txt');
+  DeleteFile(OutFile);
+
+  Args := ProbeArgs(HostPort);
+  // -Quiet: this output is redirected to a file and only the exit code is
+  // used, so no banner is printed (it would just be captured as noise).
+  Args := Args + ' -Quiet';
+
+  if not Exec('cmd.exe',
+          '/c ""powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "' + Script + '" ' +
+          Args + ' > "' + OutFile + '" 2>&1"',
+          ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, Code) then
+  begin
+    CleanupProbe();
+    TestResultLabel.Caption := ExpandConstant('{cm:TestCouldNotRun}');
+    Exit;
+  end;
+  CleanupProbe();
+
+  if Code = 0 then
+  begin
+    TestResultLabel.Caption := FmtMessage(ExpandConstant('{cm:TestButtonOk}'), [HostPort]);
+    Result := True;
+    Exit;
+  end;
+
+  case Code of
+    2: Reason := ExpandConstant('{cm:TestReasonUnknownHost}');
+    3: Reason := ExpandConstant('{cm:TestReasonTimeout}');
+    5: Reason := ExpandConstant('{cm:TestReasonAuth}');
+    6: Reason := ExpandConstant('{cm:TestReasonUnexpected}');
+    7: Reason := ExpandConstant('{cm:TestReasonUnprovable}');
+  else
+    Reason := ExpandConstant('{cm:TestReasonRefused}');
+  end;
+  TestResultLabel.Caption := FmtMessage(ExpandConstant('{cm:TestButtonFailed}'), [HostPort])
+    + ' ' + Reason;
+  Log('TestCurrentConnection: host=' + HostPort + ' exit=' + IntToStr(Code));
+end;
+
+procedure TestButtonClick(Sender: TObject);
+begin
+  // Immediate feedback: a dead host can take the whole 5s TCP timeout.
+  TestResultLabel.Font.Color := clGrayText;
+  TestResultLabel.Caption := ExpandConstant('{cm:TestButtonTesting}');
+  TestResultLabel.Refresh;
+  TestButton.Enabled := False;
+  try
+    if TestCurrentConnection() then
+      TestResultLabel.Font.Color := clGreen
+    else
+      TestResultLabel.Font.Color := clRed;
+  finally
+    TestButton.Enabled := True;
+  end;
+end;
 
 procedure InitializeWizard();
 begin
@@ -1001,6 +1390,30 @@ begin
     ExpandConstant('{cm:ConnPageDesc}'));
   ConnPage.Add(ExpandConstant('{cm:ConnUrl}'), False);
   ConnPage.Values[0] := ParamOr('URL', 'nats://localhost:4222');
+
+  // "Test connection" on the connection page: the answer is shown above the
+  // button, spanning the page width, without leaving the page. Next still
+  // behaves exactly as before.
+  TestButton := TNewButton.Create(ConnPage);
+  TestButton.Parent := ConnPage.Surface;
+  TestButton.Width := ScaleX(150);
+  TestButton.Height := ScaleY(25);
+  TestButton.Left := 0;
+  TestButton.Top := ConnPage.SurfaceHeight - TestButton.Height - ScaleY(4);
+  TestButton.Caption := ExpandConstant('{cm:TestButton}');
+  TestButton.OnClick := @TestButtonClick;
+
+  // The result sits ABOVE the button and spans the page width: a failure is two
+  // lines (address + reason) and a 1-line label next to the button clipped it.
+  TestResultLabel := TNewStaticText.Create(ConnPage);
+  TestResultLabel.Parent := ConnPage.Surface;
+  TestResultLabel.Left := 0;
+  TestResultLabel.Top := TestButton.Top - ScaleY(42);
+  TestResultLabel.Width := ConnPage.SurfaceWidth;
+  TestResultLabel.Height := ScaleY(38);
+  TestResultLabel.AutoSize := False;
+  TestResultLabel.WordWrap := True;
+  TestResultLabel.Caption := '';
 
   AuthPage := CreateInputOptionPage(ConnPage.ID,
     ExpandConstant('{cm:AuthPageTitle}'),
@@ -1150,6 +1563,17 @@ begin
     Result := Trim(ConnPage.Values[0])
   else
     Result := ParamOr('URL', 'nats://localhost:4222');
+end;
+
+// The XLL this installation actually leaves on disk (the non-matching one is
+// deleted in CurStepChanged), used to tell "our" auto-load entry from an older
+// copy's during the stale-entry cleanup.
+function CurrentXllPath(): String;
+begin
+  if Is64BitOffice then
+    Result := ExpandConstant('{app}\NATSExcel64-packed.xll')
+  else
+    Result := ExpandConstant('{app}\NATSExcel-packed.xll');
 end;
 
 // Credential value by field index (seeded from params when silent).
@@ -1354,6 +1778,10 @@ begin
   if Kind = 'none' then Exit;
 
   ExtractTemporaryFile('install-server.ps1');
+  // The helper dot-sources banner.ps1 from its own folder ({tmp} here); extract
+  // it too so the visible console shows the NATSExcel header, not an
+  // unidentified window printing technical lines.
+  ExtractTemporaryFile('banner.ps1');
   Script := ExpandConstant('{tmp}\install-server.ps1');
   ServerDir := ExpandConstant('{app}\server');
   Params := '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '" -Kind ' + Kind +
@@ -1397,6 +1825,16 @@ begin
         RegisterExcelAutoLoad(ExpandConstant('{app}\NATSExcel64-packed.xll'))
       else
         RegisterExcelAutoLoad(ExpandConstant('{app}\NATSExcel-packed.xll'));
+
+      // An earlier copy (another folder, or one registered by hand) makes Excel
+      // load TWO add-ins: the functions are duplicated and each copy reads its
+      // own folder's NATSExcel.json - one of them usually shows #CONFIG. Drop
+      // the other copy's auto-load entry and its dead legacy dialog entry; this
+      // install's own entry (just written above) is never touched.
+      StaleEntriesRemoved := RemoveStaleExcelEntries(CurrentXllPath());
+      StaleEntriesRemoved := StaleEntriesRemoved + RemoveStaleAddInManagerEntries(CurrentXllPath());
+      if StaleEntriesRemoved > 0 then
+        Log('Stale older installs unregistered: ' + IntToStr(StaleEntriesRemoved));
     end;
 
     // Optional Windows service (native install only). Needs admin; if the
@@ -1421,12 +1859,9 @@ begin
   if not InstallCompleted then Exit;
 
   HostPort := FirstHostPort();
-  Args := '-ServerHost "' + HostPort + '"';
-  // The connection test can only use a token; other styles are verified by the
-  // add-in itself (the test script speaks the protocol, not the client libs).
-  if AuthStyle() = AuthIdxToken then
-    Args := Args + ' -Token "' + Cred(2) + '"';
+  Args := ProbeArgs(HostPort);
   TestOk := (RunScript('test-connection.ps1', Args) = 0);
+  CleanupProbe();
 
   if not TestOk then
     Msg := FmtMessage(ExpandConstant('{cm:TestFailed}'), [HostPort])

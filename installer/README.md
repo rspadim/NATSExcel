@@ -13,16 +13,31 @@ service registration, which is isolated in `nats-service.ps1`.
    pick (default `C:\NATSExcel`).
 2. Detects the Office bitness and keeps only the matching XLL
    (`NATSExcel64-packed.xll` for 64-bit, `NATSExcel-packed.xll` for 32-bit).
+   It then **unregisters an older copy**: any Excel auto-load entry
+   (`HKCU\Software\Microsoft\Office\<ver>\Excel\Options\OPEN`/`OPENn`) that points
+   at a *different* NATSExcel XLL is deleted, and so is a dead "Add-in Manager"
+   label left by a renamed or moved copy (the second, dead `NATSExcel` line in
+   File > Options > Add-ins). Other add-ins' entries are never touched and this
+   install's own entry is written first, so an upgrade into another folder no
+   longer leaves **two** add-ins loaded (duplicated functions, two configs, one
+   of them showing `#CONFIG`).
    The wizard is localized in **11 languages** (简体中文, English, 繁體中文,
    Português, Español, Русский, Français, 한국어, Deutsch, 日本語 and Português
-   (Brasil)), every one with the same 63 wizard strings. The Excel-facing
+   (Brasil)), every one with the same 74 wizard strings. The Excel-facing
    function names and cell markers stay in **English** on purpose (see the main
    README "Languages" section): a formula must return the same text whatever the
    user's locale.
 3. Asks for the **connection**: the server URL (a comma-separated list for a
    cluster) and the credential style - none, token, user/password, NKey,
    JWT + seed, creds file or mTLS - showing only the fields the chosen style
-   needs. Any of them can be edited in `NATSExcel.json` afterwards.
+   needs. Any of them can be edited in `NATSExcel.json` afterwards. The page has
+   a **Test connection** button: it probes what is in the fields at that moment
+   (no page change, no file written), says up front that it waits **up to 5
+   seconds**, and shows the result above the button in green or red with the
+   reason named (unknown host, timeout, refused, rejected credentials,
+   unexpected reply) instead of a bare "failed". The message comes from the
+   helper's **stable exit codes**, never from its console text — a `cmd.exe`
+   redirect re-encodes that into the OEM codepage and would mangle accents.
 4. **Optional: installs a server.** NATS runs natively on Windows, so the
    default is *download one small `nats-server.exe`* and start it with JetStream
    on. Docker is offered as an alternative. The native path writes a starter
@@ -65,8 +80,15 @@ The installer ships these under `C:\NATSExcel\` (all usable on their own):
   `-NoJetStream` starts without `-js`; `-Image nats:2-alpine` pins a tag.
 - `scripts\nats-service.ps1 -Action Install|Start|Stop|Remove|Status -Dir ...`
   - the Windows service (the only admin step).
-- `scripts\test-connection.ps1 -ServerHost localhost:4222 [-Token ...]` - speaks
-  the NATS protocol, exit `0`/`1`.
+- `scripts\test-connection.ps1 -ServerHost localhost:4222 [-Token ...|-User ... -PasswordFile ...]`
+  - speaks the NATS protocol (`INFO` + `PING` → `PONG`). Exit codes are a
+  **stable contract** the wizard turns into its own localized message: `0` OK,
+  `2` unknown host (DNS), `3` timeout/unreachable, `4` refused or other socket
+  error, `5` credentials rejected, `6` unexpected reply, `7` the credential
+  style needs the full client check (NKey/JWT/creds/mTLS; use
+  `tools\NatsValidate --test`). `-Quiet` suppresses the banner (the wizard
+  redirects the output to a file and reads only the exit code). The TCP connect
+  is bounded to 5 s.
 - `scripts\verify-connection.ps1 -AddInDir "C:\NATSExcel" -ServerHost localhost:4222 -OpenExcel`
   - tests and opens the sample sheet.
 - `scripts\validate-config.ps1` (or double-click `Validate-Config.cmd`) - checks
@@ -74,6 +96,12 @@ The installer ships these under `C:\NATSExcel\` (all usable on their own):
   the add-in embeds) and prints an OK/FAIL report.
 - `scripts\detect-servers.ps1` / `scripts\uninstall-server.ps1` - used by the
   uninstaller.
+- `scripts\banner.ps1` - the console header the helpers above print (5-row ASCII
+  wordmark, the installed version from the DLL's `ProductVersion`, and the
+  project URL). ASCII only, because the console renders in an OEM codepage; it
+  falls back to a compact one-line header in a window narrower than 70 columns
+  or when the output is redirected. Dot-sourced through a try/catch, so a missing
+  file degrades to a plain header instead of breaking a helper.
 
 ## Uninstall
 

@@ -13,11 +13,64 @@ namespace NATSExcel
     {
         private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 
-        /// <summary>Version string of the loaded add-in (smoke test / support).</summary>
-        [ExcelFunction(Description = "Returns the NATSExcel add-in version", IsVolatile = true)]
+        /// <summary>
+        /// Everything a support case needs in one cell: the running build, the
+        /// XLL it was loaded from, the <c>NATSExcel.json</c> in use and the live
+        /// connection count.
+        ///
+        /// <para>
+        /// The XLL path is the point of the function: a second installed copy
+        /// (an upgrade into another folder, or one registered by hand) reports
+        /// ITS path here, so two copies are visible from a cell instead of from
+        /// the add-in list. Each part is guarded on its own and the answer is one
+        /// line, so a volatile cell never grows the sheet; it needs no NATS
+        /// server (a broken install is exactly when it is called).
+        /// </para>
+        /// </summary>
+        [ExcelFunction(Description = "Returns the running NATSExcel version, the XLL path it was loaded from, the config in use and the live connection count (volatile)", IsVolatile = true)]
         public static string NatsUDFVersion()
         {
-            return AppConfig.Version;
+            string version;
+            string xllPath;
+            string configPath;
+            int connections;
+            try
+            {
+                version = BuildInfo.Version;
+            }
+            catch
+            {
+                version = "dev";
+            }
+            try
+            {
+                xllPath = ExcelDna.Integration.ExcelDnaUtil.XllPath;
+            }
+            catch
+            {
+                xllPath = null;
+            }
+            try
+            {
+                configPath = ConfigSchema.FirstExistingPath();
+            }
+            catch
+            {
+                configPath = null;
+            }
+            try
+            {
+                connections = NatsRuntime.Connections.LiveConnectionCount();
+            }
+            catch
+            {
+                connections = 0;
+            }
+
+            return "NATSExcel " + version
+                + " | xll=" + (string.IsNullOrWhiteSpace(xllPath) ? "(unknown)" : xllPath)
+                + " | config=" + (string.IsNullOrWhiteSpace(configPath) ? "(defaults)" : configPath)
+                + " | connections=" + connections.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>Path of the configuration file actually in use, or "(defaults)".</summary>

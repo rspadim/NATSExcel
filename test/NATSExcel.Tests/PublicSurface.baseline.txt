@@ -104,4 +104,4 @@ NatsUDFSubjectUnsubscribe | volatile=true | subject:object "NATS subject to unsu
 NatsUDFSubjectUnsubscribeNonVolatile | volatile=false | subject:object "NATS subject to unsubscribe (wildcards allowed)"; optionalHost:object=null "Optional cluster name, server alias or nats:// URL" | "Unsubscribes a NATS subject previously subscribed with NatsUDFSubjectLatest; runs once per entry/argument change (non-volatile)"
 NatsUDFSubscriptionCount | volatile=true | (no arguments) | "Returns the number of active UDF NATS subscriptions"
 NatsUDFUpdateAvailable | volatile=true | (no arguments) | "TRUE when a newer NATSExcel release is known to exist"
-NatsUDFVersion | volatile=true | (no arguments) | "Returns the NATSExcel add-in version"
+NatsUDFVersion | volatile=true | (no arguments) | "Returns the running NATSExcel version, the XLL path it was loaded from, the config in use and the live connection count (volatile)"

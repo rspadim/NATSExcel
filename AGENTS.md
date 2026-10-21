@@ -22,7 +22,7 @@ published; this file is the working guidance.
 > released (latest tag: `v0.1.2`): the packed XLL loads in real Excel and
 > answers UDFs, the full `NatsUDF*` catalog (**91** functions) plus the six
 > `NatsRTD*` status helpers exist, and the RTD server runs. All **five** test
-> layers are real and pass (a snapshot: unit 378, smoke 168 with 0 skipped, Excel
+> layers are real and pass (a snapshot: unit 385, smoke 168 with 0 skipped, Excel
 > E2E 57 assertions in the default run - run the layers for the current numbers,
 > and `UnpinnedClaimsTests` keeps the E2E counts honest),
 > load (machine-dependent, ~93k-204k msg/s locally) and liveness. The solution file, the CI tag/release flow and
@@ -118,9 +118,9 @@ items from the audit/plan are still open (the maintainer plan, not published).
 | --- | --- |
 | `AddIn.cs` | `IExcelAddIn` entry point (`AutoOpen`/`AutoClose`): registers `MaskedExceptionRenderer`, the `NatsRtd` COM server, the runtime/RTD/UDF reload resets; `AutoClose` shuts the runtime down. |
 | `Config.cs` | `AppConfig`: loads `NATSExcel.json` once (`Lazy`), comment-aware parse (`StripComments`), `Default`/`Servers`/`Clusters` resolution (`ResolveEndpointCore`), per-cluster `ResolveSettings`, `MaskNatsEndpoint`, `ResolveSeed`, `Sanitize`, `Reload`, `Version`. |
-| `ConfigSchema.cs` | Embedded JSON-Schema walk (`ParseWithComments`/`Clean`) with per-value drop; wired into the load path. |
-| `NatsUdf.cs` | The seed diagnostics: `NatsUDFVersion`, `NatsUDFConfigPath`, `NatsUDFConnectionCount`, `NatsUDFLogPath`. |
-| `NatsConnectionManager.cs` | One cached `NatsConnection` per resolved endpoint; JetStream context cache; server-info snapshot; bounded `WaitBounded*`; eviction/down-sweep; bounded shutdown. |
+| `ConfigSchema.cs` | Embedded JSON-Schema walk (`ParseWithComments`/`Clean`) with per-value drop; wired into the load path. `FirstExistingPath()` is the "config file in use" probe the `NatsUDFVersion` cell reports. |
+| `NatsUdf.cs` | The seed diagnostics: `NatsUDFVersion` (one line: build, XLL path, config in use, live connections), `NatsUDFConfigPath`, `NatsUDFConnectionCount`, `NatsUDFLogPath`. |
+| `NatsConnectionManager.cs` | One cached `NatsConnection` per resolved endpoint; JetStream context cache; server-info snapshot; bounded `WaitBounded*`; eviction/down-sweep; bounded shutdown. `BuildInfo` (at the bottom) resolves the readable version reported by `NatsUDFVersion` and the connection `Name`. |
 | `NatsSubscriptionManager.cs` | Ref-counted Core subscriptions (one client sub per `(endpoint, subject, queueGroup)`, N listeners, wildcard-aware, origin tags); per-key epochs; dedup. |
 | `NatsRuntime.cs` | Process-wide singleton wiring connections + subscriptions; shutdown tombstone + reload reset. |
 | `NatsRtd.cs` | The `NatsRtd` `ExcelRtdServer`: topic registry, poll/flush timers, backoff, all 9 topic kinds; plus the six `NatsRTD*` status helpers. |
@@ -144,6 +144,7 @@ items from the audit/plan are still open (the maintainer plan, not published).
 | `NATSExcel.json` / `NATSExcel.schema.json` | Sample config + embedded JSON Schema (validated by `ConfigSchema.cs` and `NatsUDFConfigValidate`). |
 | `NLog.config` | Logging to `NATSExcel.log`, rolling at 100 MB, 5 archives; uses `${maskedException:format=toString}` (not `${exception:...}`). |
 | `installer/` | Inno Setup script (`NATSExcel.iss`) + helper PowerShell + README: per-user, native-first installer. |
+| `installer/banner.ps1` | The console header the helper scripts print (5-row ASCII wordmark + version + project URL). ASCII only, because the console renders in an OEM codepage; degrades to one compact line when the window is narrower than 70 columns or the output is redirected. Dot-sourced defensively, so a missing file never breaks a helper. |
 | `tools/NatsValidate/` | C# console validator that runs today (see `## Tests`). |
 | `test/` | The unit, load and E2E layers + the cluster harness + the copy-based add-in folder helper (see `## Tests`). |
 
@@ -242,6 +243,50 @@ and this layout must stay in sync (PLAN S7.4).
   Comments are accepted (string-aware `StripComments`). A wrong-typed value is
   dropped individually by `ConfigSchema.cs` (the schema walk), so the rest of the
   file is kept; only a structural (not-JSON) failure falls back to defaults.
+- **`=NatsUDFVersion()` is the "which build, from where?" cell.** One volatile
+  line: `NATSExcel <ver> | xll=<full XLL path> | config=<file in use or
+  "(defaults)"> | connections=<n>`. The version is the release tag without the
+  leading `v` and any `+build`/`-pre` suffix (`BuildInfo.Version`, `dev` for a
+  local build); the XLL path comes from `ExcelDnaUtil.XllPath` (`(unknown)`
+  outside Excel); the config from `ConfigSchema.FirstExistingPath()` (the same
+  discovery order the loader uses, so it names a file the runtime WOULD read).
+  Every part is guarded on its own and it needs no server - a broken install (or
+  a duplicated one, where each copy reports its own xll path) is exactly when it
+  is used. `VersionInfoTests` pins "never throws, one line, has the three
+  fields".
+- **The installer owns the Excel auto-load list and the console output.** Three
+  things there are load-bearing:
+  - **One copy only.** After `RegisterExcelAutoLoad` writes this install's
+    `OPEN`/`OPENn` value (guarded by the `excelautoload` task),
+    `RemoveStaleExcelEntries(CurrentXllPath())` deletes any entry pointing at a
+    *different* NATSExcel XLL (`NATSExcel64-packed.xll`,
+    `NATSExcel-packed.xll`, the bare `NATSExcel*.xll`, and the
+    `NATSExcel-AddIn-packed.xll` fallback name), and
+    `RemoveStaleAddInManagerEntries` deletes a legacy "Add-in Manager" label
+    whose path is a NATSExcel XLL **that no longer exists**. Without this an
+    upgrade into another folder leaves Excel loading **two** add-ins: duplicated
+    functions, each copy reading its own folder's `NATSExcel.json` (one usually
+    shows `#CONFIG`). Other add-ins' entries are never touched, and this
+    install's own path is excluded by comparison. Pinned by
+    `UnpinnedClaimsTests`.
+  - **The connection page has a "Test connection" button.** It runs the same
+    `test-connection.ps1` against the values **in the fields**, without leaving
+    the page and without writing `NATSExcel.json`; the result is drawn ABOVE the
+    button spanning the page width (green/red), the "testing" line says the wait
+    is bounded (5 s), and a password goes through a private temp file
+    (`ProbeArgs`/`CleanupProbe`) rather than the command line. The message is
+    built from the helper's **stable exit codes** (0 ok, 2 unknown host, 3
+    timeout, 4 refused, 5 auth, 6 unexpected, 7 "needs the full client check"),
+    never from its console text - a `cmd.exe` redirect re-encodes that into the
+    OEM codepage and would mangle accents.
+  - **The helpers print an ASCII banner** (`installer/banner.ps1`, dot-sourced
+    through a try/catch by `install-server.ps1`, `verify-connection.ps1`,
+    `validate-config.ps1` and `test-connection.ps1`) so a visible console window
+    identifies itself. ASCII only (OEM console codepages); it degrades to one
+    compact line in a window narrower than 70 columns or when the output is
+    redirected. Both the `{app}\scripts` copy and the `{tmp}` `dontcopy` copy
+    (plus the matching `ExtractTemporaryFile`) must exist, or the wizard's helper
+    runs without it.
 
 ## Build
 
@@ -313,7 +358,10 @@ connection: it uses the **same NATS.Net client the add-in uses**
 (token, user/password, NKey seed, JWT + seed, creds file, mTLS). The PowerShell
 helpers in `installer/` (`validate-config.ps1`, `test-connection.ps1`) only
 speak the wire protocol by hand and cover token and user-password; the C# tool
-is the complete check.
+is the complete check. `test-connection.ps1` exits with a **stable contract** the
+wizard turns into its own localized message (`0` ok, `2` unknown host, `3`
+timeout, `4` refused/other, `5` credentials rejected, `6` unexpected reply, `7`
+the style needs the full client check); `-Quiet` suppresses its banner.
 
 ```powershell
 # Schema/structural check only (no server needed)
@@ -550,3 +598,57 @@ release needs NO page change**. `pages.yml` only runs when `docs/**` or `mkdocs.
 change, so a code/test push does not redeploy it and that is expected. After a
 release, the check is just: `/releases/latest` resolves to the new tag and the badge
 renders.
+
+## Shell for agents
+
+This is a **Windows** project (.NET Framework, Excel-DNA, Inno Setup), so the
+tools that matter are Windows ones and they are all reachable from PowerShell:
+
+- **PowerShell is available and preferred over bash.** Build with `dotnet build
+  NATSExcel.sln -c Release`, test with `dotnet test test\NATSExcel.Tests\...`,
+  compile the installer with `& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+  "/DAppVersion=<ver>" "installer\NATSExcel.iss"`, and drive/inspect the
+  registry with `Get-ItemProperty` / `Set-ItemProperty` (Excel's auto-load list
+  lives in `HKCU:\Software\Microsoft\Office\<ver>\Excel\Options`). None of this
+  needs a POSIX shell.
+- **When a bash-style command is unavoidable, prefer the PowerShell equivalent.**
+  `grep` -> `Select-String`, `sed`/`awk` -> `-replace`/`-split`, `head`/`tail` ->
+  `Select-Object -First/-Last`, `which` -> `Get-Command`, `ls -R` ->
+  `Get-ChildItem -Recurse`. Piping between them works the same way.
+- **Quoting differs between the two shells** and silently corrupts output: in
+  bash a heredoc (`<<'EOF'`) and `$(...)` work; in PowerShell they do not
+  (`<<` is reserved and `$(...)` is subexpression syntax). Write the body to a
+  file and pass `-File`, or use a `.ps1` script, instead of inlining a long
+  multi-line command.
+- **Never rewrite a text file with `Set-Content`/`Out-File` just to change a few
+  bytes.** Both re-encode the file, which has already corrupted an installer
+  script in this family of projects (mixed ASCII/CJK/accented text). Use the
+  editor's targeted replace, or read/write with an explicit encoding:
+  `[IO.File]::WriteAllText($p, $text, (New-Object Text.UTF8Encoding($false)))`.
+  Check with a strict decode (`New-Object Text.UTF8Encoding($false, $true)`)
+  when in doubt: the console showing `?` does NOT mean the file is broken, but
+  a failed strict decode does.
+- **Console output is not a reliable view of the text.** The Windows console
+  renders in an OEM codepage (437/850/866/932), so accented and CJK characters
+  appear as `?` or mojibake even when the file is perfect. Verify non-ASCII text
+  by code point instead of trusting what a `Write-Host`/redirect shows.
+- **Inno Setup has its own parsing traps** that look like code errors: a
+  continuation line that BEGINS with `[` is read as a section tag ("Invalid
+  section tag"), so keep a bracketed argument on the line that opens it; and
+  `const`/`type`/`var` must sit in the declarations block at the top of
+  `[Code]`, not between procedures.
+- **A wizard built with `PrivilegesRequired=admin` runs elevated**, and an
+  unelevated process can neither kill it nor capture its window (`PrintWindow`
+  returns black, `Stop-Process` gives "Acesso negado"). To validate layout,
+  compile a throwaway copy with `PrivilegesRequired=lowest` into a temp dir;
+  never leave that copy in `installer\output`.
+- **Locating windows and automating dialogs** works through `user32.dll`
+  (`EnumWindows`, `PrintWindow`, `PostMessage`): `PrintWindow` renders an
+  unfocused window, so a wizard/screenshot check never steals focus. These
+  P/Invoke types do not survive between separate `powershell.exe` invocations -
+  run the whole capture in ONE script.
+- **Long/hanging commands**: an Excel COM call or a dialog can block forever.
+  Bound it (`Start-Job` + `Wait-Job -Timeout`, or a script with an explicit
+  timeout) instead of leaving the shell waiting. Never leave an automation Excel
+  (`EXCEL.EXE /automation -Embedding`) behind - but never kill a user's Excel
+  either: identify your own by the XLL module loaded / the `/automation` flag.

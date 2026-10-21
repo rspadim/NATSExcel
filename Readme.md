@@ -91,8 +91,9 @@ wins**), as implemented in `Config.cs` `CandidatePaths`:
 If no file is found, the add-in runs with built-in defaults
 (`nats://localhost:4222`). Comments (`//` and `/* */`) are allowed in the file;
 a wrongly-typed value is dropped on its own and the rest of the file is kept.
-`=NatsUDFConfigPath()` tells you which file is actually in use (it prints
-`(defaults)` when none was loaded).
+`=NatsUDFVersion()` tells you which build is running **and from where** (the
+full XLL path, the config file in use — or `(defaults)` — and the live connection
+count, all in one cell); `=NatsUDFConfigPath()` prints just the config path.
 
 ---
 
@@ -348,8 +349,12 @@ The installer also ships a lighter, schema-only checker: double-click
 **`Validate-Config.cmd`** (in `C:\NATSExcel\`) or run
 `scripts\validate-config.ps1`. It validates the file against the same
 `NATSExcel.schema.json` the add-in embeds. Its optional wire-level connection
-test only covers token and user/password — use `tools/NatsValidate` for the rest
-(NKey, JWT + seed, creds file, mTLS).
+test (`scripts\test-connection.ps1`) only covers token and user/password — use
+`tools/NatsValidate` for the rest (NKey, JWT + seed, creds file, mTLS).
+
+The helpers print a small ASCII header with the product, the installed version
+and the project URL, so a console window that appears during an install
+identifies itself instead of looking like an unknown program.
 
 Inside Excel you can also check the config directly:
 
@@ -369,6 +374,17 @@ can reproduce it later from the installer's helpers:
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\NATSExcel\scripts\verify-connection.ps1 -AddInDir C:\NATSExcel -ServerHost localhost:4222 -OpenExcel
 ```
+
+### Test the connection before installing
+
+The wizard's **connection page** has a **Test connection** button. It probes the
+address that is in the field *at that moment* (with the credential style chosen
+on the next pages: token or user/password are really exercised; NKey, JWT + seed,
+creds file and mTLS are reported as needing the full client check) and shows the
+answer above the button, green or red — without leaving the page and without
+writing `NATSExcel.json`. The probe waits **up to 5 seconds** and names the
+reason on failure (unknown host, timeout, connection refused, rejected
+credentials, unexpected reply) instead of a bare "failed".
 
 ### Update check
 
@@ -396,7 +412,8 @@ answer. The background check is controlled by the `"UpdateCheck"` key in
 | **`TIMEOUT`** | A responder exists but did not answer within `timeoutMs`. | Raise the `timeoutMs` argument, or check the responder. |
 | **A cell does not update / looks stale** | Two deliberate behaviors: real-time pushes are **coalesced** (`CoalesceRealtimeUpdates` + `ConflationMs` - the shipped sample writes **200 ms**; with the key absent the window is the Excel tick (`ExcelUpdateRateMs`, default 100 ms) — the latest value wins per window), and `SkipRepeatedMessages` **drops a repeated payload** (compared by ordinal text, so `"007"` and `"7"` differ). | Lower `ConflationMs` or set `CoalesceRealtimeUpdates` to `false` for a fast feed; set `SkipRepeatedMessages` to `false` if you need every identical value. Note: **wildcard subjects are never deduplicated**. |
 | **`Error: admin writes are disabled (set "AllowAdminWrites": true)`** | You called a destructive/admin function with the gate closed (the default). | Set `"AllowAdminWrites": true` in `NATSExcel.json` only if you really want recalculation to be able to mutate server state. |
-| **`#VALUE!`** | Excel could not use what the function returned. The add-in renders its own failures as `Error: ...`, `#CONFIG` or `#ERROR: ...`, so a bare `#VALUE!` usually points at Excel's argument coercion rather than at NATS. | First prove the add-in loaded: `=NatsUDFVersion()` (a version string) and `=NatsUDFConfigPath()`. Then re-check the cell's arguments. |
+| **`#VALUE!`** | Excel could not use what the function returned. The add-in renders its own failures as `Error: ...`, `#CONFIG` or `#ERROR: ...`, so a bare `#VALUE!` usually points at Excel's argument coercion rather than at NATS. | First prove the add-in loaded: `=NatsUDFVersion()` (the build, the XLL path, the config in use and the connection count) and `=NatsUDFConfigPath()`. Then re-check the cell's arguments. |
+| **Every function appears twice**, or one copy shows `#CONFIG` | Two NATSExcel copies are loaded (an **upgrade into another folder** left the old auto-load entry, or a copy was registered by hand). Each copy reads *its own* folder's `NATSExcel.json`. | `=NatsUDFVersion()` in two cells — compare the `xll=` field: each copy reports its own path. Re-run the installer for the version you want: it drops any auto-load entry pointing at a *different* NATSExcel XLL (and dead "Add-in Manager" labels) and registers its own. Manual route: `File > Options > Add-ins > Go...` and untick the stale one, or delete the `OPEN`/`OPENn` value under `HKCU\Software\Microsoft\Office\<ver>\Excel\Options`. |
 
 More detail in the add-in's own log: `=NatsUDFLogPath()` prints it
 (`NATSExcel.log` next to the add-in, rolling at 100 MB, 5 archives; it uses the

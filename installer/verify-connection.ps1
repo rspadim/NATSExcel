@@ -25,6 +25,19 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 
+# Console header (see banner.ps1): this script runs in a visible window during
+# the install, and an unidentified window is what makes a user suspect a virus.
+# Failure to load it must never break the check itself.
+try {
+  $bannerPath = Join-Path $PSScriptRoot 'banner.ps1'
+  if (Test-Path -LiteralPath $bannerPath) {
+    . $bannerPath
+    if (-not $Quiet) {
+      Write-NatsExcelBanner -Action 'Installing and checking NATSExcel' -InstallDir $AddInDir
+    }
+  }
+} catch { }
+
 function Show([string]$text, [string]$title = 'NATSExcel') {
   if (-not $Quiet) { [System.Windows.Forms.MessageBox]::Show($text, $title) | Out-Null }
   Write-Host $text

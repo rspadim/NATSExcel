@@ -167,7 +167,7 @@ namespace NATSExcel.Tests
                 "no [CustomMessages] block for language '" + lang + "'"));
 
             var english = blocks["english"].OrderBy(k => k, StringComparer.Ordinal).ToList();
-            Assert.Equal(63, english.Count);
+            Assert.Equal(74, english.Count);
             Assert.Equal(english.Count, english.Distinct(StringComparer.Ordinal).Count());
             foreach (var lang in languages)
             {
@@ -236,6 +236,74 @@ namespace NATSExcel.Tests
             string agents = Read("AGENTS.md");
             Assert.Contains(callSites.ToString() + " `Assert` call sites", agents);
             Assert.Contains("57 assertions", agents);
+        }
+
+        // ------------------------------------------------------------------
+        // 6. The installer's connection probe and the stale-entry cleanup
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void TheConnectionProbeKeepsItsStableExitCodeContract()
+        {
+            string probe = Read(Path.Combine("installer", "test-connection.ps1"));
+
+            // The wizard builds its (localized) message from THESE codes and never
+            // from the helper's text, which a cmd.exe redirect re-encodes into the
+            // OEM codepage. A renumbering here would silently turn a timeout into
+            // "connection refused" in every language.
+            Assert.Contains("exit 0", probe, StringComparison.Ordinal);
+            Assert.Contains("exit 3", probe, StringComparison.Ordinal);
+            Assert.Contains("exit 5", probe, StringComparison.Ordinal);
+            Assert.Contains("exit 6", probe, StringComparison.Ordinal);
+            Assert.Contains("exit 7", probe, StringComparison.Ordinal);
+            // 2 (unknown host) and 4 (refused) come from the classifier, which reads
+            // the SocketError CODE: the message text is localized by Windows.
+            Assert.Contains("return 2", probe, StringComparison.Ordinal);
+            Assert.Contains("return 4", probe, StringComparison.Ordinal);
+            Assert.Contains("SocketError]::HostNotFound", probe, StringComparison.Ordinal);
+            // -Quiet is what keeps the probe's banner out of the redirected file.
+            Assert.Contains("[switch]$Quiet", probe, StringComparison.Ordinal);
+
+            string iss = Read(Path.Combine("installer", "NATSExcel.iss"));
+            foreach (var code in new[] { 2, 3, 5, 6, 7 })
+                Assert.Contains(IntToStrText(code) + ": Reason := ExpandConstant('{cm:TestReason", iss, StringComparison.Ordinal);
+            // The message must come from a message key, never from the helper's text.
+            Assert.DoesNotContain("LoadStringsFromFile(OutFile", iss, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheInstallerUnregistersOnlyOlderNatsExcelCopies()
+        {
+            string iss = Read(Path.Combine("installer", "NATSExcel.iss"));
+
+            // An upgrade into another folder used to leave the old OPEN value behind,
+            // so Excel loaded two add-ins (duplicated functions, two configs). The
+            // cleanup must stay scoped to a NATSExcel XLL and keep this install's own
+            // path, and it must run AFTER RegisterExcelAutoLoad.
+            Assert.Contains("function XllNameIsNatsExcel", iss, StringComparison.Ordinal);
+            Assert.Contains("function IsStaleNatsExcelEntry", iss, StringComparison.Ordinal);
+            Assert.Contains("function RemoveStaleExcelEntries", iss, StringComparison.Ordinal);
+            Assert.Contains("function RemoveStaleAddInManagerEntries", iss, StringComparison.Ordinal);
+            Assert.Contains("NATSExcel64-packed.xll", iss, StringComparison.Ordinal);
+            Assert.Contains("NATSExcel-packed.xll", iss, StringComparison.Ordinal);
+
+            int register = iss.IndexOf("RegisterExcelAutoLoad(ExpandConstant", StringComparison.Ordinal);
+            int cleanup = iss.IndexOf("RemoveStaleExcelEntries(CurrentXllPath())", StringComparison.Ordinal);
+            Assert.True(register >= 0 && cleanup > register,
+                "the stale-entry cleanup must run after this install's own entry is written");
+
+            // The "Add-in Manager" cleanup only ever removes a DEAD entry: a value that
+            // still points at an existing XLL belongs to a working install.
+            int manager = iss.IndexOf("RemoveStaleAddInManagerEntries(const KeepPath", StringComparison.Ordinal);
+            Assert.True(manager >= 0);
+            string body = iss.Substring(manager, 900);
+            Assert.Contains("not FileExists(Target)", body, StringComparison.Ordinal);
+            Assert.Contains("CompareText(Target, KeepPath) <> 0", body, StringComparison.Ordinal);
+        }
+
+        private static string IntToStrText(int value)
+        {
+            return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
     }
 }

@@ -570,7 +570,7 @@ namespace NATSExcel
         /// <c>AppContext.BaseDirectory</c>: inside a packed byte-loaded XLL the
         /// latter is Excel's directory, which the loader never searches, so the
         /// diagnostic would name a file the runtime did not consider.</summary>
-        private static string FirstExistingPath()
+        internal static string FirstExistingPath()
         {
             foreach (var path in AppConfig.CandidatePaths())
             {

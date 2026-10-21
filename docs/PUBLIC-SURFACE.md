@@ -148,6 +148,13 @@ built assembly; this document must agree with it.
 
 ## Status, diagnostics and config — `NatsUdf.cs` + `NatsUdfStatus.cs` (18)
 
+`NatsUDFVersion` returns one line - `NATSExcel <ver> | xll=<path> | config=<path
+or "(defaults)"> | connections=<n>` - with the version from the release tag (a
+local build reports `dev`), the **full path of the loaded XLL** (two installed
+copies report two different paths, which is how a duplicated install becomes
+visible from a cell), the config file in use and the live connection count. It
+needs no server and never throws.
+
 | Function | Source | Arguments | Volatile | Admin-gated |
 | --- | --- | --- | --- | --- |
 | `NatsUDFVersion` | `NatsUdf.cs` | — | yes | no |

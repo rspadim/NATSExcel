@@ -48,6 +48,24 @@ $ExitUnsupported = 3
 
 function Write-Step([string]$m) { Write-Host ("[nats-server] " + $m) }
 
+# The console header: this script runs in a visible window during the install,
+# and an unidentified window that prints technical lines is the main "is this a
+# virus?" trigger. Dot-sourced so a missing banner.ps1 can never break the setup.
+$script:BannerLoaded = $false
+try {
+  $bannerPath = Join-Path $PSScriptRoot 'banner.ps1'
+  if (Test-Path -LiteralPath $bannerPath) {
+    . $bannerPath
+    $script:BannerLoaded = $true
+  }
+} catch { $script:BannerLoaded = $false }
+
+function Show-Banner([string]$action) {
+  if ($script:BannerLoaded) {
+    try { Write-NatsExcelBanner -Action $action } catch { }
+  }
+}
+
 function Invoke-Native([scriptblock]$block) {
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -207,6 +225,6 @@ function Docker-Up() {
 
 switch ($Kind) {
   'none'   { Write-Step 'no server requested.'; exit 0 }
-  'native' { Native-Up }
-  'docker' { Docker-Up }
+  'native' { Show-Banner 'Setting up a native Windows NATS server (nats-server.exe)'; Native-Up }
+  'docker' { Show-Banner 'Setting up a NATS server in Docker'; Docker-Up }
 }

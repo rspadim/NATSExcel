@@ -1146,6 +1146,60 @@ namespace NATSExcel
             return new InvalidOperationException("NatsConnectionManager is shutting down");
         }
     }
+
+    /// <summary>
+    /// The running build's identity, as the CI stamps it: the release tag lands
+    /// in <c>AssemblyInformationalVersion</c> (msbuild
+    /// <c>/p:InformationalVersion=&lt;tag&gt;</c>) and a local build keeps the
+    /// project default <c>"dev"</c>. <see cref="Version"/> is the readable form a
+    /// cell shows ("0.1.5"), <see cref="Tag"/> is the raw attribute ("v0.1.5").
+    /// </summary>
+    internal static class BuildInfo
+    {
+        /// <summary>
+        /// Release tag embedded by the CI via AssemblyInformationalVersion.
+        /// "dev" for local builds.
+        /// </summary>
+        public static string Tag { get; } = ResolveTag();
+
+        /// <summary>
+        /// Human-readable version for a cell ("0.1.5"), derived from
+        /// <see cref="Tag"/>: the leading "v" and any "+build"/"-pre" suffix are
+        /// dropped. A local build (no tag) reports "dev".
+        /// </summary>
+        public static string Version { get; } = ResolveVersion();
+
+        private static string ResolveVersion()
+        {
+            string tag = (Tag ?? "").Trim();
+            if (tag.Length == 0)
+                return "dev";
+            int suffix = tag.IndexOfAny(new[] { '+', '-' });
+            if (suffix > 0)
+                tag = tag.Substring(0, suffix);
+            if (tag.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                tag = tag.Substring(1);
+            tag = tag.Trim();
+            return tag.Length == 0 ? "dev" : tag;
+        }
+
+        private static string ResolveTag()
+        {
+            try
+            {
+                var attribute = Attribute.GetCustomAttribute(
+                    typeof(BuildInfo).Assembly,
+                    typeof(System.Reflection.AssemblyInformationalVersionAttribute))
+                    as System.Reflection.AssemblyInformationalVersionAttribute;
+                var value = attribute?.InformationalVersion;
+                return string.IsNullOrWhiteSpace(value) ? "dev" : value;
+            }
+            catch
+            {
+                return "dev";
+            }
+        }
+    }
 }
 
 
