@@ -39,6 +39,14 @@
 #ifndef RepoRoot
   #define RepoRoot ".."
 #endif
+; Where the C# validator (tools/NatsValidate) lands after a Release build; the
+; solution builds it together with the add-in, so CI always produces it.
+#ifndef ToolConfig
+  #define ToolConfig "Release"
+#endif
+#ifndef ToolFramework
+  #define ToolFramework "net48"
+#endif
 
 [Setup]
 AppId={{C41A7E52-9D3B-4F2E-8A17-2B6C0E4D9F51}
@@ -169,12 +177,9 @@ english.TestButton=Test connection
 english.TestButtonTesting=Testing... (waits up to 5 seconds for an answer)
 english.TestButtonOk=Connected - NATS answered at %1.
 english.TestButtonFailed=Could not connect to %1.
-english.TestReasonUnknownHost=The host name could not be resolved; check the URL.
-english.TestReasonTimeout=No answer within 5 seconds; check the address, the port and the firewall.
-english.TestReasonAuth=The server rejected the credentials.
 english.TestReasonUnexpected=Something answered, but not with a NATS PONG.
-english.TestReasonRefused=The connection was refused; is the server running on that port?
-english.TestReasonUnprovable=This credential style needs the NATS client to sign a challenge; check it with tools\NatsValidate --test.
+english.TestReasonConfig=The configuration is not valid; the draft this button tests was rejected.
+english.TestReasonConnect=The NATS server could not be reached or refused the credentials.
 english.TestCouldNotRun=Could not run the connection test (the helper script did not start).
 
 spanish.ServerPageTitle=Servidor NATS
@@ -244,12 +249,9 @@ spanish.TestButton=Probar conexión
 spanish.TestButtonTesting=Probando... (espera hasta 5 segundos la respuesta)
 spanish.TestButtonOk=Conectado: NATS respondió en %1.
 spanish.TestButtonFailed=No se pudo conectar a %1.
-spanish.TestReasonUnknownHost=No se pudo resolver el nombre del host; revise la URL.
-spanish.TestReasonTimeout=Sin respuesta en 5 segundos; revise la dirección, el puerto y el firewall.
-spanish.TestReasonAuth=El servidor rechazó las credenciales.
 spanish.TestReasonUnexpected=Algo respondió, pero no con un PONG de NATS.
-spanish.TestReasonRefused=Se rechazó la conexión; ¿el servidor está ejecutándose en ese puerto?
-spanish.TestReasonUnprovable=Este estilo de credencial requiere que el cliente NATS firme un desafío; compruébelo con tools\NatsValidate --test.
+spanish.TestReasonConfig=La configuración no es válida; se rechazó el borrador que prueba este botón.
+spanish.TestReasonConnect=No se pudo alcanzar el servidor NATS o se rechazaron las credenciales.
 spanish.TestCouldNotRun=No se pudo ejecutar la prueba de conexión (el script auxiliar no arrancó).
 
 brazilianportuguese.ServerPageTitle=Servidor NATS
@@ -319,12 +321,11 @@ brazilianportuguese.TestButton=Testar conexão
 brazilianportuguese.TestButtonTesting=Testando... (aguarda até 5 segundos pela resposta)
 brazilianportuguese.TestButtonOk=Conectado - o NATS respondeu em %1.
 brazilianportuguese.TestButtonFailed=Não foi possível conectar em %1.
-brazilianportuguese.TestReasonUnknownHost=Não foi possível resolver o nome do host; confira a URL.
-brazilianportuguese.TestReasonTimeout=Sem resposta em 5 segundos; confira o endereço, a porta e o firewall.
-brazilianportuguese.TestReasonAuth=O servidor recusou as credenciais.
 brazilianportuguese.TestReasonUnexpected=Algo respondeu, mas não com um PONG do NATS.
-brazilianportuguese.TestReasonRefused=A conexão foi recusada; o servidor está rodando nessa porta?
-brazilianportuguese.TestReasonUnprovable=Este estilo de credencial exige que o cliente NATS assine um desafio; use tools\NatsValidate --test.
+portuguese.TestReasonConfig=A configuração não é válida; o rascunho testado por este botão foi rejeitado.
+portuguese.TestReasonConnect=Não foi possível alcançar o servidor NATS ou as credenciais foram recusadas.
+brazilianportuguese.TestReasonConfig=A configuração não é válida; o rascunho testado por este botão foi rejeitado.
+brazilianportuguese.TestReasonConnect=Não foi possível alcançar o servidor NATS ou as credenciais foram recusadas.
 brazilianportuguese.TestCouldNotRun=Não foi possível executar o teste de conexão (o script auxiliar não iniciou).
 
 german.ServerPageTitle=NATS-Server
@@ -394,12 +395,9 @@ german.TestButton=Verbindung testen
 german.TestButtonTesting=Wird getestet... (wartet bis zu 5 Sekunden auf eine Antwort)
 german.TestButtonOk=Verbunden - NATS hat unter %1 geantwortet.
 german.TestButtonFailed=Verbindung zu %1 nicht möglich.
-german.TestReasonUnknownHost=Der Hostname konnte nicht aufgelöst werden; prüfen Sie die URL.
-german.TestReasonTimeout=Keine Antwort innerhalb von 5 Sekunden; prüfen Sie Adresse, Port und Firewall.
-german.TestReasonAuth=Der Server hat die Zugangsdaten abgelehnt.
 german.TestReasonUnexpected=Etwas hat geantwortet, aber nicht mit einem NATS-PONG.
-german.TestReasonRefused=Die Verbindung wurde abgelehnt; läuft der Server auf diesem Port?
-german.TestReasonUnprovable=Dieser Anmeldestil erfordert eine Signatur durch den NATS-Client; prüfen Sie ihn mit tools\NatsValidate --test.
+german.TestReasonConfig=Die Konfiguration ist ungültig; der von dieser Schaltfläche geprüfte Entwurf wurde abgelehnt.
+german.TestReasonConnect=Der NATS-Server war nicht erreichbar oder hat die Anmeldedaten abgelehnt.
 german.TestCouldNotRun=Der Verbindungstest konnte nicht ausgeführt werden (das Hilfsskript startete nicht).
 
 french.ServerPageTitle=Serveur NATS
@@ -469,12 +467,9 @@ french.TestButton=Tester la connexion
 french.TestButtonTesting=Test en cours... (attente de la réponse : jusqu'à 5 secondes)
 french.TestButtonOk=Connecté - NATS a répondu à %1.
 french.TestButtonFailed=Impossible de se connecter à %1.
-french.TestReasonUnknownHost=Le nom d'hôte n'a pas pu être résolu ; vérifiez l'URL.
-french.TestReasonTimeout=Aucune réponse en 5 secondes ; vérifiez l'adresse, le port et le pare-feu.
-french.TestReasonAuth=Le serveur a refusé les identifiants.
 french.TestReasonUnexpected=Quelque chose a répondu, mais pas par un PONG NATS.
-french.TestReasonRefused=La connexion a été refusée ; le serveur tourne-t-il sur ce port ?
-french.TestReasonUnprovable=Ce mode d'authentification exige une signature du client NATS ; vérifiez-le avec tools\NatsValidate --test.
+french.TestReasonConfig=La configuration n'est pas valide ; le brouillon testé par ce bouton a été refusé.
+french.TestReasonConnect=Le serveur NATS est inaccessible ou les identifiants ont été refusés.
 french.TestCouldNotRun=Impossible d'exécuter le test de connexion (le script auxiliaire n'a pas démarré).
 
 portuguese.ServerPageTitle=Servidor NATS
@@ -544,12 +539,7 @@ portuguese.TestButton=Testar ligação
 portuguese.TestButtonTesting=A testar... (aguarda até 5 segundos por uma resposta)
 portuguese.TestButtonOk=Ligado - o NATS respondeu em %1.
 portuguese.TestButtonFailed=Não foi possível ligar a %1.
-portuguese.TestReasonUnknownHost=Não foi possível resolver o nome do anfitrião; verifique o URL.
-portuguese.TestReasonTimeout=Sem resposta em 5 segundos; verifique o endereço, a porta e a firewall.
-portuguese.TestReasonAuth=O servidor rejeitou as credenciais.
 portuguese.TestReasonUnexpected=Algo respondeu, mas não com um PONG do NATS.
-portuguese.TestReasonRefused=A ligação foi recusada; o servidor está a correr nessa porta?
-portuguese.TestReasonUnprovable=Este estilo de credencial exige que o cliente NATS assine um desafio; verifique com tools\NatsValidate --test.
 portuguese.TestCouldNotRun=Não foi possível executar o teste de ligação (o script auxiliar não arrancou).
 
 russian.ServerPageTitle=Сервер NATS
@@ -619,12 +609,9 @@ russian.TestButton=Проверить подключение
 russian.TestButtonTesting=Проверка... (ответ ожидается до 5 секунд)
 russian.TestButtonOk=Подключено - NATS ответил по адресу %1.
 russian.TestButtonFailed=Не удалось подключиться к %1.
-russian.TestReasonUnknownHost=Имя хоста не разрешается; проверьте URL.
-russian.TestReasonTimeout=Нет ответа в течение 5 секунд; проверьте адрес, порт и брандмауэр.
-russian.TestReasonAuth=Сервер отклонил учётные данные.
 russian.TestReasonUnexpected=Что-то ответило, но не PONG от NATS.
-russian.TestReasonRefused=В подключении отказано; запущен ли сервер на этом порту?
-russian.TestReasonUnprovable=Этот способ аутентификации требует подписи клиентом NATS; проверьте через tools\NatsValidate --test.
+russian.TestReasonConfig=Конфигурация недействительна: проверяемый черновик отклонён.
+russian.TestReasonConnect=Сервер NATS недоступен или отклонил учётные данные.
 russian.TestCouldNotRun=Не удалось запустить проверку подключения (вспомогательный скрипт не стартовал).
 
 korean.ServerPageTitle=NATS 서버
@@ -694,12 +681,9 @@ korean.TestButton=연결 테스트
 korean.TestButtonTesting=테스트 중... (응답을 최대 5초 기다립니다)
 korean.TestButtonOk=연결됨 - %1의 NATS가 응답했습니다.
 korean.TestButtonFailed=%1에 연결할 수 없습니다.
-korean.TestReasonUnknownHost=호스트 이름을 확인할 수 없습니다. URL을 확인하세요.
-korean.TestReasonTimeout=5초 안에 응답이 없습니다. 주소, 포트, 방화벽을 확인하세요.
-korean.TestReasonAuth=서버가 자격 증명을 거부했습니다.
 korean.TestReasonUnexpected=무언가 응답했지만 NATS PONG이 아닙니다.
-korean.TestReasonRefused=연결이 거부되었습니다. 해당 포트에서 서버가 실행 중입니까?
-korean.TestReasonUnprovable=이 인증 방식은 NATS 클라이언트의 서명이 필요합니다. tools\NatsValidate --test로 확인하세요.
+korean.TestReasonConfig=구성이 유효하지 않습니다. 이 버튼이 검사한 초안이 거부되었습니다.
+korean.TestReasonConnect=NATS 서버에 연결할 수 없거나 자격 증명이 거부되었습니다.
 korean.TestCouldNotRun=연결 테스트를 실행할 수 없습니다(도우미 스크립트가 시작되지 않았습니다).
 
 japanese.ServerPageTitle=NATS サーバー
@@ -769,12 +753,9 @@ japanese.TestButton=接続をテスト
 japanese.TestButtonTesting=テスト中...（最大 5 秒待機します）
 japanese.TestButtonOk=接続済み - %1 の NATS が応答しました。
 japanese.TestButtonFailed=%1 に接続できませんでした。
-japanese.TestReasonUnknownHost=ホスト名を解決できませんでした。URL を確認してください。
-japanese.TestReasonTimeout=5 秒以内に応答がありません。アドレス、ポート、ファイアウォールを確認してください。
-japanese.TestReasonAuth=サーバーが資格情報を拒否しました。
 japanese.TestReasonUnexpected=何かが応答しましたが、NATS の PONG ではありません。
-japanese.TestReasonRefused=接続が拒否されました。そのポートでサーバーが動作していますか?
-japanese.TestReasonUnprovable=この認証方式は NATS クライアントによる署名が必要です。tools\NatsValidate --test で確認してください。
+japanese.TestReasonConfig=構成が有効ではありません。このボタンが検証したドラフトが拒否されました。
+japanese.TestReasonConnect=NATS サーバーに到達できないか、認証情報が拒否されました。
 japanese.TestCouldNotRun=接続テストを実行できませんでした（ヘルパー スクリプトが起動しませんでした）。
 
 chinesesimplified.ServerPageTitle=NATS 服务器
@@ -844,12 +825,9 @@ chinesesimplified.TestButton=测试连接
 chinesesimplified.TestButtonTesting=正在测试...（最多等待 5 秒）
 chinesesimplified.TestButtonOk=已连接 - %1 的 NATS 已响应。
 chinesesimplified.TestButtonFailed=无法连接到 %1。
-chinesesimplified.TestReasonUnknownHost=无法解析主机名；请检查 URL。
-chinesesimplified.TestReasonTimeout=5 秒内无响应；请检查地址、端口和防火墙。
-chinesesimplified.TestReasonAuth=服务器拒绝了凭据。
 chinesesimplified.TestReasonUnexpected=有响应，但不是 NATS 的 PONG。
-chinesesimplified.TestReasonRefused=连接被拒绝；服务器是否在该端口上运行？
-chinesesimplified.TestReasonUnprovable=此凭据方式需要 NATS 客户端签名；请用 tools\NatsValidate --test 检查。
+chinesesimplified.TestReasonConfig=配置无效；本次检查的草稿被拒绝。
+chinesesimplified.TestReasonConnect=无法连接 NATS 服务器，或凭据被拒绝。
 chinesesimplified.TestCouldNotRun=无法运行连接测试（辅助脚本未启动）。
 
 chinesetraditional.ServerPageTitle=NATS 伺服器
@@ -919,12 +897,9 @@ chinesetraditional.TestButton=測試連線
 chinesetraditional.TestButtonTesting=正在測試...（最多等待 5 秒）
 chinesetraditional.TestButtonOk=已連線 - %1 的 NATS 已回應。
 chinesetraditional.TestButtonFailed=無法連線到 %1。
-chinesetraditional.TestReasonUnknownHost=無法解析主機名稱；請檢查 URL。
-chinesetraditional.TestReasonTimeout=5 秒內沒有回應；請檢查位址、連接埠和防火牆。
-chinesetraditional.TestReasonAuth=伺服器拒絕了認證資料。
 chinesetraditional.TestReasonUnexpected=有回應，但不是 NATS 的 PONG。
-chinesetraditional.TestReasonRefused=連線被拒絕；伺服器是否在該連接埠上執行？
-chinesetraditional.TestReasonUnprovable=此認證方式需要 NATS 用戶端簽章；請用 tools\NatsValidate --test 檢查。
+chinesetraditional.TestReasonConfig=設定無效；本次檢查的草稿被拒絕。
+chinesetraditional.TestReasonConnect=無法連線 NATS 伺服器，或認證資訊被拒絕。
 chinesetraditional.TestCouldNotRun=無法執行連線測試（輔助指令碼未啟動）。
 
 [Tasks]
@@ -942,7 +917,6 @@ Source: "{#BuildDir}\NATSExcel-packed.xll"; DestDir: "{app}"; Flags: ignoreversi
 Source: "{#RepoRoot}\NLog.config"; DestDir: "{app}"; Flags: onlyifdoesntexist; Tasks: nlogconfig
 Source: "{#RepoRoot}\installer\install-server.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\nats-service.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "{#RepoRoot}\installer\test-connection.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\verify-connection.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\detect-servers.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\uninstall-server.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
@@ -952,13 +926,22 @@ Source: "{#RepoRoot}\installer\validate-config.ps1"; DestDir: "{app}\scripts"; F
 Source: "{#RepoRoot}\installer\banner.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\NATSExcel.schema.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\Validate-Config.cmd"; DestDir: "{app}"; Flags: ignoreversion
-; A temporary copy, so the server can be installed BEFORE the files are extracted,
-; and the connection probe, so the wizard's "Test connection" button can run it
-; before anything is installed. banner.ps1 comes along because the helpers
-; dot-source it from their own folder ({tmp} here).
+; The C# validator, shipped so the wizard's "Test connection" button can use the
+; REAL NATS.Net client (the same one the add-in uses). That is the only way to
+; exercise every credential style for real: an NKey seed, a JWT + seed, a creds
+; file and mTLS all require SIGNING the server nonce, which a wire-level probe
+; cannot do - it can only answer "not provable". Built by the solution, so CI
+; already produces it.
+Source: "{#RepoRoot}\tools\NatsValidate\bin\{#ToolConfig}\{#ToolFramework}\NatsValidate.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "{#RepoRoot}\tools\NatsValidate\bin\{#ToolConfig}\{#ToolFramework}\*.dll"; DestDir: "{app}\tools"; Flags: ignoreversion
+; A temporary copy, so the wizard can run the full validator BEFORE anything is
+; installed (the probe extracts it on demand).
+Source: "{#RepoRoot}\tools\NatsValidate\bin\{#ToolConfig}\{#ToolFramework}\NatsValidate.exe"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "{#RepoRoot}\tools\NatsValidate\bin\{#ToolConfig}\{#ToolFramework}\*.dll"; DestDir: "{tmp}"; Flags: dontcopy
+; A temporary copy, so the server can be installed BEFORE the files are extracted.
+; banner.ps1 comes along because the helpers dot-source it from their own folder.
 Source: "{#RepoRoot}\installer\install-server.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "{#RepoRoot}\installer\nats-service.ps1"; DestDir: "{tmp}"; Flags: dontcopy
-Source: "{#RepoRoot}\installer\test-connection.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "{#RepoRoot}\installer\banner.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [UninstallDelete]
@@ -990,7 +973,6 @@ var
   TestOk: Boolean;
   InstallCompleted: Boolean;
   StaleEntriesRemoved: Integer;
-  ProbePasswordFile: String;
   UninstallServersPage: TInputOptionWizardPage;
   ServerKinds: TArrayOfString;
   ServerLabels: TArrayOfString;
@@ -1228,130 +1210,119 @@ function AuthStyle(): Integer; forward;
 function Cred(Field: Integer): String; forward;
 function FirstHostPort(): String; forward;
 function CurrentXllPath(): String; forward;
-function ProbeArgs(const HostPort: String): String; forward;
-procedure CleanupProbe(); forward;
 procedure TestButtonClick(Sender: TObject); forward;
 function TestCurrentConnection(): Boolean; forward;
+function ConfigJson(): String; forward;
 
 // ---- "Test connection" button (connection page) ---------------------------
-// PINGs the address currently in the fields, WITHOUT leaving the page and
-// without touching NATSExcel.json: nobody should have to walk through the whole
-// wizard just to learn that the address is wrong. The wizard already ships
-// test-connection.ps1, so the same handshake is reused by this button and by the
-// end-of-install check; the credential is passed from what was typed on the
-// Credentials page.
+// Tests the address currently in the fields, WITHOUT leaving the page and
+// without touching NATSExcel.json.
 //
-// A password/secret travels through a PRIVATE TEMP FILE, not the command line:
-// a value containing a quote or a space cannot be passed as one argument safely,
-// and a process command line is readable by other local users.
-function ProbeArgs(const HostPort: String): String;
-var
-  Args, Pw: String;
-  Idx: Integer;
-begin
-  Args := '-ServerHost "' + HostPort + '"';
-  Idx := AuthStyle();
-  if Idx = AuthIdxToken then
-    Args := Args + ' -Token "' + Cred(2) + '"'
-  else if Idx = AuthIdxUserPass then
-  begin
-    Args := Args + ' -User "' + Cred(0) + '"';
-    Pw := Cred(1);
-    if Pw <> '' then
-    begin
-      ProbePasswordFile := ExpandConstant('{tmp}\natsexcel-probe-pw.txt');
-      if SaveStringToFile(ProbePasswordFile, Pw, False) then
-        Args := Args + ' -PasswordFile "' + ProbePasswordFile + '"'
-      else
-      begin
-        // Never fall back to "-Password <value>": a process command line is
-        // readable by other local users, so that would leak the secret the
-        // temp file exists to protect. Without a file the probe simply runs
-        // unauthenticated, which reports the honest "rejected" answer.
-        ProbePasswordFile := '';
-      end;
-    end;
-  end
-  else if Idx = AuthIdxNKey then
-    // A seed must SIGN the server nonce; only the client library can do that.
-    Args := Args + ' -Unprovable'
-  else if Idx = AuthIdxJwt then
-    // Same, plus the JWT itself: outside the client, unprovable.
-    Args := Args + ' -Unprovable'
-  else if Idx = AuthIdxCreds then
-    // A .creds file carries a JWT and a seed; same reason.
-    Args := Args + ' -Unprovable'
-  else if Idx = AuthIdxMtls then
-    // A certificate implies TLS; a plain-text handshake cannot prove it.
-    Args := Args + ' -Unprovable';
-  Result := Args;
-end;
+// It runs tools\NatsValidate --test against a DRAFT of the very configuration
+// the wizard would write: that is the REAL NATS.Net client - the same one the
+// add-in uses - so the check exercises the connection-string parser and every
+// credential style (token, user/password, an NKey seed, JWT + seed, a creds
+// file, mTLS). A wire-level probe cannot do that: the seed-based styles require
+// SIGNING the server nonce. Using the shipped validator also means the probe can
+// never disagree with what the add-in will actually do at startup.
 
-// Removes the private temp file written by ProbeArgs, if any.
-procedure CleanupProbe();
-begin
-  if ProbePasswordFile <> '' then
-  begin
-    DeleteFile(ProbePasswordFile);
-    ProbePasswordFile := '';
-  end;
-end;
+// Exit codes of tools\NatsValidate (see tools/NatsValidate/Program.cs).
+const
+  NatValidateConfigProblems = 1;
+  NatValidateUnreadable     = 2;
+  NatValidateDanglingRef    = 3;
+  NatValidateConnectFailed  = 4;
+  // How long the button (and the end-of-install check) waits for the server.
+  // Matches the add-in's own default connect timeout so the probe waits exactly
+  // as long as the service will.
+  ProbeTimeoutMs            = 5000;
 
-// Only the helper's STABLE exit code is used for the message: its own text
-// comes through a console redirect in the OEM codepage, so accented characters
-// would arrive mangled in a label.
 function TestCurrentConnection(): Boolean;
 var
-  Script, OutFile, Args, HostPort, Reason: String;
-  Code: Integer;
+  ExePath, DraftPath, OutFile, Reason, Detail: String;
+  Lines: TArrayOfString;
+  Code, I: Integer;
 begin
   Result := False;
-  HostPort := FirstHostPort();
 
-  ExtractTemporaryFile('test-connection.ps1');
-  // The helper dot-sources banner.ps1 from its own folder ({tmp} here); extract
-  // it too so the copy never sits next to a missing include.
-  ExtractTemporaryFile('banner.ps1');
-  Script := ExpandConstant('{tmp}\test-connection.ps1');
-  OutFile := ExpandConstant('{tmp}\natsexcel-test.txt');
-  DeleteFile(OutFile);
-
-  Args := ProbeArgs(HostPort);
-  // -Quiet: this output is redirected to a file and only the exit code is
-  // used, so no banner is printed (it would just be captured as noise).
-  Args := Args + ' -Quiet';
-
-  if not Exec('cmd.exe',
-          '/c ""powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "' + Script + '" ' +
-          Args + ' > "' + OutFile + '" 2>&1"',
-          ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, Code) then
+  // Draft configuration: the same generator the install uses, written to {tmp}
+  // so nothing in the install folder is touched.
+  DraftPath := ExpandConstant('{tmp}\natsexcel-probe-draft.json');
+  if not SaveStringToFile(DraftPath, ConfigJson(), False) then
   begin
-    CleanupProbe();
     TestResultLabel.Caption := ExpandConstant('{cm:TestCouldNotRun}');
     Exit;
   end;
-  CleanupProbe();
+
+  // The validator and its dependencies are extracted on demand (the installer
+  // ships them unpacked; the wizard runs them from {tmp}).
+  ExtractTemporaryFile('NatsValidate.exe');
+  ExtractTemporaryFile('NATS.Client.Core.dll');
+  ExtractTemporaryFile('NATS.Client.Abstractions.dll');
+  ExtractTemporaryFile('NATS.Client.JetStream.dll');
+  ExtractTemporaryFile('NATS.Client.KeyValueStore.dll');
+  ExtractTemporaryFile('NATS.Client.ObjectStore.dll');
+  ExtractTemporaryFile('NATS.NKeys.dll');
+  ExtractTemporaryFile('Newtonsoft.Json.dll');
+  ExtractTemporaryFile('Microsoft.Bcl.AsyncInterfaces.dll');
+  ExtractTemporaryFile('Microsoft.Bcl.Memory.dll');
+  ExtractTemporaryFile('Microsoft.Extensions.Logging.Abstractions.dll');
+  ExtractTemporaryFile('Microsoft.Extensions.Primitives.dll');
+  ExtractTemporaryFile('Microsoft.VisualStudio.Threading.dll');
+  ExtractTemporaryFile('Microsoft.VisualStudio.Validation.dll');
+  ExtractTemporaryFile('Microsoft.Win32.Registry.dll');
+  ExePath := ExpandConstant('{tmp}\NatsValidate.exe');
+
+  OutFile := ExpandConstant('{tmp}\natsexcel-test.txt');
+  DeleteFile(OutFile);
+
+  // --timeout matches the bounded wait the button advertises.
+  if not Exec('cmd.exe',
+          '/c ""' + ExePath + '" "' + DraftPath + '" --test --timeout ' +
+          IntToStr(ProbeTimeoutMs) + ' > "' + OutFile + '" 2>&1"',
+          ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, Code) then
+  begin
+    TestResultLabel.Caption := ExpandConstant('{cm:TestCouldNotRun}');
+    Exit;
+  end;
+
+  // The validator prints a human report; the first line that starts with
+  // "RESULT:" carries the outcome and its reason.
+  Detail := '';
+  if LoadStringsFromFile(OutFile, Lines) then
+  begin
+    // Bounded loop: GetArrayLength is 0 for an empty file, and "for I := 0 to -1"
+    // would run anyway in Pascal Script (so the body must never assume a line).
+    for I := 0 to GetArrayLength(Lines) - 1 do
+      if Pos('RESULT:', Lines[I]) = 1 then
+        Detail := Trim(Copy(Lines[I], Length('RESULT:') + 1, Length(Lines[I])));
+  end;
 
   if Code = 0 then
   begin
-    TestResultLabel.Caption := FmtMessage(ExpandConstant('{cm:TestButtonOk}'), [HostPort]);
+    TestResultLabel.Caption := FmtMessage(ExpandConstant('{cm:TestButtonOk'), [FirstHostPort()]);
     Result := True;
     Exit;
   end;
 
   case Code of
-    2: Reason := ExpandConstant('{cm:TestReasonUnknownHost}');
-    3: Reason := ExpandConstant('{cm:TestReasonTimeout}');
-    5: Reason := ExpandConstant('{cm:TestReasonAuth}');
-    6: Reason := ExpandConstant('{cm:TestReasonUnexpected}');
-    7: Reason := ExpandConstant('{cm:TestReasonUnprovable}');
+    NatValidateConfigProblems: Reason := ExpandConstant('{cm:TestReasonConfig}');
+    NatValidateUnreadable:     Reason := ExpandConstant('{cm:TestReasonConfig}');
+    NatValidateDanglingRef:    Reason := ExpandConstant('{cm:TestReasonConfig}');
+    NatValidateConnectFailed:  Reason := ExpandConstant('{cm:TestReasonConnect}');
   else
-    Reason := ExpandConstant('{cm:TestReasonRefused}');
+    Reason := ExpandConstant('{cm:TestReasonUnexpected}');
   end;
-  TestResultLabel.Caption := FmtMessage(ExpandConstant('{cm:TestButtonFailed}'), [HostPort])
+
+  // The validator's own message is ASCII on purpose (it is a console report and
+  // the wizard label is localized), so it can be appended safely.
+  TestResultLabel.Caption := FmtMessage(ExpandConstant('{cm:TestButtonFailed'), [FirstHostPort()])
     + ' ' + Reason;
-  Log('TestCurrentConnection: host=' + HostPort + ' exit=' + IntToStr(Code));
+  if Detail <> '' then
+    TestResultLabel.Caption := TestResultLabel.Caption + ' ' + Detail;
+  Log('TestCurrentConnection: exit=' + IntToStr(Code) + ' detail=' + Detail);
 end;
+
 
 procedure TestButtonClick(Sender: TObject);
 begin
@@ -1854,14 +1825,36 @@ end;
 // ---- Finish: TEST the configuration, then optionally open a sample sheet ---
 procedure DeinitializeSetup();
 var
-  HostPort, Args, Msg: String;
+  HostPort, Args, Msg, ExePath, DraftPath: String;
+  Code: Integer;
 begin
   if not InstallCompleted then Exit;
 
   HostPort := FirstHostPort();
-  Args := ProbeArgs(HostPort);
-  TestOk := (RunScript('test-connection.ps1', Args) = 0);
-  CleanupProbe();
+
+  { The end-of-install check now runs the SAME validator the "Test connection"
+    button uses, against the configuration that was actually written: that is the
+    real NATS.Net client, so every credential style is exercised (a wire-level
+    probe could only answer "not provable" for the seed-based ones). }
+  DraftPath := ExpandConstant('{app}\NATSExcel.json');
+  if not FileExists(DraftPath) then
+    DraftPath := ExpandConstant('{tmp}\natsexcel-probe-draft.json');
+  if not FileExists(DraftPath) then
+    SaveStringToFile(DraftPath, ConfigJson(), False);
+
+  ExePath := ExpandConstant('{app}\tools\NatsValidate.exe');
+  if not FileExists(ExePath) then
+    ExePath := ExpandConstant('{tmp}\NatsValidate.exe');
+  if not FileExists(ExePath) then
+  begin
+    ExtractTemporaryFile('NatsValidate.exe');
+    ExePath := ExpandConstant('{tmp}\NatsValidate.exe');
+  end;
+
+  TestOk := Exec('cmd.exe',
+    '/c ""' + ExePath + '" "' + DraftPath + '" --test --timeout ' + IntToStr(ProbeTimeoutMs) +
+    ' >nul 2>&1"',
+    ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
 
   if not TestOk then
     Msg := FmtMessage(ExpandConstant('{cm:TestFailed}'), [HostPort])

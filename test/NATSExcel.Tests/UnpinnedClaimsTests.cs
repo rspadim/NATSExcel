@@ -167,7 +167,7 @@ namespace NATSExcel.Tests
                 "no [CustomMessages] block for language '" + lang + "'"));
 
             var english = blocks["english"].OrderBy(k => k, StringComparer.Ordinal).ToList();
-            Assert.Equal(74, english.Count);
+            Assert.Equal(71, english.Count);
             Assert.Equal(english.Count, english.Distinct(StringComparer.Ordinal).Count());
             foreach (var lang in languages)
             {
@@ -243,32 +243,33 @@ namespace NATSExcel.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void TheConnectionProbeKeepsItsStableExitCodeContract()
+        public void TheConnectionProbeRunsTheRealClientNotAHandshake()
         {
-            string probe = Read(Path.Combine("installer", "test-connection.ps1"));
-
-            // The wizard builds its (localized) message from THESE codes and never
-            // from the helper's text, which a cmd.exe redirect re-encodes into the
-            // OEM codepage. A renumbering here would silently turn a timeout into
-            // "connection refused" in every language.
-            Assert.Contains("exit 0", probe, StringComparison.Ordinal);
-            Assert.Contains("exit 3", probe, StringComparison.Ordinal);
-            Assert.Contains("exit 5", probe, StringComparison.Ordinal);
-            Assert.Contains("exit 6", probe, StringComparison.Ordinal);
-            Assert.Contains("exit 7", probe, StringComparison.Ordinal);
-            // 2 (unknown host) and 4 (refused) come from the classifier, which reads
-            // the SocketError CODE: the message text is localized by Windows.
-            Assert.Contains("return 2", probe, StringComparison.Ordinal);
-            Assert.Contains("return 4", probe, StringComparison.Ordinal);
-            Assert.Contains("SocketError]::HostNotFound", probe, StringComparison.Ordinal);
-            // -Quiet is what keeps the probe's banner out of the redirected file.
-            Assert.Contains("[switch]$Quiet", probe, StringComparison.Ordinal);
-
             string iss = Read(Path.Combine("installer", "NATSExcel.iss"));
-            foreach (var code in new[] { 2, 3, 5, 6, 7 })
-                Assert.Contains(IntToStrText(code) + ": Reason := ExpandConstant('{cm:TestReason", iss, StringComparison.Ordinal);
-            // The message must come from a message key, never from the helper's text.
-            Assert.DoesNotContain("LoadStringsFromFile(OutFile", iss, StringComparison.Ordinal);
+
+            // The probe must run tools\NatsValidate --test: that is the REAL NATS.Net
+            // client, so every credential style is exercised (an NKey seed, a JWT +
+            // seed, a creds file and mTLS all require SIGNING the server nonce, which
+            // a wire-level handshake cannot do). A PowerShell probe there would report
+            // "not provable" for four of the six styles.
+            Assert.Contains("NatsValidate.exe", iss, StringComparison.Ordinal);
+            Assert.Contains("--test", iss, StringComparison.Ordinal);
+            Assert.Contains("--timeout", iss, StringComparison.Ordinal);
+
+            // The validator is shipped both installed and as a {tmp} copy, because the
+            // button can run before anything is installed.
+            Assert.Contains(@"tools\NatsValidate\bin", iss, StringComparison.Ordinal);
+            Assert.Contains(@"{tmp}", iss, StringComparison.Ordinal);
+
+            // The end-of-install check reuses the same validator, so it cannot disagree
+            // with the button or with what the service will do.
+            int deinit = iss.IndexOf("procedure DeinitializeSetup", StringComparison.Ordinal);
+            Assert.True(deinit >= 0);
+            Assert.Contains("NatsValidate.exe", iss.Substring(deinit, 2500), StringComparison.Ordinal);
+
+            // No wire-level probe is left behind.
+            Assert.False(File.Exists(Path.Combine(RepoRoot(), "installer", "test-connection.ps1")),
+                "the PowerShell wire-level probe was replaced by the C# validator");
         }
 
         [Fact]
